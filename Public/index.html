@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>VideoAI Pro</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="lock-screen" class="lock-screen">
+    <div class="lock-card">
+      <div class="logo">✨ Video<em>AI</em></div>
+      <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 14px;">Entrez votre clé API Agnes pour déverrouiller le studio.</p>
+      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre clé ici..." style="margin-bottom: 15px;">
+      <button id="unlock-btn" class="btn-primary" style="width: 100%;">Déverrouiller</button>
+      <p id="lock-error" style="color: #ff453a; font-size: 12px; margin-top: 10px; display: none;"></p>
+    </div>
+  </div>
+
+  <div class="app" id="main-app" style="display: none;">
+    <header class="header">
+      <div class="logo">✨ Video<em>AI</em></div>
+      <p class="tagline">Chat • Image • Vidéo • Histoire</p>
+    </header>
+
+    <div class="tabs">
+      <button id="tab-chat" class="tab-btn active">💬 Chat</button>
+      <button id="tab-image" class="tab-btn">🖼️ Image</button>
+      <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
+      <button id="tab-story" class="tab-btn">📖 Histoire</button>
+    </div>
+
+    <main class="main">
+      <section id="section-chat" class="section active">
+        <div class="chat-layout">
+          <aside class="chat-sidebar" id="chat-sidebar">
+            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
+            <div id="chat-sessions-list" class="sessions-list"></div>
+          </aside>
+          <div class="chat-main">
+            <div id="chat-history" class="chat-history"></div>
+            <div class="chat-input-area">
+              <input type="file" id="chat-image-upload" accept="image/*" hidden>
+              <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;">📷</button>
+              <textarea id="chat-input" placeholder="Envoyez un message..." rows="1"></textarea>
+              <button id="chat-send" class="btn-primary">⬆️</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-image" class="section">
+        <div class="video-slots" id="image-slots"></div>
+        <div class="history-section">
+          <h3>Historique des images</h3>
+          <div id="image-history" class="history-grid"></div>
+        </div>
+      </section>
+
+      <section id="section-video" class="section">
+        <div class="video-slots" id="video-slots"></div>
+        <div class="history-section">
+          <h3>Bibliothèque vidéo</h3>
+          <div id="video-history" class="history-grid"></div>
+        </div>
+      </section>
+
+      <section id="section-story" class="section">
+        <div class="card" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">📝 Synopsis de l'histoire</h3>
+          <textarea id="story-synopsis" class="input-field" rows="4" placeholder="Résumez l'histoire globale... (L'IA utilisera ce contexte pour chaque scène)"></textarea>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages</h3>
+          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">L'IA n'inclura le visage que si le prénom est écrit dans le prompt de la scène.</p>
+          <div class="char-grid">
+            <div class="char-col">
+              <input type="text" id="char1-name" class="input-field" placeholder="Prénom 1">
+              <input type="file" id="char1-file" accept="image/*" hidden>
+              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()">📷 Visage 1</button>
+              <div id="char1-prev" class="preview"></div>
+            </div>
+            <div class="char-col">
+              <input type="text" id="char2-name" class="input-field" placeholder="Prénom 2">
+              <input type="file" id="char2-file" accept="image/*" hidden>
+              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()">📷 Visage 2</button>
+              <div id="char2-prev" class="preview"></div>
+            </div>
+            <div class="char-col">
+              <input type="text" id="char3-name" class="input-field" placeholder="Prénom 3">
+              <input type="file" id="char3-file" accept="image/*" hidden>
+              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()">📷 Visage 3</button>
+              <div id="char3-prev" class="preview"></div>
+            </div>
+          </div>
+        </div>
+        <div class="video-slots" id="story-slots"></div>
+        <div class="history-section">
+          <h3>Historique de l'histoire</h3>
+          <div id="story-history" class="history-grid"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="slot-template">
+    <div class="slot card">
+      <div class="slot-header">
+        <span class="slot-num">#1</span>
+        <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
+      </div>
+      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène..."></textarea>
+      <div class="slot-upload">
+        <input type="file" class="slot-img-input" accept="image/*" hidden>
+        <button class="slot-upload-btn btn-secondary">📷 Image de scène (Optionnel)</button>
+      </div>
+      <div class="slot-options">
+        <select class="slot-format input-field">
+          <option value="9:16">9:16</option>
+          <option value="16:9">16:9</option>
+          <option value="1:1">1:1</option>
+        </select>
+        <select class="slot-duration input-field">
+          <option value="4">4s</option>
+          <option value="8" selected>8s</option>
+          <option value="12">12s</option>
+        </select>
+        <input type="hidden" class="slot-quality" value="720P">
+        <div style="flex: 1; min-width: 100px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 15px; text-align: center; color: var(--text-dim);">Standard (720p)</div>
+      </div>
+      <div class="slot-actions">
+        <button class="slot-gen-btn btn-primary">Générer</button>
+        <button class="slot-dl-btn btn-download" disabled>Télécharger</button>
+      </div>
+      <div class="slot-player" hidden><video controls playsinline></video></div>
+    </div>
+  </template>
+
+  <template id="img-slot-template">
+    <div class="slot card">
+      <div class="slot-header"><span class="slot-num">Img #1</span></div>
+      <textarea class="img-prompt input-field" rows="2" placeholder="Décrivez l'image..."></textarea>
+      <div class="slot-upload">
+        <input type="file" class="img-ref-input" accept="image/*" hidden>
+        <button class="img-ref-btn btn-secondary">📷 Image de réf.</button>
+        <div class="img-ref-prev preview"></div>
+      </div>
+      <div class="slot-options">
+        <select class="img-format input-field">
+          <option value="9:16">Portrait (9:16)</option>
+          <option value="16:9">Paysage (16:9)</option>
+          <option value="1:1">Carré (1:1)</option>
+        </select>
+      </div>
+      <div class="slot-actions">
+        <button class="img-gen-btn btn-primary">Générer l'image</button>
+        <button class="img-dl-btn btn-download" disabled>Télécharger</button>
+      </div>
+      <div class="img-result-area result-area" hidden><img class="img-result" src="" alt="Résultat"></div>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
