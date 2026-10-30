@@ -2,129 +2,144 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#09090b">
   <title>IA MASTOR</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-  <!-- WELCOME SCREEN -->
-  <div id="welcome-screen" class="welcome-screen">
-    <div class="welcome-card">
-      <h1 class="welcome-title">IA MASTOR</h1>
-      <p class="welcome-subtitle">L'usine à contenu viral propulsée par Agnes AI.</p>
+  <!-- ÉCRAN DE CONNEXION -->
+  <div id="welcome" class="welcome">
+    <div class="welcome-box">
+      <div class="logo">🚀</div>
+      <h1>IA MASTOR</h1>
+      <p>L'usine à contenu viral propulsée par Agnes AI.</p>
       
-      <div class="info-banner">
-        <p><strong>Clé requise :</strong> Agnes Starter Plan (4$).</p>
-        <a href="https://platform.agnes-ai.com" target="_blank">Obtenir une clé</a>
+      <div class="info">
+        <strong>Clé API requise (Starter Plan 4$)</strong><br>
+        <span>Chat, Images 4K, Vidéos 720P/1080P.</span><br>
+        <a href="https://platform.agnes-ai.com" target="_blank" rel="noopener">Obtenir une clé Agnes →</a>
       </div>
 
-      <form id="key-form" class="key-form">
-        <input type="password" id="api-key-input" class="key-input" placeholder="Colle ta clé API ici (sk-...)" required>
-        <p id="key-error" class="key-error"></p>
-        <button type="submit" id="key-submit" class="btn-primary">Démarrer</button>
+      <form id="login-form">
+        <input type="password" id="api-key" placeholder="Colle ta clé API (sk-...)" required spellcheck="false">
+        <p id="login-error"></p>
+        <button type="submit" class="btn-white">Démarrer</button>
       </form>
     </div>
-    <p class="anti-resale-footer">Après achat, cette application est interdite à la vente.</p>
+    <p class="footer-note">Après achat, cette application est interdite à la vente.</p>
   </div>
 
-  <!-- MAIN APP -->
-  <div id="main-app" class="main-app hidden">
+  <!-- APPLICATION PRINCIPALE -->
+  <div id="app" class="app hidden">
     
-    <header class="app-header">
-      <div class="header-brand">🚀 IA MASTOR</div>
-      <nav class="nav-tabs" role="tablist">
-        <button class="nav-tab active" data-tab="chat">💬 Chat</button>
-        <button class="nav-tab" data-tab="image">🖼️ Image</button>
-        <button class="nav-tab" data-tab="video">🎬 Vidéo</button>
-        <button class="nav-tab" data-tab="story">📖 Histoire</button>
+    <!-- Header (Desktop) -->
+    <header class="header">
+      <div class="brand">🚀 IA MASTOR</div>
+      <nav class="nav">
+        <button class="nav-btn active" data-tab="chat">Chat</button>
+        <button class="nav-btn" data-tab="image">Image</button>
+        <button class="nav-btn" data-tab="video">Vidéo</button>
+        <button class="nav-btn" data-tab="story">Histoire</button>
       </nav>
     </header>
 
-    <main class="app-main">
+    <main class="main">
       
-      <!-- CHAT -->
-      <section id="panel-chat" class="tab-panel active">
-        <div class="chat-layout">
-          <aside class="chat-history-sidebar">
-            <div class="sidebar-header"><span>Conversations</span><button id="new-chat-btn" class="btn-icon-small">+</button></div>
-            <div id="chat-history-list" class="chat-history-list"></div>
-          </aside>
-          <div class="chat-main">
-            <div id="chat-messages" class="chat-messages"></div>
-            <form id="chat-form" class="chat-form">
-              <input type="file" id="chat-image-upload" accept="image/*" hidden>
-              <button type="button" id="chat-upload-btn" class="btn-icon">📎</button>
-              <textarea id="chat-input" class="chat-input" placeholder="Message..." rows="1"></textarea>
-              <button type="submit" class="btn-send">↑</button>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <!-- IMAGE -->
-      <section id="panel-image" class="tab-panel">
-        <div class="panel-container">
-          <div class="panel-header"><h2>Générateur d'Images</h2></div>
-          <form id="image-form" class="gen-form">
-            <textarea id="image-prompt" class="gen-textarea" placeholder="Décris ton image en détail..." rows="3" required></textarea>
-            <div class="gen-controls">
-              <select id="image-batch" class="select"><option value="1">1 Image</option><option value="4">4 Images</option><option value="10" selected>10 Images</option></select>
-              <select id="image-size" class="select"><option value="1K">Qualité 1K (Rapide)</option><option value="2K" selected>Qualité 2K (Standard)</option><option value="4K">Qualité 4K (Lent)</option></select>
-              <select id="image-ratio" class="select"><option value="16:9" selected>Format 16:9 (Paysage)</option><option value="9:16">Format 9:16 (Mobile)</option><option value="1:1">Format 1:1 (Carré)</option></select>
-              <button type="submit" class="btn-primary w-full">Générer</button>
-            </div>
+      <!-- ONGLET CHAT -->
+      <section id="tab-chat" class="tab active">
+        <div class="chat-wrap">
+          <div id="chat-messages" class="chat-messages"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="file" id="chat-file" accept="image/*" hidden>
+            <button type="button" id="chat-file-btn" class="btn-icon" title="Ajouter une image">📎</button>
+            <textarea id="chat-input" placeholder="Écris ton message..." rows="1"></textarea>
+            <button type="submit" class="btn-send" title="Envoyer">↑</button>
           </form>
-          <p id="image-status" class="status-text"></p>
-          <div id="image-history" class="history-grid"></div>
         </div>
       </section>
 
-      <!-- VIDEO -->
-      <section id="panel-video" class="tab-panel">
-        <div class="panel-container">
-          <div class="panel-header"><h2>Storyboard Vidéo</h2></div>
-          <div class="storyboard-controls">
-            <button id="add-video-scene-btn" class="btn-secondary">＋ Ajouter une scène</button>
-            <button id="generate-all-video-btn" class="btn-primary" style="width:auto; padding:8px 16px;">⚡ Tout Générer</button>
-          </div>
-          <div id="video-storyboard-container" class="storyboard-container"></div>
-        </div>
-      </section>
-
-      <!-- HISTOIRE -->
-      <section id="panel-story" class="tab-panel">
-        <div class="panel-container story-layout">
-          <aside class="story-sidebar">
-            <div class="panel-header compact"><h2>Paramètres de l'Histoire</h2></div>
-            <textarea id="story-synopsis" class="story-textarea-small" rows="2" placeholder="Synopsis global de l'histoire..."></textarea>
-            <input type="text" class="story-character-input" placeholder="Personnage 1" data-idx="0">
-            <input type="text" class="story-character-input" placeholder="Personnage 2" data-idx="1">
-            <button id="story-generate-btn" class="btn-primary w-full">Générer le Storyboard (10 scènes)</button>
-            <p class="help-text">L'IA remplira les 10 scènes automatiquement.</p>
-          </aside>
-
-          <div class="story-chat-area">
-            <div class="storyboard-controls">
-              <button id="generate-all-story-btn" class="btn-primary" style="width:auto; padding:8px 16px;">⚡ Tout Générer (Vidéos)</button>
+      <!-- ONGLET IMAGE -->
+      <section id="tab-image" class="tab">
+        <div class="container">
+          <h2>Générateur d'images</h2>
+          <form id="image-form" class="form">
+            <textarea id="image-prompt" placeholder="Décris ton image en détail (ex: Un astronaute sur Mars, style cinéma...)" rows="3" required></textarea>
+            
+            <div class="row">
+              <select id="image-count">
+                <option value="1">1 image</option>
+                <option value="4">4 images</option>
+                <option value="10" selected>10 images (Série)</option>
+              </select>
+              <select id="image-size">
+                <option value="1K">Qualité 1K (Rapide)</option>
+                <option value="2K" selected>Qualité 2K (Standard)</option>
+                <option value="4K">Qualité 4K (Lent)</option>
+              </select>
+              <select id="image-ratio">
+                <option value="16:9" selected>Format 16:9 (Paysage)</option>
+                <option value="9:16">Format 9:16 (Mobile/TikTok)</option>
+                <option value="1:1">Format 1:1 (Carré)</option>
+              </select>
             </div>
-            <div id="story-storyboard-container" class="storyboard-container"></div>
+            
+            <button type="submit" class="btn-white">Générer les images</button>
+          </form>
+          
+          <p id="image-status" class="status"></p>
+          <div id="image-history" class="grid"></div>
+        </div>
+      </section>
+
+      <!-- ONGLET VIDÉO -->
+      <section id="tab-video" class="tab">
+        <div class="container">
+          <h2>Storyboard Vidéo</h2>
+          <div class="actions">
+            <button id="add-scene-video" class="btn-gray">＋ Ajouter une scène</button>
+            <button id="gen-all-video" class="btn-white" style="width: auto;">⚡ Tout générer</button>
           </div>
+          <div id="video-scenes" class="scenes"></div>
+        </div>
+      </section>
+
+      <!-- ONGLET HISTOIRE -->
+      <section id="tab-story" class="tab">
+        <div class="container story-layout">
+          
+          <aside class="story-side">
+            <h2>Mode Histoire</h2>
+            <textarea id="story-synopsis" placeholder="Résume l'histoire globale ici..." rows="3"></textarea>
+            <input type="text" id="story-char1" placeholder="Personnage principal 1">
+            <input type="text" id="story-char2" placeholder="Personnage principal 2">
+            <button id="story-gen-btn" class="btn-white">Générer le Storyboard (10 scènes)</button>
+            <p class="status" style="text-align:center; font-size:12px;">L'IA va créer 10 scènes prêtes à être générées en vidéo.</p>
+          </aside>
+          
+          <div class="story-main">
+            <div class="actions">
+              <button id="gen-all-story" class="btn-white">⚡ Tout générer (Vidéos)</button>
+            </div>
+            <div id="story-scenes" class="scenes"></div>
+          </div>
+          
         </div>
       </section>
 
     </main>
 
+    <!-- Navigation Mobile -->
     <nav class="mobile-nav">
-      <button class="mobile-nav-btn active" data-tab="chat">Chat</button>
-      <button class="mobile-nav-btn" data-tab="image">Image</button>
-      <button class="mobile-nav-btn" data-tab="video">Vidéo</button>
-      <button class="mobile-nav-btn" data-tab="story">Histoire</button>
+      <button class="mob-btn active" data-tab="chat">Chat</button>
+      <button class="mob-btn" data-tab="image">Image</button>
+      <button class="mob-btn" data-tab="video">Vidéo</button>
+      <button class="mob-btn" data-tab="story">Histoire</button>
     </nav>
-    <footer class="app-footer"><p class="anti-resale-footer">Après achat, cette application est interdite à la vente.</p></footer>
+    
   </div>
 
   <script src="/app.js"></script>
