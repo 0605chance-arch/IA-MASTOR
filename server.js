@@ -287,20 +287,26 @@ app.post('/api/image', async (req, res) => {
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const {
-      prompt,
-      seconds = '5',
-      size = '720P',           // 720P (Flash) ou 1080P (Pro)
-      aspect_ratio = '16:9',
-      mode = 'text',           // text | img2video | keyframe | reference
-      first_frame = null,
-      last_frame = null,
-      images = [],
-      audios = []
-    } = req.body;
+    const { prompt, seconds = '5', size = '720P', aspect_ratio = '16:9', mode = 'text', first_frame = null } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'prompt requis' });
 
-    if (!prompt || prompt.trim().length === 0) {
-      return res.status(400).json({ error: 'prompt requis' });
+    // On bascule sur le modèle Pro si 1080P est demandé
+    const isPro = size === '1080P';
+    const model = isPro ? 'agnes-video-2.5' : 'agnes-video-2.5-flash';
+    const finalSize = isPro ? '1080P' : '720P';
+
+    const body = { model, prompt: prompt.trim(), mode: mode === 'text' ? 'text' : mode, seconds: String(Math.min(12, Math.max(4, parseInt(seconds) || 5))), size: finalSize, aspect_ratio: aspect_ratio || '16:9' };
+    if (first_frame) body.first_frame = first_frame;
+
+    const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
+    const videoId = createData.video_id || createData.id || createData.task_id;
+    if (!videoId) return res.status(500).json({ error: 'Pas de video_id' });
+
+    res.json({ success: true, video_id: videoId, model, status: 'queued' });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});prompt requis' });
     }
 
     // Contrainte Starter Flash : 720P uniquement
