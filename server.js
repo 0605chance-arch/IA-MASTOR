@@ -12,29 +12,27 @@ const PORT = process.env.PORT || 10000;
 // MIDDLEWARE
 // ============================================================
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '50mb' })); // 50mb pour accepter les images en base64
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rate limiting basique pour éviter les abus sur le proxy BYOK
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60, // augmenté car l'app fait des requêtes de polling fréquentes
+  max: 60,
   message: { error: 'Trop de requêtes. Patiente une minute.' }
 });
 app.use('/api/', limiter);
 
 // ============================================================
-// CONFIGURATION AGNES
+// CONFIGURATION AGNES (CORRIGÉ : agnes-3.0-flash)
 // ============================================================
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
-// Modèles autorisés
 const MODELS = {
-  chat: 'agnes-2.5-flash',
-  image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash',   // 720P, rapide
-  videoPro: 'agnes-video-2.5'            // 1080P/2K, plus lent
+  chat: 'agnes-3.0-flash',                // ✅ Modèle texte actuel
+  image: 'agnes-image-2.5-flash',         // ✅ OK
+  videoFlash: 'agnes-video-2.5-flash',    // ✅ 720P uniquement
+  videoPro: 'agnes-video-2.5'             // ✅ 1080P/2K
 };
 
 // ============================================================
@@ -70,25 +68,6 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
   return res.json();
 }
 
-async function pollVideoStatus(videoId, apiKey, modelName, maxAttempts = 90, intervalMs = 3000) {
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, intervalMs));
-    const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(videoId)}&model_name=${encodeURIComponent(modelName)}`;
-    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-
-    if (!res.ok) {
-      if (res.status >= 500) continue;
-      const err = await res.text().catch(() => '');
-      throw new Error(`Polling error ${res.status}: ${err}`);
-    }
-
-    const data = await res.json();
-    if (data.status === 'completed') return data;
-    if (data.status === 'failed') throw new Error(data.error || 'Video generation failed');
-  }
-  throw new Error('VIDEO_TIMEOUT: La génération a dépassé le temps imparti.');
-}
-
 // ============================================================
 // ROUTES API
 // ============================================================
@@ -122,7 +101,9 @@ app.post('/api/validate-key', async (req, res) => {
   }
 });
 
-// Chat
+// ============================================================
+// CHAT (CORRIGÉ : gestion SSE sécurisée)
+// ============================================================
 app.post('/api/chat', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -150,19 +131,37 @@ app.post('/api/chat', async (req, res) => {
       return res.json(data);
     }
 
+    // Headers SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Évite le buffering proxy
+    res.flushHeaders(); // Envoie les headers immédiatement
 
-    response.body.on('data', (chunk) => res.write(chunk));
+    response.body.on('data', (chunk) => {
+      res.write(chunk);
+      if (typeof res.flush === 'function') res.flush(); // Force l'envoi immédiat
+    });
     response.body.on('end', () => res.end());
-    response.body.on('error', (e) => { res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`); res.end(); });
+    response.body.on('error', (e) => {
+      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+      res.end();
+    });
+
   } catch (err) {
-    if (!res.headersSent) res.status(err.status || 500).json({ error: err.message });
+    // CORRECTION : gestion propre si les headers SSE sont déjà envoyés
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    } else {
+      res.status(err.status || 500).json({ error: err.message });
+    }
   }
 });
 
-// Image
+// ============================================================
+// IMAGE
+// ============================================================
 app.post('/api/image', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -194,7 +193,7 @@ app.post('/api/image', async (req, res) => {
 });
 
 // ============================================================
-// VIDEO (AVEC CORRECTION 1080P)
+// VIDÉO (avec bascule 1080P)
 // ============================================================
 app.post('/api/video', async (req, res) => {
   try {
@@ -202,7 +201,6 @@ app.post('/api/video', async (req, res) => {
     const { prompt, seconds = '5', size = '720P', aspect_ratio = '16:9', mode = 'text', first_frame = null } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
 
-    // CORRECTION : Bascule sur le modèle Pro si l'utilisateur demande du 1080P
     const isPro = size === '1080P' || size === '2K';
     const model = isPro ? MODELS.videoPro : MODELS.videoFlash;
     const finalSize = isPro ? '1080P' : '720P';
@@ -256,7 +254,9 @@ app.get('/api/video/status', async (req, res) => {
   }
 });
 
-// Story (Contexte long pour le mode Histoire)
+// ============================================================
+// STORY (Chat contextuel)
+// ============================================================
 app.post('/api/story', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -292,26 +292,46 @@ RÈGLES ABSOLUES :
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
-    response.body.on('data', (chunk) => res.write(chunk));
+    response.body.on('data', (chunk) => {
+      res.write(chunk);
+      if (typeof res.flush === 'function') res.flush();
+    });
     response.body.on('end', () => res.end());
-    response.body.on('error', (e) => { res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`); res.end(); });
+    response.body.on('error', (e) => {
+      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+      res.end();
+    });
   } catch (err) {
-    if (!res.headersSent) res.status(err.status || 500).json({ error: err.message });
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    } else {
+      res.status(err.status || 500).json({ error: err.message });
+    }
   }
 });
 
-// Fallback SPA
+// ============================================================
+// FALLBACK SPA
+// ============================================================
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Démarrage
+// ============================================================
+// DÉMARRAGE
+// ============================================================
 app.listen(PORT, () => {
   console.log(`🚀 IA MASTOR démarré sur le port ${PORT}`);
   console.log(`   Mode: BYOK (Bring Your Own Key)`);
-  console.log(`   Agnes Starter Plan: Vidéo Flash 720P / Pro 1080P`);
+  console.log(`   Chat: ${MODELS.chat}`);
+  console.log(`   Image: ${MODELS.image}`);
+  console.log(`   Video Flash: ${MODELS.videoFlash} (720P)`);
+  console.log(`   Video Pro: ${MODELS.videoPro} (1080P)`);
 });
 
 process.on('SIGTERM', () => {
