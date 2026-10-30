@@ -2,166 +2,319 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>VideoAI Pro</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="IA MASTOR - Suite créative IA : Chat, Images 4K, Vidéos 720P, Histoires. BYOK Agnes.">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>IA MASTOR 🚀 — Suite Créative IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
 </head>
 <body>
 
-  <div id="lock-screen" class="lock-screen">
-    <div class="lock-card">
-      <div class="logo">✨ Video<em>AI</em></div>
-      <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 14px;">Entrez votre clé API Agnes pour déverrouiller le studio.</p>
-      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre clé ici..." style="margin-bottom: 15px;">
-      <button id="unlock-btn" class="btn-primary" style="width: 100%;">Déverrouiller</button>
-      <p id="lock-error" style="color: #ff453a; font-size: 12px; margin-top: 10px; display: none;"></p>
+  <!-- ============================================================
+       WELCOME SCREEN (Key validation / BYOK entry)
+  ============================================================ -->
+  <div id="welcome-screen" class="welcome-screen">
+    <div class="welcome-bg-glow"></div>
+
+    <div class="welcome-card">
+      <div class="welcome-logo">
+        <span class="logo-emoji">🚀</span>
+      </div>
+
+      <h1 class="welcome-title">IA MASTOR</h1>
+      <p class="welcome-subtitle">
+        Ta suite créative propulsée par <strong>Agnes</strong>.<br>
+        Chat · Images 4K · Vidéos 720P · Histoires IA.
+      </p>
+
+      <form id="key-form" class="key-form" autocomplete="off">
+        <label for="api-key-input" class="key-label">
+          🔑 Colle ta clé API Agnes
+        </label>
+        <div class="key-input-wrapper">
+          <input
+            type="password"
+            id="api-key-input"
+            class="key-input"
+            placeholder="sk-agnes-..."
+            required
+            spellcheck="false"
+          >
+          <button type="button" id="key-toggle-visibility" class="key-toggle" title="Afficher/Masquer">👁</button>
+        </div>
+        <p class="key-help">
+          Ta clé reste sur ton appareil. Elle n'est jamais stockée sur nos serveurs.<br>
+          Obtiens-la sur <a href="https://agnes-ai.com" target="_blank" rel="noopener">agnes-ai.com</a>.
+        </p>
+
+        <p id="key-error" class="key-error" role="alert"></p>
+
+        <button type="submit" id="key-submit" class="btn-primary btn-large">
+          Accéder à IA MASTOR
+        </button>
+      </form>
+
+      <div class="welcome-features">
+        <div class="feature-chip">💬 Chat streaming</div>
+        <div class="feature-chip">🖼️ Images 1K–4K</div>
+        <div class="feature-chip">🎬 Vidéos 720P</div>
+        <div class="feature-chip">📖 Histoires continues</div>
+      </div>
     </div>
+
+    <p class="anti-resale-footer">Après achat, cette application est interdite à la vente.</p>
   </div>
 
-  <div class="app" id="main-app" style="display: none;">
-    <header class="header">
-      <div class="logo">✨ Video<em>AI</em></div>
-      <p class="tagline">Chat • Image • Vidéo • Histoire</p>
+  <!-- ============================================================
+       MAIN APP
+  ============================================================ -->
+  <div id="main-app" class="main-app hidden">
+
+    <!-- Header / Nav -->
+    <header class="app-header">
+      <div class="header-brand">
+        <span class="brand-emoji">🚀</span>
+        <span class="brand-name">IA MASTOR</span>
+      </div>
+
+      <nav class="nav-tabs" role="tablist">
+        <button class="nav-tab active" data-tab="chat" role="tab">💬 Chat</button>
+        <button class="nav-tab" data-tab="image" role="tab">🖼️ Image</button>
+        <button class="nav-tab" data-tab="video" role="tab">🎬 Vidéo</button>
+        <button class="nav-tab" data-tab="story" role="tab">📖 Histoire</button>
+      </nav>
+
+      <div class="header-status">
+        <span class="status-dot"></span>
+        <span class="status-text">Agnes connecté</span>
+      </div>
     </header>
 
-    <div class="tabs">
-      <button id="tab-chat" class="tab-btn active">💬 Chat</button>
-      <button id="tab-image" class="tab-btn">🖼️ Image</button>
-      <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
-      <button id="tab-story" class="tab-btn">📖 Histoire</button>
-    </div>
+    <!-- Main content area -->
+    <main class="app-main">
 
-    <main class="main">
-      <section id="section-chat" class="section active">
-        <div class="chat-layout">
-          <aside class="chat-sidebar" id="chat-sidebar">
-            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
-            <div id="chat-sessions-list" class="sessions-list"></div>
+      <!-- ========================== CHAT ========================== -->
+      <section id="panel-chat" class="tab-panel active" role="tabpanel">
+        <div class="panel-container">
+          <div id="chat-messages" class="chat-messages">
+            <!-- Messages injected by JS -->
+          </div>
+
+          <form id="chat-form" class="chat-form">
+            <textarea
+              id="chat-input"
+              class="chat-input"
+              placeholder="Écris ton message… (Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne)"
+              rows="1"
+              required
+            ></textarea>
+            <button type="submit" class="btn-send" title="Envoyer">➤</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- ========================== IMAGE ========================== -->
+      <section id="panel-image" class="tab-panel" role="tabpanel">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>🖼️ Générateur d'images</h2>
+            <p class="panel-subtitle">Jusqu'à <strong>4K</strong> · 10 prompts prêts à l'emploi</p>
+          </div>
+
+          <div class="presets-grid">
+            <button class="preset-btn" data-target="image" data-prompt="Portrait cinématographique, éclairage dramatique, ultra détaillé, 8K, photoréaliste">Portrait ciné</button>
+            <button class="preset-btn" data-target="image" data-prompt="Paysage futuriste, ville cyberpunk sous la pluie, néons, réflexions, cinéma">Cyberpunk</button>
+            <button class="preset-btn" data-target="image" data-prompt="Produit de luxe sur fond noir, éclairage studio, macro, publicité haut de gamme">Produit luxe</button>
+            <button class="preset-btn" data-target="image" data-prompt="Créature fantastique dans une forêt enchantée, brume, lumière divine, épique">Fantastique</button>
+            <button class="preset-btn" data-target="image" data-prompt="Architecture moderne minimaliste, lumière naturelle, design épuré, magazine">Architecture</button>
+            <button class="preset-btn" data-target="image" data-prompt="Scène de rue animée à Tokyo, nightlife, bokeh, style documentaire">Tokyo nuit</button>
+            <button class="preset-btn" data-target="image" data-prompt="Nature morte florale, peinture à l'huile, clair-obscur, musée">Nature morte</button>
+            <button class="preset-btn" data-target="image" data-prompt="Astronaute dans une station spatiale, Terre visible, réalisme NASA">Espace</button>
+            <button class="preset-btn" data-target="image" data-prompt="Mode streetwear urbain, graffiti, attitude, flash direct, argentique">Streetwear</button>
+            <button class="preset-btn" data-target="image" data-prompt="Univers sous-marin, bioluminescence, créatures étranges, profondeur">Sous-marin</button>
+          </div>
+
+          <form id="image-form" class="gen-form">
+            <textarea id="image-prompt" class="gen-textarea" placeholder="Décris l'image que tu veux générer…" rows="3" required></textarea>
+
+            <div class="gen-controls">
+              <div class="control-group">
+                <label for="image-size">Résolution</label>
+                <select id="image-size" class="select">
+                  <option value="1K">1K — Rapide</option>
+                  <option value="2K" selected>2K — Standard</option>
+                  <option value="3K">3K — Haute</option>
+                  <option value="4K">4K — Maximale</option>
+                </select>
+              </div>
+
+              <div class="control-group">
+                <label for="image-ratio">Ratio</label>
+                <select id="image-ratio" class="select">
+                  <option value="16:9" selected>16:9 — Paysage</option>
+                  <option value="9:16">9:16 — Portrait</option>
+                  <option value="1:1">1:1 — Carré</option>
+                  <option value="4:3">4:3</option>
+                  <option value="3:4">3:4</option>
+                  <option value="21:9">21:9 — Cinéma</option>
+                </select>
+              </div>
+
+              <button type="submit" class="btn-primary">Générer l'image</button>
+            </div>
+          </form>
+
+          <div id="image-preview" class="preview-area"></div>
+
+          <div class="history-section">
+            <h3>📚 Historique</h3>
+            <div id="image-history" class="history-grid">
+              <p class="empty-state">Aucune image générée pour le moment.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================== VIDEO ========================== -->
+      <section id="panel-video" class="tab-panel" role="tabpanel">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>🎬 Générateur de vidéos</h2>
+            <p class="panel-subtitle">720P · 4–12 secondes · 10 prompts prêts à l'emploi</p>
+          </div>
+
+          <div class="presets-grid">
+            <button class="preset-btn" data-target="video" data-prompt="Travelling avant dans une rue futuriste, néons roses et bleus, pluie fine, réflexions au sol, cinéma 4K">Rue futuriste</button>
+            <button class="preset-btn" data-target="video" data-prompt="Gros plan sur un visage humain, émotion intense, larmes aux yeux, éclairage Rembrandt, slow motion">Portrait ému</button>
+            <button class="preset-btn" data-target="video" data-prompt="Drone au-dessus d'une forêt tropicale, cascade, rayons de soleil à travers les feuilles, nature sauvage">Drone forêt</button>
+            <button class="preset-btn" data-target="video" data-prompt="Produit tech en rotation lente sur fond noir, éclairage studio, reflets métalliques, publicité">Produit tech</button>
+            <button class="preset-btn" data-target="video" data-prompt="Créature mythique survolant des montagnes enneigées, ailes déployées, vent, épopée">Créature épique</button>
+            <button class="preset-btn" data-target="video" data-prompt="Scène de couple dans un restaurant étoilé, bougies, regards amoureux, luxe discret">Couple luxe</button>
+            <button class="preset-btn" data-target="video" data-prompt="Sneakers en apesanteur, rotation, éclairage néon, culture urbaine, hype">Sneakers hype</button>
+            <button class="preset-btn" data-target="video" data-prompt="Animal humanisé portant un costume, bureau, ambiance corporate humoristique">Animal corporate</button>
+            <button class="preset-btn" data-target="video" data-prompt="Vue aérienne d'une mégalopole la nuit, circulation, lumières, time-lapse">Mégalopole nuit</button>
+            <button class="preset-btn" data-target="video" data-prompt="Transformation avant/après d'une pièce, design intérieur, révélation, satisfaction">Transformation</button>
+          </div>
+
+          <form id="video-form" class="gen-form">
+            <textarea id="video-prompt" class="gen-textarea" placeholder="Décris la vidéo que tu veux générer…" rows="3" required></textarea>
+
+            <div class="gen-controls">
+              <div class="control-group">
+                <label for="video-seconds">Durée</label>
+                <select id="video-seconds" class="select">
+                  <option value="4">4s</option>
+                  <option value="5" selected>5s</option>
+                  <option value="6">6s</option>
+                  <option value="8">8s</option>
+                  <option value="10">10s</option>
+                  <option value="12">12s</option>
+                </select>
+              </div>
+
+              <div class="control-group">
+                <label for="video-ratio">Format</label>
+                <select id="video-ratio" class="select">
+                  <option value="16:9" selected>16:9 — Paysage</option>
+                  <option value="9:16">9:16 — Portrait</option>
+                  <option value="1:1">1:1 — Carré</option>
+                </select>
+              </div>
+
+              <div class="control-group">
+                <label>Résolution</label>
+                <div class="badge-locked" title="Starter Plan Flash : 720P uniquement">
+                  🔒 720P
+                </div>
+              </div>
+
+              <button type="submit" class="btn-primary">Générer la vidéo</button>
+            </div>
+
+            <p id="video-status" class="video-status"></p>
+          </form>
+
+          <div id="video-preview" class="preview-area"></div>
+
+          <div class="history-section">
+            <h3>📚 Historique</h3>
+            <div id="video-history" class="history-grid">
+              <p class="empty-state">Aucune vidéo générée pour le moment.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================== STORY ========================== -->
+      <section id="panel-story" class="tab-panel" role="tabpanel">
+        <div class="panel-container story-layout">
+
+          <!-- LEFT: State panel -->
+          <aside class="story-sidebar">
+            <div class="panel-header compact">
+              <h2>📖 Histoire</h2>
+              <p class="panel-subtitle">L'IA garde tout en mémoire</p>
+            </div>
+
+            <div class="story-section">
+              <label for="story-theme-select" class="story-label">🎭 Thématique</label>
+              <select id="story-theme-select" class="select">
+                <option value="">— Choisis une thématique —</option>
+              </select>
+            </div>
+
+            <div class="story-section">
+              <label for="story-synopsis" class="story-label">📝 Synopsis</label>
+              <textarea id="story-synopsis" class="story-textarea-small" rows="3" placeholder="Résumé de l'histoire…"></textarea>
+            </div>
+
+            <div class="story-section">
+              <label class="story-label">👥 3 Personnages principaux</label>
+              <input type="text" class="story-character-input" placeholder="Personnage 1" data-index="0">
+              <input type="text" class="story-character-input" placeholder="Personnage 2" data-index="1">
+              <input type="text" class="story-character-input" placeholder="Personnage 3" data-index="2">
+            </div>
+
+            <div class="story-section">
+              <label class="story-label">🎬 Derniers prompts vidéo</label>
+              <div id="story-prompts-list" class="story-prompts-list">
+                <p class="empty-state-small">Aucun prompt pour l'instant.</p>
+              </div>
+            </div>
           </aside>
-          <div class="chat-main">
-            <div id="chat-history" class="chat-history"></div>
-            <div class="chat-input-area">
-              <input type="file" id="chat-image-upload" accept="image/*" hidden>
-              <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;">📷</button>
-              <textarea id="chat-input" placeholder="Envoyez un message..." rows="1"></textarea>
-              <button id="chat-send" class="btn-primary">⬆️</button>
+
+          <!-- RIGHT: Chat -->
+          <div class="story-chat-area">
+            <div id="story-messages" class="chat-messages">
+              <!-- Messages injected by JS -->
             </div>
+
+            <form id="story-form" class="chat-form">
+              <textarea
+                id="story-input"
+                class="chat-input"
+                placeholder="Continue l'histoire… (l'IA se souvient de tout)"
+                rows="1"
+                required
+              ></textarea>
+              <button type="submit" class="btn-send" title="Envoyer">➤</button>
+            </form>
           </div>
         </div>
       </section>
 
-      <section id="section-image" class="section">
-        <div class="video-slots" id="image-slots"></div>
-        <div class="history-section">
-          <h3>Historique des images</h3>
-          <div id="image-history" class="history-grid"></div>
-        </div>
-      </section>
-
-      <section id="section-video" class="section">
-        <div class="video-slots" id="video-slots"></div>
-        <div class="history-section">
-          <h3>Bibliothèque vidéo</h3>
-          <div id="video-history" class="history-grid"></div>
-        </div>
-      </section>
-
-      <section id="section-story" class="section">
-        <div class="card" style="margin-bottom: 16px;">
-          <h3 style="margin-bottom: 10px; font-size: 16px;">📝 Synopsis de l'histoire</h3>
-          <textarea id="story-synopsis" class="input-field" rows="4" placeholder="Résumez l'histoire globale... (L'IA utilisera ce contexte pour chaque scène)"></textarea>
-        </div>
-
-        <div class="card" style="margin-bottom: 16px;">
-          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages</h3>
-          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">L'IA n'inclura le visage que si le prénom est écrit dans le prompt de la scène.</p>
-          <div class="char-grid">
-            <div class="char-col">
-              <input type="text" id="char1-name" class="input-field" placeholder="Prénom 1">
-              <input type="file" id="char1-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()">📷 Visage 1</button>
-              <div id="char1-prev" class="preview"></div>
-            </div>
-            <div class="char-col">
-              <input type="text" id="char2-name" class="input-field" placeholder="Prénom 2">
-              <input type="file" id="char2-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()">📷 Visage 2</button>
-              <div id="char2-prev" class="preview"></div>
-            </div>
-            <div class="char-col">
-              <input type="text" id="char3-name" class="input-field" placeholder="Prénom 3">
-              <input type="file" id="char3-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()">📷 Visage 3</button>
-              <div id="char3-prev" class="preview"></div>
-            </div>
-          </div>
-        </div>
-        <div class="video-slots" id="story-slots"></div>
-        <div class="history-section">
-          <h3>Historique de l'histoire</h3>
-          <div id="story-history" class="history-grid"></div>
-        </div>
-      </section>
     </main>
+
+    <!-- Anti-resale footer (injected per page) -->
+    <footer class="app-footer">
+      <p class="anti-resale-footer">Après achat, cette application est interdite à la vente.</p>
+    </footer>
   </div>
 
-  <template id="slot-template">
-    <div class="slot card">
-      <div class="slot-header">
-        <span class="slot-num">#1</span>
-        <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
-      </div>
-      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène..."></textarea>
-      <div class="slot-upload">
-        <input type="file" class="slot-img-input" accept="image/*" hidden>
-        <button class="slot-upload-btn btn-secondary">📷 Image de scène (Optionnel)</button>
-      </div>
-      <div class="slot-options">
-        <select class="slot-format input-field">
-          <option value="9:16">9:16</option>
-          <option value="16:9">16:9</option>
-          <option value="1:1">1:1</option>
-        </select>
-        <select class="slot-duration input-field">
-          <option value="4">4s</option>
-          <option value="8" selected>8s</option>
-          <option value="12">12s</option>
-        </select>
-        <input type="hidden" class="slot-quality" value="720P">
-        <div style="flex: 1; min-width: 100px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 15px; text-align: center; color: var(--text-dim);">Standard (720p)</div>
-      </div>
-      <div class="slot-actions">
-        <button class="slot-gen-btn btn-primary">Générer</button>
-        <button class="slot-dl-btn btn-download" disabled>Télécharger</button>
-      </div>
-      <div class="slot-player" hidden><video controls playsinline></video></div>
-    </div>
-  </template>
-
-  <template id="img-slot-template">
-    <div class="slot card">
-      <div class="slot-header"><span class="slot-num">Img #1</span></div>
-      <textarea class="img-prompt input-field" rows="2" placeholder="Décrivez l'image..."></textarea>
-      <div class="slot-upload">
-        <input type="file" class="img-ref-input" accept="image/*" hidden>
-        <button class="img-ref-btn btn-secondary">📷 Image de réf.</button>
-        <div class="img-ref-prev preview"></div>
-      </div>
-      <div class="slot-options">
-        <select class="img-format input-field">
-          <option value="9:16">Portrait (9:16)</option>
-          <option value="16:9">Paysage (16:9)</option>
-          <option value="1:1">Carré (1:1)</option>
-        </select>
-      </div>
-      <div class="slot-actions">
-        <button class="img-gen-btn btn-primary">Générer l'image</button>
-        <button class="img-dl-btn btn-download" disabled>Télécharger</button>
-      </div>
-      <div class="img-result-area result-area" hidden><img class="img-result" src="" alt="Résultat"></div>
-    </div>
-  </template>
-
-  <script src="app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>
