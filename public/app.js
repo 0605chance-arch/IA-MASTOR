@@ -6,8 +6,8 @@
     chatSessions: [],
     currentChatId: null,
     imageHistory: [],
-    videoScenes: [], // Scènes de l'onglet Vidéo
-    storyScenes: [], // Scènes de l'onglet Histoire
+    videoScenes: [],
+    storyScenes: [],
     storyState: { synopsis: '', characters: [{name:'', img:null},{name:'', img:null},{name:'', img:null}], theme: null },
     attachedImageBase64: null
   };
@@ -23,7 +23,7 @@
 
   function saveState() {
     try {
-      localStorage.setItem('ia_mastor_v4', JSON.stringify({
+      localStorage.setItem('ia_mastor_v5', JSON.stringify({
         chatSessions: state.chatSessions,
         imageHistory: state.imageHistory.slice(0, 30),
         videoScenes: state.videoScenes,
@@ -35,7 +35,7 @@
 
   function loadState() {
     try {
-      const saved = localStorage.getItem('ia_mastor_v4');
+      const saved = localStorage.getItem('ia_mastor_v5');
       if (saved) {
         const p = JSON.parse(saved);
         state.chatSessions = p.chatSessions || [];
@@ -62,6 +62,11 @@
     const c = $(`#${containerId}`);
     if (!c) return;
     
+    if (scenesArray.length === 0) {
+      c.innerHTML = '<p class="empty-state">Aucune scène. Clique sur "Ajouter une scène" ou génère depuis l\'Histoire.</p>';
+      return;
+    }
+
     c.innerHTML = scenesArray.map((scene, index) => {
       const statusClass = scene.status === 'loading' ? 'loading' : (scene.status === 'error' ? 'error' : (scene.status === 'success' ? 'success' : ''));
       const statusText = scene.status === 'loading' ? 'Génération...' : (scene.status === 'error' ? 'Erreur' : (scene.status === 'success' ? 'Prêt' : 'En attente'));
@@ -128,7 +133,8 @@
     const reader = new FileReader();
     reader.onload = (ev) => {
       const arr = type === 'video' ? state.videoScenes : state.storyScenes;
-      arr[index].imageBase64 = ev.target.result; renderScenes(type === 'video' ? 'video-storyboard-container' : 'story-storyboard-container', arr, type); saveState();
+      arr[index].imageBase64 = ev.target.result; 
+      renderScenes(type === 'video' ? 'video-storyboard-container' : 'story-storyboard-container', arr, type); saveState();
     };
     reader.readAsDataURL(file);
   };
@@ -137,7 +143,7 @@
     if(arr[index] && arr[index].videoUrl) window.open(arr[index].videoUrl, '_blank');
   };
 
-  // --- LOGIQUE VIDÉO ---
+  // --- LOGIQUE VIDÉO (UNITAIRE) ---
   async function generateSceneVideo(type, index) {
     const arr = type === 'video' ? state.videoScenes : state.storyScenes;
     const scene = arr[index];
@@ -175,7 +181,20 @@
     renderScenes(type === 'video' ? 'video-storyboard-container' : 'story-storyboard-container', arr, type);
   }
 
-  // --- LOGIQUE HISTOIRE (GÉNÉRATION JSON) ---
+  // --- LOGIQUE VIDÉO (BATCH : TOUT GÉNÉRER) ---
+  async function generateAllVideos(type) {
+    const arr = type === 'video' ? state.videoScenes : state.storyScenes;
+    if(arr.length === 0) return alert('Aucune scène.');
+    
+    for(let i = 0; i < arr.length; i++) {
+      if (arr[i].status !== 'success') {
+        await generateSceneVideo(type, i);
+      }
+    }
+    alert('✅ Génération de toutes les scènes terminée !');
+  }
+
+  // --- LOGIQUE HISTOIRE (GÉNÉRATION DES 10 SCÈNES) ---
   async function generateStoryboard() {
     const btn = $('#story-generate-btn');
     btn.disabled = true; btn.textContent = 'Génération du storyboard...';
@@ -184,8 +203,9 @@
     const synopsis = $('#story-synopsis').value;
     const chars = state.storyState.characters.map(c => c.name).filter(n => n).join(', ');
     
-    if(!synopsis) { alert('Remplis le synopsis.'); btn.disabled=false; btn.textContent='Générer le storyboard'; return; }
+    if(!synopsis) { alert('Remplis le synopsis.'); btn.disabled=false; btn.textContent='Générer les 10 scènes'; return; }
     
+    // Prompt système strict pour forcer Agnes à générer un JSON parfait
     const prompt = `Agis comme un scénariste. Thématique: ${theme}. Synopsis: ${synopsis}. Personnages: ${chars}. 
 Génère EXACTEMENT 10 scènes pour un format TikTok/Reels de 9:16.
 Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour. 
@@ -195,16 +215,22 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
       const res = await apiRequest('/chat', { method: 'POST', body: JSON.stringify({ messages: [{role:'user', content: prompt}], stream: false }) });
       const data = await res.json();
       const text = data.choices[0].message.content;
+      
+      // Extraction du JSON de la réponse (au cas où l'IA ajoute du texte)
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if(jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         state.storyScenes = parsed.map(s => ({ ...s, status: 'pending', videoUrl: null, imageBase64: null, size: '720P' }));
         renderScenes('story-storyboard-container', state.storyScenes, 'story');
         saveState();
-      } else { alert('Erreur de format de l\'IA.'); }
+      } else { 
+        alert('Erreur de format de l\'IA. Elle n\'a pas renvoyé un JSON valide.'); 
+      }
     } catch(e) { alert('Erreur : ' + e.message); }
-    btn.disabled = false; btn.textContent = 'Générer le storyboard';
-  }// --- LOGIQUE CHAT ---
+    btn.disabled = false; btn.textContent = 'Générer les 10 scènes';
+  }// ============================================================
+  // LOGIQUE CHAT
+  // ============================================================
   function createNewChatSession() {
     const n = { id: Date.now().toString(), title: 'Nouvelle discussion', messages: [] };
     state.chatSessions.unshift(n);
@@ -228,7 +254,7 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
         const sess = state.chatSessions.find(x => x.id === state.currentChatId);
         if(sess) {
           $('#chat-messages').innerHTML = '';
-          sess.messages.forEach(m => addMessageToUI(m.role, m.content));
+          sess.messages.forEach(m => addMessageToUI(m.role, typeof m.content === 'string' ? m.content : '[Image jointe]'));
         }
         renderChatHistoryList();
       };
@@ -265,7 +291,7 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
 
     session.messages.push({ role: 'user', content: contentPayload });
     state.attachedImageBase64 = null;
-    $('#chat-input').placeholder = "Écris ton message…"; // Reset placeholder
+    $('#chat-input').placeholder = "Écris ton message…"; 
     
     const assistantDiv = addMessageToUI('assistant', '...');
     
@@ -309,7 +335,9 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
     }
   }
 
-  // --- LOGIQUE IMAGE (BATCH) ---
+  // ============================================================
+  // LOGIQUE IMAGE (BATCH)
+  // ============================================================
   function renderImageHistory() {
     const c = $('#image-history');
     if (!c) return;
@@ -346,9 +374,11 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
     status.textContent = '✅ Série d\'images terminée !';
   }
 
-  // --- INITIALISATION & ÉVÉNEMENTS ---
+  // ============================================================
+  // INITIALISATION & ÉVÉNEMENTS
+  // ============================================================
   function setupEvents() {
-    // Welcome Screen
+    // 1. Welcome Screen
     $('#key-form').onsubmit = async (e) => {
       e.preventDefault();
       const k = $('#api-key-input').value.trim();
@@ -362,7 +392,7 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
         $('#welcome-screen').classList.add('hidden');
         $('#main-app').classList.remove('hidden');
         
-        // Initialisation de l'app
+        // Chargement de l'interface
         if (state.chatSessions.length === 0) createNewChatSession();
         else renderChatHistoryList();
         
@@ -373,13 +403,13 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
       finally { btn.disabled = false; btn.textContent = 'Accéder à l\'app'; }
     };
 
-    // Toggle mot de passe
+    // 2. Toggle mot de passe
     $('#key-toggle-visibility').onclick = () => {
       const input = $('#api-key-input');
       input.type = input.type === 'password' ? 'text' : 'password';
     };
 
-    // Navigation (Desktop & Mobile)
+    // 3. Navigation (Desktop & Mobile)
     document.querySelectorAll('.nav-tab, .mobile-nav-btn').forEach(b => {
       b.onclick = () => {
         document.querySelectorAll('.nav-tab, .mobile-nav-btn').forEach(x => x.classList.remove('active'));
@@ -390,7 +420,7 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
       };
     });
 
-    // Chat
+    // 4. Chat Events
     $('#new-chat-btn').onclick = createNewChatSession;
     $('#chat-form').onsubmit = (e) => {
       e.preventDefault();
@@ -411,7 +441,7 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
       r.readAsDataURL(f);
     };
 
-    // Image Batch
+    // 5. Image Events
     $('#image-presets').onclick = (e) => { 
       if(e.target.classList.contains('preset-btn')) $('#image-prompt').value = e.target.dataset.prompt; 
     };
@@ -424,7 +454,7 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
       runImageBatch(p, c, s, r);
     };
 
-    // Video : Ajouter scène manuellement & Tout effacer
+    // 6. Video Storyboard Events
     $('#add-video-scene-btn').onclick = () => {
       state.videoScenes.push({ prompt: '', seconds: '5', ratio: '9:16', size: '720P', status: 'pending', videoUrl: null });
       renderScenes('video-storyboard-container', state.videoScenes, 'video');
@@ -437,8 +467,9 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
         saveState();
       }
     };
+    $('#generate-all-video-btn').onclick = () => generateAllVideos('video');
 
-    // Histoire : Remplissage des thèmes, persos & génération
+    // 7. Histoire Events
     const themeSelect = $('#story-theme-select');
     if (themeSelect && themeSelect.options.length === 1) {
       STORY_THEMES.forEach(t => { 
@@ -472,8 +503,12 @@ Format: [{"prompt": "Description visuelle précise", "seconds": "5", "ratio": "9
     });
 
     $('#story-generate-btn').onclick = generateStoryboard;
+    $('#generate-all-story-btn').onclick = () => generateAllVideos('story');
   }
 
+  // ============================================================
+  // DÉMARRAGE DE L'APP
+  // ============================================================
   document.addEventListener('DOMContentLoaded', () => {
     loadState();
     setupEvents();
