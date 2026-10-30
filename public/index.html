@@ -17,16 +17,10 @@
       <div class="welcome-logo"><span class="logo-emoji">🚀</span></div>
       <h1 class="welcome-title">IA MASTOR</h1>
       <p class="welcome-subtitle">Propulsé par <strong>Agnes AI</strong>.</p>
-      
       <div class="info-banner">
         <p><strong>⚠️ Important :</strong> Nécessite une clé API du <strong>Starter Plan à 4$</strong> sur <a href="https://platform.agnes-ai.com" target="_blank">platform.agnes-ai.com</a>.</p>
-        <ul>
-          <li>💬 Chat : 1 500 req / 5h</li>
-          <li>🖼️ Image : 4 000 / jour</li>
-          <li>🎬 Vidéo : 500 sec / jour (720P)</li>
-        </ul>
+        <ul><li>💬 Chat : 1 500 req / 5h</li><li>🖼️ Image : 4 000 / jour</li><li>🎬 Vidéo : 500 sec / jour</li></ul>
       </div>
-
       <form id="key-form" class="key-form">
         <label for="api-key-input" class="key-label">🔑 Colle ta clé API Agnes</label>
         <div class="key-input-wrapper">
@@ -42,8 +36,6 @@
 
   <!-- APP MAIN -->
   <div id="main-app" class="main-app hidden">
-    
-    <!-- HEADER & NAV -->
     <header class="app-header">
       <div class="header-brand"><span class="brand-emoji">🚀</span> IA MASTOR</div>
       <nav class="nav-tabs" role="tablist">
@@ -57,7 +49,7 @@
 
     <main class="app-main">
       
-      <!-- CHAT -->
+      <!-- CHAT (inchangé) -->
       <section id="panel-chat" class="tab-panel active">
         <div class="chat-layout">
           <aside class="chat-history-sidebar" id="chat-history-sidebar">
@@ -76,11 +68,10 @@
         </div>
       </section>
 
-      <!-- IMAGE -->
+      <!-- IMAGE (inchangé) -->
       <section id="panel-image" class="tab-panel">
         <div class="panel-container">
           <div class="panel-header"><h2>🖼️ Images</h2><p>Génération par lot (1 à 10 d'un coup).</p></div>
-          
           <div class="presets-grid" id="image-presets">
             <button class="preset-btn" data-prompt="Portrait cinématographique, éclairage dramatique, 8K">Portrait ciné</button>
             <button class="preset-btn" data-prompt="Paysage cyberpunk sous la pluie, néons">Cyberpunk</button>
@@ -93,24 +84,12 @@
             <button class="preset-btn" data-prompt="Streetwear urbain, flash direct">Streetwear</button>
             <button class="preset-btn" data-prompt="Sous-marin bioluminescent">Sous-marin</button>
           </div>
-
           <form id="image-form" class="gen-form">
             <textarea id="image-prompt" class="gen-textarea" placeholder="Décris l'image..." rows="2" required></textarea>
             <div class="gen-controls">
-              <div class="control-group">
-                <label>Générations</label>
-                <select id="image-batch" class="select">
-                  <option value="1">1</option><option value="5">5</option><option value="10" selected>10 d'affilée</option>
-                </select>
-              </div>
-              <div class="control-group">
-                <label>Résolution</label>
-                <select id="image-size" class="select"><option value="1K">1K</option><option value="2K" selected>2K</option><option value="3K">3K</option><option value="4K">4K (Lent)</option></select>
-              </div>
-              <div class="control-group">
-                <label>Ratio</label>
-                <select id="image-ratio" class="select"><option value="16:9" selected>16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option></select>
-              </div>
+              <div class="control-group"><label>Générations</label><select id="image-batch" class="select"><option value="1">1</option><option value="5">5</option><option value="10" selected>10</option></select></div>
+              <div class="control-group"><label>Résolution</label><select id="image-size" class="select"><option value="1K">1K</option><option value="2K" selected>2K</option><option value="3K">3K</option><option value="4K">4K (Lent)</option></select></div>
+              <div class="control-group"><label>Ratio</label><select id="image-ratio" class="select"><option value="16:9" selected>16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option></select></div>
               <button type="submit" class="btn-primary">Lancer</button>
             </div>
           </form>
@@ -119,72 +98,51 @@
         </div>
       </section>
 
-      <!-- VIDEO STORYBOARD -->
+      <!-- VIDEO (identique, le 1080P est géré en JS) -->
       <section id="panel-video" class="tab-panel">
         <div class="panel-container">
-          <div class="panel-header">
-            <h2>🎬 Storyboard Vidéo</h2>
-            <p>Remplis les scènes pour créer ta vidéo virale.</p>
-          </div>
-          
+          <div class="panel-header"><h2>🎬 Storyboard Vidéo</h2><p>Remplis les scènes pour créer ta vidéo virale.</p></div>
           <div class="storyboard-controls">
             <button id="add-video-scene-btn" class="btn-secondary">＋ Scène</button>
             <button id="generate-all-video-btn" class="btn-primary" style="width:auto; padding:8px 12px; font-size:13px;">⚡ Tout Générer</button>
             <button id="video-clear-btn" class="btn-secondary text-error">Effacer</button>
           </div>
-
           <div id="video-storyboard-container" class="storyboard-container"></div>
         </div>
       </section>
 
-      <!-- HISTOIRE -->
+      <!-- HISTOIRE (MODIFIÉ : exactement comme Vidéo) -->
       <section id="panel-story" class="tab-panel">
         <div class="panel-container story-layout">
-          
           <aside class="story-sidebar">
             <div class="panel-header compact"><h2>📖 Mode Histoire</h2></div>
-            
             <div class="story-section">
-              <label class="story-label">📝 Synopsis</label>
-              <textarea id="story-synopsis" class="story-textarea-small" rows="3" placeholder="Résumez l'histoire globale..."></textarea>
+              <label class="story-label">📝 Synopsis (Contexte)</label>
+              <textarea id="story-synopsis" class="story-textarea-small" rows="2" placeholder="Résumez l'histoire globale..."></textarea>
             </div>
-            
             <div class="story-section">
               <label class="story-label">👥 Personnages (Optionnel)</label>
-              <p class="help-text">L'IA inclura le personnage si son prénom est dans le prompt.</p>
-              <div class="character-row">
-                <input type="text" class="story-character-input" placeholder="Prénom 1" data-idx="0">
-                <input type="file" class="char-upload" accept="image/*" hidden id="char-file-0">
-                <label for="char-file-0" class="btn-upload" id="char-label-0">📷 Visage</label>
-              </div>
-              <div class="character-row">
-                <input type="text" class="story-character-input" placeholder="Prénom 2" data-idx="1">
-                <input type="file" class="char-upload" accept="image/*" hidden id="char-file-1">
-                <label for="char-file-1" class="btn-upload" id="char-label-1">📷 Visage</label>
-              </div>
-              <div class="character-row">
-                <input type="text" class="story-character-input" placeholder="Prénom 3" data-idx="2">
-                <input type="file" class="char-upload" accept="image/*" hidden id="char-file-2">
-                <label for="char-file-2" class="btn-upload" id="char-label-2">📷 Visage</label>
-              </div>
+              <div class="character-row"><input type="text" class="story-character-input" placeholder="Prénom 1" data-idx="0"><input type="file" class="char-upload" accept="image/*" hidden id="char-file-0"><label for="char-file-0" class="btn-upload" id="char-label-0">📷</label></div>
+              <div class="character-row"><input type="text" class="story-character-input" placeholder="Prénom 2" data-idx="1"><input type="file" class="char-upload" accept="image/*" hidden id="char-file-1"><label for="char-file-1" class="btn-upload" id="char-label-1">📷</label></div>
+              <div class="character-row"><input type="text" class="story-character-input" placeholder="Prénom 3" data-idx="2"><input type="file" class="char-upload" accept="image/*" hidden id="char-file-2"><label for="char-file-2" class="btn-upload" id="char-label-2">📷</label></div>
             </div>
-
             <div class="story-section">
               <label class="story-label">🎭 Thématique</label>
               <select id="story-theme-select" class="select"><option value="">— Choisir —</option></select>
             </div>
-
-            <button id="story-generate-btn" class="btn-primary w-full" style="margin-top:10px;">Générer les 10 scènes</button>
           </aside>
 
           <div class="story-chat-area" style="overflow-y: auto; padding: 16px;">
             <div class="panel-header compact" style="margin-bottom: 12px;">
-              <h2>Scènes générées</h2>
-              <button id="generate-all-story-btn" class="btn-primary" style="width:auto; padding:8px 12px; font-size:13px; margin-top:8px;">⚡ Tout Générer (Vidéos)</button>
+              <h2>Scènes de l'histoire</h2>
+              <div class="storyboard-controls" style="margin-top:8px;">
+                <button id="add-story-scene-btn" class="btn-secondary">＋ Ajouter une scène</button>
+                <button id="generate-all-story-btn" class="btn-primary" style="width:auto; padding:8px 12px; font-size:13px;">⚡ Tout Générer</button>
+                <button id="story-clear-btn" class="btn-secondary text-error">Effacer</button>
+              </div>
             </div>
             <div id="story-storyboard-container" class="storyboard-container"></div>
           </div>
-
         </div>
       </section>
 
@@ -196,7 +154,6 @@
       <button class="mobile-nav-btn" data-tab="video">🎬<span>Vidéo</span></button>
       <button class="mobile-nav-btn" data-tab="story">📖<span>Histoire</span></button>
     </nav>
-
     <footer class="app-footer"><p class="anti-resale-footer">Après achat, cette application est interdite à la vente.</p></footer>
   </div>
 
