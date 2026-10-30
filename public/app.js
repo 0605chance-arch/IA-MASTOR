@@ -1,263 +1,110 @@
 (function () {
   'use strict';
 
-  // ============================================================
-  // ÉTAT GLOBAL & SAUVEGARDE LOCALE (localStorage)
-  // ============================================================
   const state = {
     apiKey: null,
-    currentTab: 'chat',
-    chatSessions: [], 
     currentChatId: null,
+    chatSessions: [],
     imageHistory: [],
     videoHistory: [],
     storyMessages: [],
     storyState: { synopsis: '', characters: [{name:''},{name:''},{name:''}], prompts: [], theme: null },
-    isLoading: false
+    isLoading: false,
+    attachedImageBase64: null
   };
 
-  function loadState() {
-    try {
-      const saved = localStorage.getItem('ia_mastor_state');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        state.chatSessions = parsed.chatSessions || [];
-        state.imageHistory = parsed.imageHistory || [];
-        state.videoHistory = parsed.videoHistory || [];
-        state.storyMessages = parsed.storyMessages || [];
-        state.storyState = parsed.storyState || state.storyState;
-      }
-    } catch (e) { console.warn('Erreur chargement localStorage', e); }
-  }
+  const STORY_THEMES = [
+    'Histoires de fruits IA', 'Business automatisé', 'UGC IA / Influenceurs', 'Luxe & Millionnaires',
+    'Couples toxiques', 'Animaux humanisés', 'Célébrité virtuelle', 'Transformation avant/après',
+    'Secrets Reddit', 'Mini-séries TikTok', 'Streetwear & Sneakers', 'Food IA', 'Motivation & Réussite',
+    'Univers futuristes', 'E-commerce & Revenus passifs'
+  ];
+
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
 
   function saveState() {
     try {
-      localStorage.setItem('ia_mastor_state', JSON.stringify({
+      localStorage.setItem('ia_mastor_v3', JSON.stringify({
         chatSessions: state.chatSessions,
-        imageHistory: state.imageHistory.slice(0, 20), // max 20 pour pas saturer
-        videoHistory: state.videoHistory.slice(0, 10),
-        storyMessages: state.storyMessages.slice(-30), // garde les 30 derniers messages
+        imageHistory: state.imageHistory.slice(0, 30),
+        videoHistory: state.videoHistory.slice(0, 15),
+        storyMessages: state.storyMessages.slice(-20),
         storyState: state.storyState
       }));
-    } catch (e) { console.warn('Erreur sauvegarde localStorage', e); }
+    } catch (e) {}
   }
 
-  const STORY_THEMES = [
-    'Histoires de fruits IA (Fruit Story)', 'Business automatisé avec l\'IA', 'UGC IA et influenceurs virtuels',
-    'Luxe, richesse et vie de millionnaire', 'Couples toxiques et trahisons', 'Animaux humanisés et histoires virales',
-    'Influenceurs IA et célébrité virtuelle', 'Transformation avant / après avec l\'IA', 'Histoires Reddit et secrets inavouables',
-    'Mini-séries dramatiques TikTok', 'Streetwear, sneakers et culture urbaine', 'Food IA et recettes impossibles',
-    'Motivation, discipline et réussite financière', 'Univers futuristes et intelligence artificielle', 'Business e-commerce et revenus passifs'
-  ];
-
-  // ============================================================
-  // HELPERS DOM & API
-  // ============================================================
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => document.querySelectorAll(sel);
-
-  function el(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    Object.entries(attrs).forEach(([k, v]) => {
-      if (k === 'className') node.className = v;
-      else if (k === 'textContent') node.textContent = v;
-      else if (k.startsWith('on')) node.addEventListener(k.slice(2).toLowerCase(), v);
-      else node.setAttribute(k, v);
-    });
-    children.forEach(c => {
-      if (typeof c === 'string') node.appendChild(document.createTextNode(c));
-      else if (c) node.appendChild(c);
-    });
-    return node;
-  }
-
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str || '';
-    return div.innerHTML;
+  function loadState() {
+    try {
+      const saved = localStorage.getItem('ia_mastor_v3');
+      if (saved) {
+        const p = JSON.parse(saved);
+        state.chatSessions = p.chatSessions || [];
+        state.imageHistory = p.imageHistory || [];
+        state.videoHistory = p.videoHistory || [];
+        state.storyMessages = p.storyMessages || [];
+        state.storyState = p.storyState || state.storyState;
+      }
+    } catch (e) {}
   }
 
   async function apiRequest(endpoint, options = {}) {
-    if (!state.apiKey) throw new Error('NO_API_KEY');
+    if (!state.apiKey) throw new Error('Clé manquante');
     const res = await fetch(`/api${endpoint}`, {
       ...options,
-      headers: {
-        'Authorization': `Bearer ${state.apiKey}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
+      headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
     });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(errBody.error || `Erreur ${res.status}`);
+    if (!res.ok) { 
+      const e = await res.json().catch(()=>({error:'Erreur'})); 
+      throw new Error(e.error || 'Erreur API'); 
     }
     return res;
   }
 
-  // ============================================================
-  // INITIALISATION & VALIDATION CLE
-  // ============================================================
-  async function validateKey(key) {
-    const res = await fetch('/api/validate-key', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' }
-    });
-    const data = await res.json();
-    if (!res.ok || !data.valid) throw new Error(data.error || 'Clé invalide');
-    return data;
-  }
-
-  function showMainApp() {
-    $('#welcome-screen').classList.add('hidden');
-    $('#main-app').classList.remove('hidden');
-    
-    // Initialiser une session de chat si aucune n'existe
-    if (state.chatSessions.length === 0) {
-      createNewChatSession();
-    } else {
-      // Charger la dernière session active
-      const lastSession = state.chatSessions[0];
-      state.currentChatId = lastSession.id;
-      renderChatHistoryList();
-      renderChatMessages(lastSession.messages);
-    }
-    
-    // Message de bienvenue système si c'est le tout premier lancement
-    if (!localStorage.getItem('ia_mastor_welcomed')) {
-      addSystemWelcomeMessage();
-      localStorage.setItem('ia_mastor_welcomed', 'true');
-    }
-  }
-
-  function addSystemWelcomeMessage() {
-    const welcomeDiv = addChatMessageToUI('assistant', 
-      `Bienvenue sur **IA MASTOR** 🚀\n\nJe suis ton assistant propulsé par Agnes. Voici ce que je peux faire :\n\n• 💬 Discuter avec toi et te donner des idées\n• 🖼️ Générer des images (Onglet Image)\n• 🎬 Créer des vidéos (Onglet Vidéo)\n• 📖 Écrire des histoires cohérentes (Onglet Histoire)\n\n*Après achat, cette application est interdite à la vente.*`
-    );
-    saveCurrentChatMessage({ role: 'assistant', content: welcomeDiv.dataset.rawText });
-  }
-
-  // ============================================================
-  // GESTION DES SESSIONS DE CHAT (Historique)
-  // ============================================================
-  function createNewChatSession() {
-    const newSession = {
-      id: Date.now().toString(),
-      title: 'Nouvelle discussion',
-      messages: [],
-      createdAt: new Date().toISOString()
-    };
-    state.chatSessions.unshift(newSession);
-    state.currentChatId = newSession.id;
-    renderChatHistoryList();
-    $('#chat-messages').innerHTML = '';
-    saveState();
-  }
-
-  function switchChatSession(id) {
-    state.currentChatId = id;
-    const session = state.chatSessions.find(s => s.id === id);
-    if (session) {
-      renderChatHistoryList();
-      renderChatMessages(session.messages);
-    }
-  }
-
-  function renderChatHistoryList() {
-    const list = $('#chat-history-list');
-    if (!list) return;
-    list.innerHTML = state.chatSessions.map(session => `
-      <div class="history-chat-item ${session.id === state.currentChatId ? 'active' : ''}" data-id="${session.id}">
-        💬 ${escapeHtml(session.title)}
-      </div>
-    `).join('');
-
-    list.querySelectorAll('.history-chat-item').forEach(item => {
-      item.addEventListener('click', () => {
-        switchChatSession(item.dataset.id);
-        // Fermer le tiroir sur mobile
-        $('#chat-history-sidebar').classList.remove('open');
-      });
-    });
-  }
-
-  function renderChatMessages(messages) {
+  // --- CHAT ---
+  function addMessageToUI(role, text, imageBase64 = null) {
     const container = $('#chat-messages');
-    if (!container) return;
-    container.innerHTML = '';
-    if (!messages || messages.length === 0) return;
-
-    messages.forEach(msg => {
-      const div = el('div', { className: `chat-message ${msg.role}` });
-      const bubble = el('div', { className: 'bubble' });
-      bubble.innerHTML = msg.content.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      div.appendChild(bubble);
-      container.appendChild(div);
-    });
-    container.scrollTop = container.scrollHeight;
-  }
-
-  function saveCurrentChatMessage(msg) {
-    const session = state.chatSessions.find(s => s.id === state.currentChatId);
-    if (session) {
-      session.messages.push(msg);
-      // Mettre à jour le titre si c'est le premier message utilisateur
-      if (session.title === 'Nouvelle discussion' && msg.role === 'user') {
-        session.title = msg.content.substring(0, 30) + '...';
-        renderChatHistoryList();
-      }
-      saveState();
-    }
-  }
-
-  // ============================================================
-  // CHAT UI (Envoi et Streaming)
-  // ============================================================
-  function addChatMessageToUI(role, content) {
-    const container = $('#chat-messages');
-    if (!container) return null;
-    const div = el('div', { className: `chat-message ${role}` });
-    const bubble = el('div', { className: 'bubble' });
-    if (role === 'assistant' && content) {
-      bubble.innerHTML = content.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    } else {
-      bubble.textContent = content;
-    }
-    div.appendChild(bubble);
-    div.dataset.rawText = content;
+    if(!container) return null;
+    const div = document.createElement('div');
+    div.className = `chat-message ${role}`;
+    let html = '';
+    if (imageBase64) html += `<img src="${imageBase64}" style="max-width:200px;border-radius:8px;margin-bottom:8px;display:block;">`;
+    html += text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    div.innerHTML = `<div class="bubble">${html}</div>`;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
     return div;
   }
 
-  function updateChatMessageUI(div, content) {
-    if (!div) return;
-    const bubble = div.querySelector('.bubble');
-    if (bubble) {
-      bubble.innerHTML = content.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    }
-    div.dataset.rawText = content;
-    const container = $('#chat-messages');
-    if (container) container.scrollTop = container.scrollHeight;
-  }
-
-  async function sendChatMessage(userContent) {
-    saveCurrentChatMessage({ role: 'user', content: userContent });
-    
-    const assistantDiv = addChatMessageToUI('assistant', '');
-    assistantDiv.classList.add('typing');
-
+  async function sendChatMessage(text) {
     const session = state.chatSessions.find(s => s.id === state.currentChatId);
-    const contextMessages = session.messages.map(m => ({ role: m.role, content: m.content }));
+    if (!session) return;
 
+    addMessageToUI('user', text, state.attachedImageBase64);
+    
+    let contentPayload = text;
+    if (state.attachedImageBase64) {
+      contentPayload = [
+        { type: "text", text: text },
+        { type: "image_url", image_url: { url: state.attachedImageBase64 } }
+      ];
+    }
+
+    session.messages.push({ role: 'user', content: contentPayload });
+    state.attachedImageBase64 = null;
+    
+    const assistantDiv = addMessageToUI('assistant', '...');
+    
     try {
       const res = await apiRequest('/chat', {
         method: 'POST',
-        body: JSON.stringify({ messages: contextMessages.slice(-15), stream: true })
+        body: JSON.stringify({ messages: session.messages.slice(-15), stream: true })
       });
-
+      
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let fullContent = '';
+      let full = '';
       let buffer = '';
 
       while (true) {
@@ -266,223 +113,135 @@
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6).trim();
             if (data === '[DONE]') continue;
             try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content || '';
+              const p = JSON.parse(data);
+              const delta = p.choices?.[0]?.delta?.content || '';
               if (delta) {
-                fullContent += delta;
-                updateChatMessageUI(assistantDiv, fullContent);
+                full += delta;
+                assistantDiv.querySelector('.bubble').innerHTML = full.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                $('#chat-messages').scrollTop = $('#chat-messages').scrollHeight;
               }
-            } catch (e) {}
+            } catch(e) {}
           }
         }
       }
-
-      assistantDiv.classList.remove('typing');
-      saveCurrentChatMessage({ role: 'assistant', content: fullContent });
-      
+      session.messages.push({ role: 'assistant', content: full });
+      saveState();
     } catch (err) {
-      assistantDiv.classList.remove('typing');
-      assistantDiv.querySelector('.bubble').textContent = `❌ Erreur : ${err.message}`;
+      assistantDiv.querySelector('.bubble').textContent = `❌ ${err.message}`;
     }
-  }// ============================================================
-  // IMAGE GENERATION & HISTORIQUE
-  // ============================================================
-  async function generateImage(prompt, size, ratio) {
-    const res = await apiRequest('/image', {
-      method: 'POST',
-      body: JSON.stringify({ prompt: prompt.trim(), size: size || '2K', ratio: ratio || '16:9', n: 1 })
-    });
-    const data = await res.json();
-    if (!data.success || !data.images || data.images.length === 0) throw new Error('Aucune image générée');
-
-    const image = data.images[0];
-    const entry = {
-      id: Date.now(),
-      prompt: prompt.trim(),
-      size: data.size,
-      ratio: data.ratio,
-      url: image.url || image.b64,
-      timestamp: new Date().toISOString()
-    };
-
-    state.imageHistory.unshift(entry);
-    if (state.imageHistory.length > 20) state.imageHistory.pop(); // Limite à 20
-    
-    saveState();
-    renderImageHistory();
-    return entry;
   }
 
+  // --- IMAGE BATCH ---
   function renderImageHistory() {
-    const container = $('#image-history');
-    if (!container) return;
-
-    if (state.imageHistory.length === 0) {
-      container.innerHTML = '<p class="empty-state">Aucune image générée pour le moment.</p>';
-      return;
-    }
-
-    container.innerHTML = state.imageHistory.map(entry => `
-      <div class="history-item" data-id="${entry.id}">
-        <img src="${entry.url}" alt="Image" loading="lazy" onclick="window.open('${entry.url}', '_blank')">
-        <div class="history-prompt" title="${escapeHtml(entry.prompt)}">${entry.size} · ${entry.ratio}<br>${escapeHtml(entry.prompt.substring(0, 40))}...</div>
+    const c = $('#image-history');
+    if (!c) return;
+    if (state.imageHistory.length === 0) { c.innerHTML = '<p class="empty-state">Aucune image générée.</p>'; return; }
+    c.innerHTML = state.imageHistory.map(e => `
+      <div class="history-item">
+        <img src="${e.url}" onclick="window.open('${e.url}','_blank')" style="cursor:pointer;">
+        <div class="history-prompt">${e.size} · ${e.ratio}<br>${e.prompt.substring(0,30)}...</div>
       </div>
     `).join('');
   }
 
-  // ============================================================
-  // VIDEO GENERATION & POLLING ASYNC
-  // ============================================================
-  async function createVideoTask(prompt, seconds, aspectRatio) {
+  async function runImageBatch(prompt, count, size, ratio) {
+    const status = $('#image-status');
+    if(!status) return;
+    for (let i = 0; i < count; i++) {
+      status.textContent = `Génération ${i+1}/${count} en cours...`;
+      try {
+        const res = await apiRequest('/image', {
+          method: 'POST',
+          body: JSON.stringify({ prompt, size, ratio, n: 1 })
+        });
+        const data = await res.json();
+        if (data.images?.[0]) {
+          const entry = { id: Date.now(), url: data.images[0].url, prompt, size, ratio };
+          state.imageHistory.unshift(entry);
+          renderImageHistory();
+          saveState();
+        }
+      } catch (e) { console.error(e); }
+      // Délai de sécurité pour le Starter Plan (4K = 1 par minute)
+      await new Promise(r => setTimeout(r, size === '4K' ? 60000 : 3000));
+    }
+    status.textContent = '✅ Série d\'images terminée !';
+  }
+
+  // --- VIDEO BATCH & POLLING ---
+  function renderVideoHistory() {
+    const c = $('#video-history');
+    if (!c) return;
+    if (state.videoHistory.length === 0) { c.innerHTML = '<p class="empty-state">Aucune vidéo générée.</p>'; return; }
+    c.innerHTML = state.videoHistory.map(e => `
+      <div class="video-card">
+        <video controls src="${e.url}"></video>
+        <div class="history-prompt">${e.seconds}s · ${e.ratio}</div>
+        <a href="${e.url}" download class="btn-secondary">⬇ Télécharger</a>
+      </div>
+    `).join('');
+  }
+
+  async function generateOneVideo(prompt, seconds, ratio) {
     const res = await apiRequest('/video', {
       method: 'POST',
-      body: JSON.stringify({
-        prompt: prompt.trim(),
-        seconds: String(Math.min(12, Math.max(4, parseInt(seconds) || 5))),
-        size: '720P',
-        aspect_ratio: aspectRatio || '16:9',
-        mode: 'text'
-      })
+      body: JSON.stringify({ prompt, seconds: String(seconds), size: '720P', aspect_ratio: ratio, mode: 'text' })
     });
     const data = await res.json();
-    if (!data.success || !data.video_id) throw new Error('Impossible de créer la tâche vidéo');
-    return data;
-  }
-
-  async function pollVideoStatus(videoId, model) {
-    const res = await apiRequest(`/video/status?video_id=${encodeURIComponent(videoId)}&model=${encodeURIComponent(model)}`);
-    return res.json();
-  }
-
-  async function generateVideo(prompt, seconds, aspectRatio) {
-    const task = await createVideoTask(prompt, seconds, aspectRatio);
-    const statusEl = $('#video-status');
-    if (statusEl) statusEl.textContent = '⏳ Initialisation de la génération…';
-
-    return new Promise((resolve, reject) => {
-      let attempts = 0;
-      const maxAttempts = 90; // ~3 min
-
-      const check = async () => {
-        attempts++;
-        try {
-          const status = await pollVideoStatus(task.video_id, task.model);
-          if (statusEl) {
-            if (status.progress != null) statusEl.textContent = `⏳ Génération : ${status.progress}%`;
-            else statusEl.textContent = '⏳ Traitement en cours…';
-          }
-
-          if (status.status === 'completed' && status.video_url) {
-            if (statusEl) statusEl.textContent = '✅ Vidéo prête !';
-            const entry = {
-              id: Date.now(), prompt: prompt.trim(), seconds: String(seconds),
-              aspectRatio: aspectRatio || '16:9', size: '720P', url: status.video_url, timestamp: new Date().toISOString()
-            };
-            state.videoHistory.unshift(entry);
-            if (state.videoHistory.length > 10) state.videoHistory.pop();
-            saveState();
-            renderVideoHistory();
-            resolve(entry);
-            return;
-          }
-
-          if (status.status === 'failed') {
-            if (statusEl) statusEl.textContent = '❌ Échec de la génération.';
-            reject(new Error(status.error?.message || 'La génération vidéo a échoué.'));
-            return;
-          }
-
-          if (attempts >= maxAttempts) {
-            if (statusEl) statusEl.textContent = '❌ Délai dépassé (Serveur occupé).';
-            reject(new Error('Délai dépassé.'));
-            return;
-          }
-          setTimeout(check, 2000);
-        } catch (err) {
-          if (attempts >= maxAttempts) reject(err);
-          else setTimeout(check, 3000);
-        }
-      };
-      setTimeout(check, 2000);
-    });
-  }
-
-  function renderVideoHistory() {
-    const container = $('#video-history');
-    if (!container) return;
-
-    if (state.videoHistory.length === 0) {
-      container.innerHTML = '<p class="empty-state">Aucune vidéo générée pour le moment.</p>';
-      return;
+    if (!data.success || !data.video_id) throw new Error('Erreur création vidéo');
+    
+    const videoId = data.video_id;
+    const model = data.model;
+    let attempts = 0;
+    
+    while (attempts < 90) {
+      attempts++;
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const pRes = await apiRequest(`/video/status?video_id=${encodeURIComponent(videoId)}&model=${encodeURIComponent(model)}`);
+        const pData = await pRes.json();
+        if (pData.status === 'completed' && pData.video_url) return pData.video_url;
+        if (pData.status === 'failed') throw new Error('Échec génération vidéo');
+      } catch (e) {}
     }
-
-    container.innerHTML = state.videoHistory.map(entry => `
-      <div class="video-card">
-        <video controls preload="metadata" src="${entry.url}"></video>
-        <div class="history-prompt">${entry.seconds}s · ${entry.aspectRatio}</div>
-        <a href="${entry.url}" download class="btn-secondary">⬇ Télécharger</a>
-      </div>
-    `).join('');
+    throw new Error('Délai dépassé');
   }
 
-  // ============================================================
-  // STORY MODE (Histoire avec mémoire)
-  // ============================================================
+  async function runVideoBatch(prompt, count, seconds, ratio) {
+    const status = $('#video-status');
+    if(!status) return;
+    for (let i = 0; i < count; i++) {
+      status.textContent = `Génération vidéo ${i+1}/${count}... (Patientez, très long)`;
+      try {
+        const url = await generateOneVideo(prompt, seconds, ratio);
+        const entry = { id: Date.now(), url, prompt, seconds, ratio };
+        state.videoHistory.unshift(entry);
+        renderVideoHistory();
+        saveState();
+      } catch (e) { console.error(e); }
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    status.textContent = '✅ Série de vidéos terminée !';
+  }
+
+  // --- STORY MODE ---
   function renderStoryThemes() {
-    const select = $('#story-theme-select');
-    if (!select || select.options.length > 1) return;
-    STORY_THEMES.forEach(theme => {
-      const opt = document.createElement('option');
-      opt.value = theme;
-      opt.textContent = theme;
-      select.appendChild(opt);
-    });
+    const s = $('#story-theme-select');
+    if (!s || s.options.length > 1) return;
+    STORY_THEMES.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; s.appendChild(o); });
   }
 
-  function addStoryMessageToUI(role, content) {
-    const container = $('#story-messages');
-    if (!container) return null;
-    const div = el('div', { className: `chat-message ${role}` });
-    const bubble = el('div', { className: 'bubble' });
-    bubble.innerHTML = content.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    div.appendChild(bubble);
-    div.dataset.rawText = content;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-    return div;
-  }
-
-  function updateStoryStateUI() {
-    const synopsisEl = $('#story-synopsis');
-    if (synopsisEl) synopsisEl.value = state.storyState.synopsis;
-
-    $$('.story-character-input').forEach((input, i) => {
-      if (state.storyState.characters[i]) input.value = state.storyState.characters[i].name || '';
-    });
-
-    const promptsEl = $('#story-prompts-list');
-    if (promptsEl) {
-      if (state.storyState.prompts.length === 0) {
-        promptsEl.innerHTML = '<p class="empty-state-small">Aucun prompt.</p>';
-      } else {
-        promptsEl.innerHTML = state.storyState.prompts.slice(-5).map((p, i) => `
-          <div class="story-prompt-item">Prompt ${i+1}: ${escapeHtml(typeof p === 'string' ? p : p.prompt)}</div>
-        `).join('');
-      }
-    }
-  }
-
-  async function sendStoryMessage(userContent) {
-    state.storyMessages.push({ role: 'user', content: userContent });
-    const assistantDiv = addStoryMessageToUI('assistant', '');
-    assistantDiv.classList.add('typing');
-
+  async function sendStoryMessage(text) {
+    state.storyMessages.push({ role: 'user', content: text });
+    const assistantDiv = addMessageToUI('assistant', '...');
+    if(assistantDiv) assistantDiv.id = 'story-temp-msg';
+    // Note: le chat story utilise le même conteneur DOM que le chat global dans cette version simplifiée
+    
     try {
       const res = await apiRequest('/story', {
         method: 'POST',
@@ -492,10 +251,10 @@
           theme: state.storyState.theme
         })
       });
-
+      
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let fullContent = '';
+      let full = '';
       let buffer = '';
 
       while (true) {
@@ -504,186 +263,146 @@
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6).trim();
             if (data === '[DONE]') continue;
             try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content || '';
+              const p = JSON.parse(data);
+              const delta = p.choices?.[0]?.delta?.content || '';
               if (delta) {
-                fullContent += delta;
-                updateChatMessageUI(assistantDiv, fullContent); // Réutilise l'update du chat
+                full += delta;
+                if(assistantDiv) assistantDiv.querySelector('.bubble').innerHTML = full.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
               }
-            } catch (e) {}
+            } catch(e) {}
           }
         }
       }
-
-      assistantDiv.classList.remove('typing');
-      state.storyMessages.push({ role: 'assistant', content: fullContent });
+      state.storyMessages.push({ role: 'assistant', content: full });
       saveState();
-      updateStoryStateUI();
     } catch (err) {
-      assistantDiv.classList.remove('typing');
-      assistantDiv.querySelector('.bubble').textContent = `❌ Erreur : ${err.message}`;
+      if(assistantDiv) assistantDiv.querySelector('.bubble').textContent = `❌ ${err.message}`;
     }
   }
 
-  // ============================================================
-  // NAVIGATION & ÉVÉNEMENTS
-  // ============================================================
-  function switchTab(tab) {
-    state.currentTab = tab;
-    $$('.nav-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
-    $$('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `panel-${tab}`));
-
-    if (tab === 'image') renderImageHistory();
-    if (tab === 'video') renderVideoHistory();
-    if (tab === 'story') {
-      renderStoryThemes();
-      updateStoryStateUI();
-    }
+  // --- INIT & EVENTS ---
+  function createNewChatSession() {
+    const n = { id: Date.now().toString(), title: 'Nouvelle discussion', messages: [] };
+    state.chatSessions.unshift(n);
+    state.currentChatId = n.id;
+    $('#chat-messages').innerHTML = '';
+    renderChatHistoryList();
+    saveState();
   }
 
-  function setupEventListeners() {
-    // 1. Validation de clé
-    const keyForm = $('#key-form');
-    if (keyForm) {
-      keyForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const key = $('#api-key-input').value.trim();
-        const errorEl = $('#key-error');
-        const btn = $('#key-submit');
-        if (!key) { errorEl.textContent = 'Colle ta clé Agnes.'; return; }
-
-        btn.disabled = true; btn.textContent = 'Validation…'; errorEl.textContent = '';
-        try {
-          await validateKey(key);
-          state.apiKey = key;
-          showMainApp();
-        } catch (err) {
-          errorEl.textContent = err.message || 'Clé invalide.';
-        } finally {
-          btn.disabled = false; btn.textContent = 'Accéder à IA MASTOR';
+  function renderChatHistoryList() {
+    const l = $('#chat-history-list');
+    if (!l) return;
+    l.innerHTML = state.chatSessions.map(s => `
+      <div class="history-chat-item ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">
+        💬 ${s.title}
+      </div>
+    `).join('');
+    l.querySelectorAll('.history-chat-item').forEach(i => {
+      i.onclick = () => {
+        state.currentChatId = i.dataset.id;
+        const sess = state.chatSessions.find(x => x.id === state.currentChatId);
+        if(sess) {
+          $('#chat-messages').innerHTML = '';
+          sess.messages.forEach(m => addMessageToUI(m.role, m.content));
         }
-      });
-    }
-
-    // 2. Afficher/Masquer la clé
-    const toggleBtn = $('#key-toggle-visibility');
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', () => {
-        const input = $('#api-key-input');
-        input.type = input.type === 'password' ? 'text' : 'password';
-      });
-    }
-
-    // 3. Navigation
-    $$('.nav-tab').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-
-    // 4. Chat : Nouveau & Envoi
-    const newChatBtn = $('#new-chat-btn');
-    if (newChatBtn) newChatBtn.addEventListener('click', createNewChatSession);
-
-    const chatForm = $('#chat-form');
-    if (chatForm) {
-      chatForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const input = $('#chat-input');
-        const msg = input.value.trim();
-        if (!msg || state.isLoading) return;
-        input.value = ''; input.style.height = 'auto';
-        state.isLoading = true;
-        try { await sendChatMessage(msg); } finally { state.isLoading = false; }
-      });
-    }
-    
-    // Auto-resize textarea
-    $$('textarea').forEach(ta => {
-      ta.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-      });
-    });
-
-    // 5. Image
-    $('#image-presets').addEventListener('click', (e) => {
-      if (e.target.classList.contains('preset-btn')) $('#image-prompt').value = e.target.dataset.prompt;
-    });
-    
-    const imageForm = $('#image-form');
-    if (imageForm) {
-      imageForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = imageForm.querySelector('button[type="submit"]');
-        btn.disabled = true; btn.textContent = 'Génération…';
-        try {
-          const entry = await generateImage($('#image-prompt').value, $('#image-size').value, $('#image-ratio').value);
-          $('#image-preview').innerHTML = `<img src="${entry.url}" alt="Résultat">`;
-        } catch (err) { alert(err.message); } finally { btn.disabled = false; btn.textContent = 'Générer'; }
-      });
-    }
-
-    // 6. Vidéo
-    $('#video-presets').addEventListener('click', (e) => {
-      if (e.target.classList.contains('preset-btn')) $('#video-prompt').value = e.target.dataset.prompt;
-    });
-
-    const videoForm = $('#video-form');
-    if (videoForm) {
-      videoForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = videoForm.querySelector('button[type="submit"]');
-        btn.disabled = true; btn.textContent = 'Génération…';
-        try {
-          const entry = await generateVideo($('#video-prompt').value, $('#video-seconds').value, $('#video-ratio').value);
-          $('#video-preview').innerHTML = `<video controls autoplay src="${entry.url}"></video>`;
-        } catch (err) { alert(err.message); } finally { btn.disabled = false; btn.textContent = 'Générer'; }
-      });
-    }
-
-    // 7. Histoire (Chat & Formulaire)
-    const storyForm = $('#story-form');
-    if (storyForm) {
-      storyForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const input = $('#story-input');
-        const msg = input.value.trim();
-        if (!msg || state.isLoading) return;
-        input.value = ''; input.style.height = 'auto';
-        state.isLoading = true;
-        try { await sendStoryMessage(msg); } finally { state.isLoading = false; }
-      });
-    }
-
-    $('#story-theme-select').addEventListener('change', (e) => {
-      state.storyState.theme = e.target.value;
-      saveState();
-    });
-    $('#story-synopsis').addEventListener('input', (e) => {
-      state.storyState.synopsis = e.target.value;
-      saveState();
-    });
-    $$('.story-character-input').forEach((input, i) => {
-      input.addEventListener('input', () => {
-        if (state.storyState.characters[i]) state.storyState.characters[i].name = input.value;
-        saveState();
-      });
+        renderChatHistoryList();
+      };
     });
   }
 
-  // ============================================================
-  // DÉMARRAGE
-  // ============================================================
+  function setupEvents() {
+    // Welcome Screen
+    $('#key-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const k = $('#api-key-input').value.trim();
+      const btn = $('#key-submit'); const err = $('#key-error');
+      btn.disabled = true; btn.textContent = 'Connexion...'; err.textContent = '';
+      try {
+        const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${k}` } });
+        const d = await res.json();
+        if (!res.ok || !d.valid) throw new Error(d.error || 'Clé invalide');
+        state.apiKey = k;
+        $('#welcome-screen').classList.add('hidden');
+        $('#main-app').classList.remove('hidden');
+        if (state.chatSessions.length === 0) createNewChatSession();
+        else renderChatHistoryList();
+      } catch(ex) { err.textContent = ex.message; }
+      finally { btn.disabled = false; btn.textContent = 'Accéder à IA MASTOR'; }
+    };
+
+    // Navigation
+    $$('.nav-tab, .mobile-nav-btn').forEach(b => {
+      b.onclick = () => {
+        $$('.nav-tab, .mobile-nav-btn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        const tab = b.dataset.tab;
+        $$('.tab-panel').forEach(p => p.classList.remove('active'));
+        $(`#panel-${tab}`).classList.add('active');
+        if(tab==='image') renderImageHistory();
+        if(tab==='video') renderVideoHistory();
+        if(tab==='story') renderStoryThemes();
+      };
+    });
+
+    // Chat
+    $('#new-chat-btn').onclick = createNewChatSession;
+    $('#chat-form').onsubmit = (e) => {
+      e.preventDefault();
+      const v = $('#chat-input').value.trim();
+      if(!v) return;
+      $('#chat-input').value = '';
+      sendChatMessage(v);
+    };
+    $('#chat-upload-btn').onclick = () => $('#chat-image-upload').click();
+    $('#chat-image-upload').onchange = (e) => {
+      const f = e.target.files[0];
+      if(!f) return;
+      const r = new FileReader();
+      r.onload = (ev) => { state.attachedImageBase64 = ev.target.result; $('#chat-input').placeholder = "Image jointe ! Écris ton message..."; };
+      r.readAsDataURL(f);
+    };
+
+    // Image Batch
+    $('#image-presets').onclick = (e) => { if(e.target.classList.contains('preset-btn')) $('#image-prompt').value = e.target.dataset.prompt; };
+    $('#image-form').onsubmit = (e) => {
+      e.preventDefault();
+      const p = $('#image-prompt').value;
+      const c = parseInt($('#image-batch').value);
+      const s = $('#image-size').value;
+      const r = $('#image-ratio').value;
+      runImageBatch(p, c, s, r);
+    };
+
+    // Video Batch
+    $('#video-presets').onclick = (e) => { if(e.target.classList.contains('preset-btn')) $('#video-prompt').value = e.target.dataset.prompt; };
+    $('#video-form').onsubmit = (e) => {
+      e.preventDefault();
+      const p = $('#video-prompt').value;
+      const c = parseInt($('#video-batch').value);
+      const sec = $('#video-seconds').value;
+      const r = $('#video-ratio').value;
+      runVideoBatch(p, c, sec, r);
+    };
+
+    // Story Chat
+    $('#story-form').onsubmit = (e) => {
+      e.preventDefault();
+      const v = $('#story-input').value.trim();
+      if(!v) return;
+      $('#story-input').value = '';
+      sendStoryMessage(v);
+    };
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     loadState();
-    setupEventListeners();
-    
-    // Toujours afficher le welcome screen au démarrage (sécurité BYOK)
-    $('#welcome-screen').classList.remove('hidden');
-    $('#main-app').classList.add('hidden');
+    setupEvents();
   });
 
 })();
