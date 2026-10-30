@@ -1,222 +1,858 @@
-(function () {
-  window.userApiKey = sessionStorage.getItem("agnes_api_key") || null;
-  const lockScreen = document.getElementById("lock-screen");
-  const mainApp = document.getElementById("main-app");
-  const apiKeyInput = document.getElementById("api-key-input");
-  const unlockBtn = document.getElementById("unlock-btn");
-  const lockError = document.getElementById("lock-error");
+/**
+ * IA MASTOR - Frontend Application Logic
+ * BYOK (Bring Your Own Key) - Agnes Starter Plan optimized
+ * 
+ * Features:
+ * - Key validation with welcome message
+ * - Chat with streaming SSE
+ * - Image generation (1K/2K/3K/4K) with 10 prompts + history
+ * - Video generation (720P only on Flash) with async polling
+ * - Story mode with context memory + 15 themes
+ * - French UI (English toggle ready if free)
+ * - Anti-resale footer notice
+ */
 
-  function checkLock() {
-    if (window.userApiKey) {
-      lockScreen.style.display = "none";
-      mainApp.style.display = "flex";
-    } else {
-      lockScreen.style.display = "flex";
-      mainApp.style.display = "none";
+(function () {
+  'use strict';
+
+  // ============================================================
+  // STATE
+  // ============================================================
+  const state = {
+    apiKey: null,
+    isKeyValid: false,
+    currentTab: 'chat',
+    language: 'fr',
+
+    // Chat
+    chatMessages: [],
+
+    // Image
+    imageHistory: [],
+    imagePresets: [
+      'Portrait cinématographique, éclairage dramatique, ultra détaillé, 8K, photoréaliste',
+      'Paysage futuriste, ville cyberpunk sous la pluie, néons, réflexions, cinéma',
+      'Produit de luxe sur fond noir, éclairage studio, macro, publicité haut de gamme',
+      'Créature fantastique dans une forêt enchantée, brume, lumière divine, épique',
+      'Architecture moderne minimaliste, lumière naturelle, design épuré, magazine',
+      'Scène de rue animée à Tokyo, nightlife, bokeh, style documentaire',
+      'Nature morte florale, peinture à l\'huile, clair-obscur, musée',
+      'Astronaute dans une station spatiale, Terre visible, réalisme NASA',
+      'Mode streetwear urbain, graffiti, attitude, flash direct, argentique',
+      'Univers sous-marin, bioluminescence, créatures étranges, profondeur',
+    ],
+
+    // Video
+    videoHistory: [],
+    videoPresets: [
+      'Travelling avant dans une rue futuriste, néons roses et bleus, pluie fine, réflexions au sol, cinéma 4K',
+      'Gros plan sur un visage humain, émotion intense, larmes aux yeux, éclairage Rembrandt, slow motion',
+      'Drone au-dessus d\'une forêt tropicale, cascade, rayons de soleil à travers les feuilles, nature sauvage',
+      'Produit tech en rotation lente sur fond noir, éclairage studio, reflets métalliques, publicité',
+      'Créature mythique survolant des montagnes enneigées, ailes déployées, vent, épopée',
+      'Scène de couple dans un restaurant étoilé, bougies, regards amoureux, luxe discret',
+      'Sneakers en apesanteur, rotation, éclairage néon, culture urbaine, hype',
+      'Animal humanisé portant un costume, bureau, ambiance corporate humoristique',
+      'Vue aérienne d\'une mégalopole la nuit, circulation, lumières, time-lapse',
+      'Transformation avant/après d\'une pièce, design intérieur, révélation, satisfaction',
+    ],
+
+    // Story
+    storyMessages: [],
+    storyState: {
+      synopsis: '',
+      characters: [
+        { name: '', description: '' },
+        { name: '', description: '' },
+        { name: '', description: '' },
+      ],
+      prompts: [],
+      theme: null,
+    },
+
+    // UI
+    isLoading: false,
+    videoPolling: null, // { videoId, model, intervalId }
+  };
+
+  // ============================================================
+  // 15 STORY THEMES (from user specification)
+  // ============================================================
+  const STORY_THEMES = [
+    'Histoires de fruits IA (Fruit Story)',
+    'Business automatisé avec l\'IA',
+    'UGC IA et influenceurs virtuels',
+    'Luxe, richesse et vie de millionnaire',
+    'Couples toxiques et trahisons',
+    'Animaux humanisés et histoires virales',
+    'Influenceurs IA et célébrité virtuelle',
+    'Transformation avant / après avec l\'IA',
+    'Histoires Reddit et secrets inavouables',
+    'Mini-séries dramatiques TikTok',
+    'Streetwear, sneakers et culture urbaine',
+    'Food IA et recettes impossibles',
+    'Motivation, discipline et réussite financière',
+    'Univers futuristes et intelligence artificielle',
+    'Business e-commerce et revenus passifs',
+  ];
+
+  // ============================================================
+  // DOM HELPERS
+  // ============================================================
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  function el(tag, attrs = {}, children = []) {
+    const node = document.createElement(tag);
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (k === 'className') node.className = v;
+      else if (k === 'textContent') node.textContent = v;
+      else if (k.startsWith('on')) node.addEventListener(k.slice(2).toLowerCase(), v);
+      else node.setAttribute(k, v);
+    });
+    children.forEach(c => {
+      if (typeof c === 'string') node.appendChild(document.createTextNode(c));
+      else if (c) node.appendChild(c);
+    });
+    return node;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ============================================================
+  // API LAYER (BYOK - all requests include user's key)
+  // ============================================================
+  async function apiRequest(endpoint, options = {}) {
+    if (!state.apiKey) {
+      throw new Error('NO_API_KEY');
+    }
+
+    const url = `/api${endpoint}`;
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${state.apiKey}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const error = new Error(errBody.error || `Request failed: ${res.status}`);
+      error.status = res.status;
+      error.details = errBody;
+      throw error;
+    }
+
+    return res;
+  }
+
+  // ============================================================
+  // KEY VALIDATION
+  // ============================================================
+  async function validateKey(key) {
+    const res = await fetch('/api/validate-key', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.valid) {
+      throw new Error(data.error || 'Clé invalide');
+    }
+    return data;
+  }
+
+  // ============================================================
+  // CHAT
+  // ============================================================
+  async function sendChatMessage(userContent) {
+    state.chatMessages.push({ role: 'user', content: userContent });
+
+    // Add UI placeholder
+    const assistantDiv = addChatMessageToUI('assistant', '');
+    assistantDiv.classList.add('typing');
+
+    try {
+      const res = await apiRequest('/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: state.chatMessages.slice(-20),
+          stream: true,
+        }),
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta?.content || '';
+              if (delta) {
+                fullContent += delta;
+                updateChatMessageUI(assistantDiv, fullContent);
+              }
+            } catch (e) {
+              // Skip malformed SSE
+            }
+          }
+        }
+      }
+
+      assistantDiv.classList.remove('typing');
+      state.chatMessages.push({ role: 'assistant', content: fullContent });
+
+      // Check for image generation intent in chat (bonus: generate image inline if requested)
+      if (shouldGenerateImageFromChat(userContent)) {
+        addChatMessageToUI('system', '💡 Astuce : utilise l\'onglet **Image** pour générer ce visuel en haute résolution (jusqu\'à 4K).');
+      }
+    } catch (err) {
+      assistantDiv.classList.remove('typing');
+      assistantDiv.textContent = `❌ Erreur : ${err.message}`;
+      state.chatMessages.pop(); // remove user message on failure
     }
   }
 
-  unlockBtn.addEventListener("click", () => {
-    const key = apiKeyInput.value.trim();
-    if (key.length < 5) {
-      lockError.textContent = "Veuillez entrer une clé API valide.";
-      lockError.style.display = "block";
+  function shouldGenerateImageFromChat(text) {
+    const lower = text.toLowerCase();
+    return (lower.includes('image') || lower.includes('photo') || lower.includes('dessine') || lower.includes('génère')) &&
+           (lower.includes('montre') || lower.includes('fais') || lower.includes('crée'));
+  }
+
+  function addChatMessageToUI(role, content) {
+    const container = $('#chat-messages');
+    if (!container) return null;
+
+    const div = el('div', { className: `chat-message ${role}` });
+    div.innerHTML = `<div class="bubble">${role === 'assistant' ? '' : escapeHtml(content)}</div>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  function updateChatMessageUI(div, content) {
+    if (!div) return;
+    const bubble = div.querySelector('.bubble');
+    if (bubble) bubble.textContent = content;
+    const container = $('#chat-messages');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  // ============================================================
+  // IMAGE GENERATION
+  // ============================================================
+  async function generateImage(prompt, size, ratio) {
+    const res = await apiRequest('/image', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt: prompt.trim(),
+        size: size || '2K',
+        ratio: ratio || '16:9',
+        n: 1,
+      }),
+    });
+
+    const data = await res.json();
+    if (!data.success || !data.images || data.images.length === 0) {
+      throw new Error('Aucune image générée');
+    }
+
+    const image = data.images[0];
+    const entry = {
+      id: Date.now(),
+      prompt: prompt.trim(),
+      size: data.size,
+      ratio: data.ratio,
+      url: image.url || image.b64,
+      timestamp: new Date().toISOString(),
+    };
+
+    state.imageHistory.unshift(entry);
+    if (state.imageHistory.length > 20) state.imageHistory.pop();
+
+    renderImageHistory();
+    return entry;
+  }
+
+  function renderImageHistory() {
+    const container = $('#image-history');
+    if (!container) return;
+
+    if (state.imageHistory.length === 0) {
+      container.innerHTML = '<p class="empty-state">Aucune image générée pour le moment.</p>';
       return;
     }
-    window.userApiKey = key;
-    sessionStorage.setItem("agnes_api_key", key);
-    lockError.style.display = "none";
-    checkLock();
-  });
 
-  checkLock();
+    container.innerHTML = state.imageHistory.map(entry => `
+      <div class="history-item" data-id="${entry.id}">
+        <img src="${entry.url}" alt="${escapeHtml(entry.prompt)}" loading="lazy">
+        <div class="history-meta">
+          <span class="history-size">${entry.size} · ${entry.ratio}</span>
+          <span class="history-time">${new Date(entry.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <p class="history-prompt">${escapeHtml(entry.prompt.substring(0, 80))}${entry.prompt.length > 80 ? '…' : ''}</p>
+        <div class="history-actions">
+          <button class="btn-icon download-btn" data-url="${entry.url}" title="Télécharger">⬇</button>
+          <button class="btn-icon reuse-btn" data-prompt="${escapeHtml(entry.prompt)}" title="Réutiliser">↻</button>
+        </div>
+      </div>
+    `).join('');
 
-  async function apiFetch(endpoint, options = {}) {
-    if (!window.userApiKey) throw new Error("Non autorisé");
-    const headers = { "Content-Type": "application/json", ...options.headers, "x-api-key": window.userApiKey };
-    const response = await fetch(endpoint, { ...options, headers });
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || "Erreur serveur");
-    }
-    return response.json();
-  }
-
-  function parseMarkdown(text) {
-    if (!text) return "";
-    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>").replace(/`([^`]+)`/g, "<code>$1</code>");
-    html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>");
-    html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>");
-
-    let lines = html.split('\n');
-    let inTable = false, tableHtml = "", output = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i].trim();
-      if (line.startsWith('|') && line.endsWith('|')) {
-        if (!inTable) { inTable = true; tableHtml = "<div class='table-responsive'><table>"; }
-        if (line.match(/^\|[\s\-\|]+\|$/)) continue;
-        let cells = line.split('|').filter(c => c.trim() !== '');
-        let tag = (i === 0 || lines[i-1].match(/^\|[\s\-\|]+\|$/)) ? 'th' : 'td';
-        tableHtml += '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
-      } else {
-        if (inTable) { tableHtml += "</table></div>"; output.push(tableHtml); inTable = false; }
-        output.push(line);
-      }
-    }
-    if (inTable) { tableHtml += "</table></div>"; output.push(tableHtml); }
-    html = output.join('\n').replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>").replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
-    return html.replace(/\n/g, "<br>");
-  }
-
-  const tabs = document.querySelectorAll(".tab-btn"), sections = document.querySelectorAll(".section");
-  tabs.forEach(t => t.addEventListener("click", () => {
-    tabs.forEach(b => b.classList.remove("active")); sections.forEach(s => s.classList.remove("active"));
-    t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
-  }));
-
-  // CHAT
-  const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
-  let chatImageBase64 = null, allSessions = JSON.parse(localStorage.getItem("videoai_chat_sessions") || "[]"), currentSessionId = null;
-
-  chatImageBtn.addEventListener("click", () => chatImageUpload.click());
-  chatImageUpload.addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { chatImageBase64 = r.result.split(",")[1]; chatImageBtn.textContent = "✅"; }; r.readAsDataURL(f); });
-
-  function saveSessions() { localStorage.setItem("videoai_chat_sessions", JSON.stringify(allSessions)); }
-  function createNewSession() { const n = { id: Date.now().toString(), title: "Nouvelle conversation", messages: [{ role: "assistant", content: "Bonjour !" }] }; allSessions.unshift(n); currentSessionId = n.id; saveSessions(); renderSessions(); renderChat(); }
-  function renderSessions() {
-    sessionsList.innerHTML = "";
-    allSessions.forEach(s => {
-      const div = document.createElement("div"); div.className = `session-item ${s.id === currentSessionId ? 'active' : ''}`;
-      div.innerHTML = `<span>${s.title}</span><button class="session-del" data-id="${s.id}">×</button>`;
-      div.addEventListener("click", (e) => {
-        if (e.target.classList.contains('session-del')) { allSessions = allSessions.filter(x => x.id !== e.target.dataset.id); if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null; saveSessions(); renderSessions(); renderChat(); return; }
-        currentSessionId = s.id; renderSessions(); renderChat();
+    // Wire actions
+    container.querySelectorAll('.download-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = btn.dataset.url;
+        a.download = `ia-mastor-${Date.now()}.png`;
+        a.target = '_blank';
+        a.click();
       });
-      sessionsList.appendChild(div);
+    });
+
+    container.querySelectorAll('.reuse-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = $('#image-prompt');
+        if (input) input.value = btn.dataset.prompt;
+      });
     });
   }
-  function renderChat() {
-    chatHistory.innerHTML = ""; if (!currentSessionId) return;
-    const s = allSessions.find(x => x.id === currentSessionId); if (!s) return;
-    s.messages.forEach(m => { chatHistory.innerHTML += `<div class="message ${m.role === 'user' ? 'user' : 'assistant'}">${m.role === 'user' ? m.content : parseMarkdown(m.content)}</div>`; });
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-  }
-  newChatBtn.addEventListener("click", createNewSession);
-  if (allSessions.length === 0) createNewSession(); else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
 
-  chatSend.addEventListener("click", async () => {
-    const text = chatInput.value.trim(); if (!text || !currentSessionId) return;
-    const s = allSessions.find(x => x.id === currentSessionId);
-    chatInput.value = ""; chatSend.disabled = true;
-    let displayHtml = text;
-    if (chatImageBase64) displayHtml += `<br><img src="data:image/jpeg;base64,${chatImageBase64}" style="max-width:200px; border-radius:8px;">`;
-    s.messages.push({ role: "user", content: displayHtml });
-    if (s.title === "Nouvelle conversation") { s.title = text.slice(0, 30); renderSessions(); }
-    saveSessions(); renderChat();
-    try {
-      const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content.replace(/<br><img.*>/g, '') })), imageBase64: chatImageBase64 }) });
-      if (data.content) { s.messages.push({ role: "assistant", content: data.content }); saveSessions(); renderChat(); }
-    } catch (e) { chatHistory.innerHTML += `<div class="message assistant" style="color:#ff453a">Erreur: ${e.message}</div>`; }
-    chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
-  });
-
-  // IMAGES
-  const imgSlotsContainer = document.getElementById("image-slots"), imgTemplate = document.getElementById("img-slot-template"), imageHistoryEl = document.getElementById("image-history");
-  for (let i = 0; i < 10; i++) { const node = imgTemplate.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Image #${i + 1}`; imgSlotsContainer.appendChild(node); setupImageSlot(node); }
-  function setupImageSlot(node) {
-    const prompt = node.querySelector(".img-prompt"), format = node.querySelector(".img-format"), genBtn = node.querySelector(".img-gen-btn"), dlBtn = node.querySelector(".img-dl-btn"), refInput = node.querySelector(".img-ref-input"), refBtn = node.querySelector(".img-ref-btn"), refPrev = node.querySelector(".img-ref-prev"), resArea = node.querySelector(".img-result-area"), resImg = node.querySelector(".img-result");
-    let base64 = null, id = null;
-    refBtn.addEventListener("click", () => refInput.click());
-    refInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { base64 = r.result.split(",")[1]; refPrev.innerHTML = `<img src="${r.result}">`; }; r.readAsDataURL(f); });
-    genBtn.addEventListener("click", async () => {
-      if (!prompt.value.trim()) return;
-      genBtn.disabled = true; genBtn.textContent = "Génération..."; resArea.hidden = true;
-      try {
-        const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt.value, format: format.value, imageBase64: base64 }) });
-        if (data.url) {
-          resImg.src = data.url; resArea.hidden = false; dlBtn.disabled = false; id = data.id;
-          dlBtn.onclick = () => { window.location.href = `/api/download/${id}?url=${encodeURIComponent(data.url)}&apiKey=${window.userApiKey}`; };
-          const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]"); h.unshift({ prompt: prompt.value, url: data.url, id: data.id }); localStorage.setItem("videoai_image_history", JSON.stringify(h)); renderImageHistory();
-        }
-      } catch (e) { alert(e.message); }
-      genBtn.disabled = false; genBtn.textContent = "Générer l'image";
+  // ============================================================
+  // VIDEO GENERATION (ASYNC + POLLING)
+  // ============================================================
+  async function createVideoTask(prompt, seconds, aspectRatio) {
+    // Starter Flash: size fixed 720P, seconds string "4"-"12"
+    const res = await apiRequest('/video', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt: prompt.trim(),
+        seconds: String(Math.min(12, Math.max(4, parseInt(seconds) || 5))),
+        size: '720P', // Flash only
+        aspect_ratio: aspectRatio || '16:9',
+        mode: 'text',
+      }),
     });
-  }
-  function renderImageHistory() {
-    const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]");
-    imageHistoryEl.innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?url=${encodeURIComponent(i.url)}&apiKey=${window.userApiKey}" class="history-btn" download>⬇</a></div></div>`).join("");
-  }
-  renderImageHistory();
 
-  // VIDÉO & HISTOIRE
-  function setupVideoSlot(node, isStory = false) {
-    const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
-    const state = { base64: null, id: null, poll: null };
-    
-    if (uploadBtn) {
-      uploadBtn.addEventListener("click", () => imgInput.click());
-      imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
+    const data = await res.json();
+    if (!data.success || !data.video_id) {
+      throw new Error('Impossible de créer la tâche vidéo');
     }
 
-    genBtn.addEventListener("click", async () => {
-      if (!prompt.value.trim()) return; if (state.poll) clearInterval(state.poll);
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Génération...`;
-      
-      try {
-        const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
-        if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
-
-        const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
-        if (!data.id) throw new Error(data.error);
-        
-        state.id = data.id; status.innerHTML = `<span class="dot"></span> En cours...`;
-        state.poll = setInterval(async () => {
-          const info = await apiFetch(`/api/status/${state.id}`);
-          if (info.status === "completed") {
-            clearInterval(state.poll); video.src = info.url; player.hidden = false; dlBtn.disabled = false; status.dataset.state = "ready"; status.innerHTML = `<span class="dot"></span> Prête`; genBtn.disabled = false;
-            const hKey = isStory ? "videoai_story_history" : "videoai_video_history";
-            const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
-            if(isStory) renderStoryHistory(); else renderVideoHistory();
-          } else if (info.status === "failed") { clearInterval(state.poll); status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Échec`; genBtn.disabled = false; }
-        }, 3000);
-      } catch (e) { status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false; }
-    });
-    dlBtn.addEventListener("click", () => { if (state.id) window.location.href = `/api/download/${state.id}?apiKey=${window.userApiKey}`; });
+    return data;
   }
 
-  const slotsContainer = document.getElementById("video-slots"), template = document.getElementById("slot-template");
-  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Vidéo #${i + 1}`; slotsContainer.appendChild(node); setupVideoSlot(node, false); }
-  
-  const storySlotsContainer = document.getElementById("story-slots");
-  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Scène ${i + 1}`; storySlotsContainer.appendChild(node); setupVideoSlot(node, true); }
-
-  window.storyCharactersData = []; 
-  [1, 2, 3].forEach(num => {
-    const nameInput = document.getElementById(`char${num}-name`), fileInput = document.getElementById(`char${num}-file`), prev = document.getElementById(`char${num}-prev`);
-    fileInput.addEventListener("change", (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        window.storyCharactersData[num - 1] = { name: nameInput.value.trim() || `Personnage ${num}`, base64: reader.result.split(",")[1] };
-        prev.innerHTML = `<img src="${reader.result}">`;
-      };
-      reader.readAsDataURL(file);
+  async function pollVideoStatus(videoId, model) {
+    const res = await apiRequest(`/video/status?video_id=${encodeURIComponent(videoId)}&model=${encodeURIComponent(model)}`, {
+      method: 'GET',
     });
-    nameInput.addEventListener("input", () => { if (window.storyCharactersData[num - 1]) window.storyCharactersData[num - 1].name = nameInput.value.trim() || `Personnage ${num}`; });
-  });
+
+    return res.json();
+  }
+
+  async function generateVideo(prompt, seconds, aspectRatio) {
+    const task = await createVideoTask(prompt, seconds, aspectRatio);
+
+    // Start UI polling indicator
+    const statusEl = $('#video-status');
+    if (statusEl) statusEl.textContent = '⏳ Génération en cours… (cela peut prendre 1–3 min)';
+
+    // Poll with interval (2s as recommended)
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 90; // ~3 min at 2s
+      const interval = 2000;
+
+      const check = async () => {
+        attempts++;
+        try {
+          const status = await pollVideoStatus(task.video_id, task.model);
+
+          if (statusEl) {
+            if (status.progress != null) {
+              statusEl.textContent = `⏳ Génération : ${status.progress}%`;
+            }
+          }
+
+          if (status.status === 'completed' && status.video_url) {
+            if (statusEl) statusEl.textContent = '✅ Vidéo prête !';
+
+            const entry = {
+              id: Date.now(),
+              prompt: prompt.trim(),
+              seconds: String(seconds),
+              aspectRatio: aspectRatio || '16:9',
+              size: '720P',
+              url: status.video_url,
+              timestamp: new Date().toISOString(),
+            };
+
+            state.videoHistory.unshift(entry);
+            if (state.videoHistory.length > 10) state.videoHistory.pop();
+
+            renderVideoHistory();
+            resolve(entry);
+            return;
+          }
+
+          if (status.status === 'failed') {
+            reject(new Error(status.error?.message || 'La génération vidéo a échoué.'));
+            return;
+          }
+
+          if (attempts >= maxAttempts) {
+            reject(new Error('Délai dépassé. La vidéo prend trop de temps, réessaie avec une durée plus courte.'));
+            return;
+          }
+
+          setTimeout(check, interval);
+        } catch (err) {
+          if (attempts >= maxAttempts) {
+            reject(err);
+          } else {
+            setTimeout(check, interval * 2); // backoff on error
+          }
+        }
+      };
+
+      setTimeout(check, interval);
+    });
+  }
 
   function renderVideoHistory() {
-    const h = JSON.parse(localStorage.getItem("videoai_video_history") || "[]");
-    document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?apiKey=${window.userApiKey}" class="history-btn" download>⬇</a></div></div>`).join("");
-  }
-  
-  function renderStoryHistory() {
-    const h = JSON.parse(localStorage.getItem("videoai_story_history") || "[]");
-    document.getElementById("story-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?apiKey=${window.userApiKey}" class="history-btn" download>⬇</a></div></div>`).join("");
+    const container = $('#video-history');
+    if (!container) return;
+
+    if (state.videoHistory.length === 0) {
+      container.innerHTML = '<p class="empty-state">Aucune vidéo générée pour le moment.</p>';
+      return;
+    }
+
+    container.innerHTML = state.videoHistory.map(entry => `
+      <div class="video-card">
+        <video controls preload="metadata" src="${entry.url}"></video>
+        <div class="video-meta">
+          <span>${entry.seconds}s · ${entry.aspectRatio} · ${entry.size}</span>
+          <span>${new Date(entry.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <p class="video-prompt">${escapeHtml(entry.prompt.substring(0, 100))}${entry.prompt.length > 100 ? '…' : ''}</p>
+        <a href="${entry.url}" download class="btn-secondary" target="_blank">⬇ Télécharger</a>
+      </div>
+    `).join('');
   }
 
-  renderVideoHistory();
-  renderStoryHistory();
+  // ============================================================
+  // STORY MODE
+  // ============================================================
+  async function sendStoryMessage(userContent) {
+    state.storyMessages.push({ role: 'user', content: userContent });
+
+    const assistantDiv = addStoryMessageToUI('assistant', '');
+    assistantDiv.classList.add('typing');
+
+    try {
+      const res = await apiRequest('/story', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: state.storyMessages.slice(-20),
+          storyState: state.storyState,
+          theme: state.storyState.theme,
+        }),
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta?.content || '';
+              if (delta) {
+                fullContent += delta;
+                updateStoryMessageUI(assistantDiv, fullContent);
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      assistantDiv.classList.remove('typing');
+      state.storyMessages.push({ role: 'assistant', content: fullContent });
+
+      // Extract potential video prompts from response (lines starting with "PROMPT:")
+      extractStoryPrompts(fullContent);
+      updateStoryStateUI();
+    } catch (err) {
+      assistantDiv.classList.remove('typing');
+      assistantDiv.textContent = `❌ Erreur : ${err.message}`;
+      state.storyMessages.pop();
+    }
+  }
+
+  function addStoryMessageToUI(role, content) {
+    const container = $('#story-messages');
+    if (!container) return null;
+
+    const div = el('div', { className: `chat-message ${role}` });
+    div.innerHTML = `<div class="bubble">${role === 'assistant' ? '' : escapeHtml(content)}</div>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  function updateStoryMessageUI(div, content) {
+    if (!div) return;
+    const bubble = div.querySelector('.bubble');
+    if (bubble) bubble.textContent = content;
+    const container = $('#story-messages');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  function extractStoryPrompts(text) {
+    // Look for lines that look like video prompts (heuristic)
+    const lines = text.split('\n');
+    const newPrompts = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Detect "PROMPT:", "Prompt vidéo:", "Vidéo:" followed by content
+      if (/^(PROMPT|Prompt vidéo|Vidéo|Video prompt)\s*[:：]/i.test(trimmed)) {
+        const promptText = trimmed.replace(/^[^:：]+[:：]\s*/, '');
+        if (promptText.length > 20) {
+          newPrompts.push({ prompt: promptText, timestamp: new Date().toISOString() });
+        }
+      }
+    }
+
+    if (newPrompts.length > 0) {
+      state.storyState.prompts.push(...newPrompts);
+      if (state.storyState.prompts.length > 20) {
+        state.storyState.prompts = state.storyState.prompts.slice(-20);
+      }
+    }
+  }
+
+  function updateStoryStateUI() {
+    const synopsisEl = $('#story-synopsis');
+    if (synopsisEl) synopsisEl.value = state.storyState.synopsis;
+
+    const charEls = $$('.story-character-input');
+    state.storyState.characters.forEach((c, i) => {
+      if (charEls[i]) {
+        charEls[i].value = c.name || '';
+      }
+    });
+
+    const promptsEl = $('#story-prompts-list');
+    if (promptsEl) {
+      promptsEl.innerHTML = state.storyState.prompts.slice(-5).map((p, i) => `
+        <div class="story-prompt-item">
+          <span class="prompt-index">${i + 1}</span>
+          <span class="prompt-text">${escapeHtml(typeof p === 'string' ? p : p.prompt)}</span>
+        </div>
+      `).join('');
+    }
+  }
+
+  // ============================================================
+  // TAB NAVIGATION
+  // ============================================================
+  function switchTab(tab) {
+    state.currentTab = tab;
+
+    // Update active nav
+    $$('.nav-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+
+    // Update visible panel
+    $$('.tab-panel').forEach(panel => {
+      panel.classList.toggle('active', panel.id === `panel-${tab}`);
+    });
+
+    // Lazy render
+    if (tab === 'image') renderImageHistory();
+    if (tab === 'video') renderVideoHistory();
+    if (tab === 'story') {
+      renderStoryThemes();
+      updateStoryStateUI();
+    }
+  }
+
+  function renderStoryThemes() {
+    const select = $('#story-theme-select');
+    if (!select || select.options.length > 1) return;
+
+    STORY_THEMES.forEach(theme => {
+      const opt = document.createElement('option');
+      opt.value = theme;
+      opt.textContent = theme;
+      select.appendChild(opt);
+    });
+
+    select.addEventListener('change', () => {
+      state.storyState.theme = select.value || null;
+    });
+  }
+
+  // ============================================================
+  // INIT UI
+  // ============================================================
+  function showWelcomeScreen() {
+    $('#welcome-screen').classList.remove('hidden');
+    $('#main-app').classList.add('hidden');
+  }
+
+  function showMainApp(userName) {
+    $('#welcome-screen').classList.add('hidden');
+    $('#main-app').classList.remove('hidden');
+
+    // Welcome message in chat
+    addChatMessageToUI('assistant',
+      `Bienvenue ${userName ? userName + ' ' : ''}sur **IA MASTOR** 🚀\n\nJe suis ton assistant créatif propulsé par Agnes. Je peux :\n\n• 💬 Discuter et t'aider sur tous les sujets\n• 🖼️ Générer des images jusqu'en **4K**\n• 🎬 Créer des vidéos réalistes en **720P**\n• 📖 Écrire des histoires complètes avec continuité\n\nTa clé est validée. Tout est prêt.\n\n*Après achat, cette application est interdite à la revente.*`
+    );
+  }
+
+  function setupEventListeners() {
+    // Welcome / key validation
+    const keyForm = $('#key-form');
+    if (keyForm) {
+      keyForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const keyInput = $('#api-key-input');
+        const errorEl = $('#key-error');
+        const submitBtn = $('#key-submit');
+
+        const key = keyInput.value.trim();
+        if (!key) {
+          errorEl.textContent = 'Colle ta clé Agnes.';
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Validation…';
+        errorEl.textContent = '';
+
+        try {
+          const result = await validateKey(key);
+          state.apiKey = key;
+          state.isKeyValid = true;
+
+          // Extract name from message if available
+          const match = result.message?.match(/Bienvenue sur IA MASTOR/);
+          showMainApp();
+        } catch (err) {
+          errorEl.textContent = err.message || 'Clé invalide. Vérifie et réessaie.';
+          state.apiKey = null;
+          state.isKeyValid = false;
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Accéder à IA MASTOR';
+        }
+      });
+    }
+
+    // Tab navigation
+    $$('.nav-tab').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // Chat send
+    const chatForm = $('#chat-form');
+    if (chatForm) {
+      chatForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = $('#chat-input');
+        const msg = input.value.trim();
+        if (!msg || state.isLoading) return;
+
+        input.value = '';
+        state.isLoading = true;
+        try {
+          await sendChatMessage(msg);
+        } finally {
+          state.isLoading = false;
+        }
+      });
+    }
+
+    // Chat enter key (shift+enter for newline)
+    const chatInput = $('#chat-input');
+    if (chatInput) {
+      chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          chatForm.dispatchEvent(new Event('submit'));
+        }
+      });
+    }
+
+    // Image preset buttons
+    $$('.preset-btn[data-target="image"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = $('#image-prompt');
+        if (input) input.value = btn.dataset.prompt;
+      });
+    });
+
+    // Image generate
+    const imageForm = $('#image-form');
+    if (imageForm) {
+      imageForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const prompt = $('#image-prompt').value.trim();
+        const size = $('#image-size').value;
+        const ratio = $('#image-ratio').value;
+
+        if (!prompt) return;
+
+        const btn = imageForm.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Génération…';
+
+        try {
+          const entry = await generateImage(prompt, size, ratio);
+          // Show result preview
+          const preview = $('#image-preview');
+          if (preview) {
+            preview.innerHTML = `<img src="${entry.url}" alt="Résultat">`;
+          }
+        } catch (err) {
+          alert(`Erreur image : ${err.message}`);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Générer l\'image';
+        }
+      });
+    }
+
+    // Video preset buttons
+    $$('.preset-btn[data-target="video"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = $('#video-prompt');
+        if (input) input.value = btn.dataset.prompt;
+      });
+    });
+
+    // Video generate
+    const videoForm = $('#video-form');
+    if (videoForm) {
+      videoForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const prompt = $('#video-prompt').value.trim();
+        const seconds = $('#video-seconds').value;
+        const ratio = $('#video-ratio').value;
+
+        if (!prompt) return;
+
+        const btn = videoForm.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Création de la tâche…';
+
+        try {
+          const entry = await generateVideo(prompt, seconds, ratio);
+          const preview = $('#video-preview');
+          if (preview) {
+            preview.innerHTML = `<video controls autoplay src="${entry.url}" style="max-width:100%;border-radius:12px;"></video>`;
+          }
+        } catch (err) {
+          alert(`Erreur vidéo : ${err.message}`);
+          const statusEl = $('#video-status');
+          if (statusEl) statusEl.textContent = `❌ ${err.message}`;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Générer la vidéo';
+        }
+      });
+    }
+
+    // Story send
+    const storyForm = $('#story-form');
+    if (storyForm) {
+      storyForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = $('#story-input');
+        const msg = input.value.trim();
+        if (!msg || state.isLoading) return;
+
+        input.value = '';
+        state.isLoading = true;
+        try {
+          await sendStoryMessage(msg);
+        } finally {
+          state.isLoading = false;
+        }
+      });
+    }
+
+    // Story state inputs
+    const synopsisInput = $('#story-synopsis');
+    if (synopsisInput) {
+      synopsisInput.addEventListener('input', () => {
+        state.storyState.synopsis = synopsisInput.value;
+      });
+    }
+
+    $$('.story-character-input').forEach((input, i) => {
+      input.addEventListener('input', () => {
+        if (state.storyState.characters[i]) {
+          state.storyState.characters[i].name = input.value;
+        }
+      });
+    });
+  }
+
+  // ============================================================
+  // BOOT
+  // ============================================================
+  document.addEventListener('DOMContentLoaded', () => {
+    setupEventListeners();
+    showWelcomeScreen();
+
+    // Anti-resale footer is static in HTML; ensure it exists
+    if (!document.querySelector('.anti-resale-footer')) {
+      const footer = el('p', {
+        className: 'anti-resale-footer',
+        textContent: 'Après achat, cette application est interdite à la vente.',
+      });
+      document.body.appendChild(footer);
+    }
+  });
+
+  // Expose for debugging (optional)
+  window.__IA_MASTOR__ = { state, STORY_THEMES };
 })();
