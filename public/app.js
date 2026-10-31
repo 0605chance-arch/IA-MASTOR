@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v4', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v5', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v4');
+      const s = localStorage.getItem('iamastor_final_v5');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -41,11 +41,9 @@
     return res;
   }
 
-  // Fonction magique de téléchargement via le serveur
-  function downloadFile(url, filename) {
+  function downloadFile(url) {
     if (!url) return;
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}`;
-    window.location.href = downloadUrl;
+    window.location.href = `/api/download?url=${encodeURIComponent(url)}`;
   }
 
   // ==========================================
@@ -132,7 +130,7 @@
   }
 
   // ==========================================
-  // GÉNÉRATION
+  // GÉNÉRATION RAPIDE ET FIABLE
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -152,17 +150,17 @@
           s.status = 'success';
         } else { throw new Error("Erreur de génération"); }
       } else {
-        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: '720P', aspect_ratio: s.ratio };
-        if (s.imageBase64) { body.mode = 'img2video'; body.first_frame = s.imageBase64; }
+        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
+        if (s.imageBase64) body.first_frame = s.imageBase64;
         
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
         if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000));
+        await new Promise(r => setTimeout(r, 10000)); // 10 secondes d'attente initiale
 
-        while (attempts < 25 && !finished) {
+        while (attempts < 30 && !finished) {
           attempts++; 
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
@@ -174,12 +172,12 @@
             }
           } catch (err) {
             if (err.message.includes('429')) {
-              await new Promise(r => setTimeout(r, 35000));
+              await new Promise(r => setTimeout(r, 20000)); // Pause 20s si 429
             } else {
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000)); 
+          if (!finished) await new Promise(r => setTimeout(r, 10000)); // Vérification toutes les 10s
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -273,7 +271,6 @@
     `).join('');
   }
 
-  // Rendre downloadFile accessible
   window.downloadFile = downloadFile;
 
   // ==========================================
