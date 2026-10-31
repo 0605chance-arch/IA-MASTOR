@@ -23,7 +23,7 @@ const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 const MODELS = {
   chat: 'agnes-3.0-flash',
   image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash'  // ✅ Le SEUL modèle gratuit Starter
+  videoFlash: 'agnes-video-2.5-flash' // ✅ Modèle gratuit Starter
 };
 
 function getApiKey(req) {
@@ -48,20 +48,33 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
   return res.json();
 }
 
+// ✅ UPLOAD vers 0x0.st (renvoie une URL DIRECTE, pas une page HTML)
 app.post('/api/upload', async (req, res) => {
   try {
     const { imageBase64 } = req.body;
     if (!imageBase64) return res.status(400).json({ error: 'Image manquante' });
+    
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(base64Data, 'base64');
+    
     const form = new FormData();
     form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
-    const response = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: form });
-    const data = await response.json();
-    if (!data.data || !data.data.url) throw new Error('Erreur upload');
-    const directUrl = data.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-    res.json({ url: directUrl });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    
+    const response = await fetch('https://0x0.st', {
+      method: 'POST',
+      body: form,
+      headers: { 'User-Agent': 'IA-MASTOR/1.0' }
+    });
+    
+    if (!response.ok) throw new Error('Erreur upload 0x0.st');
+    const url = (await response.text()).trim();
+    if (!url.startsWith('http')) throw new Error('URL invalide reçue');
+    
+    res.json({ url });
+  } catch (err) { 
+    console.error('Erreur upload:', err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
@@ -107,12 +120,13 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO FLASH - 720P UNIQUEMENT
+// ✅ VIDÉO : Mode keyframe pour image→vidéo (imageUrl = URL publique)
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, seconds = '5', aspect_ratio = '16:9', imageUrl } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
+    
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
@@ -120,22 +134,26 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',  // ✅ OBLIGATOIRE pour Flash [citation:12]
+      size: '720P',
       aspect_ratio: aspect_ratio || '16:9'
     };
 
-    if (imageUrl && imageUrl.trim().length > 10 && imageUrl.startsWith('http')) {
-      body.mode = 'reference';
-      body.images = [imageUrl];
+    // ✅ Mode keyframe : image de départ (URL publique obligatoire)
+    if (imageUrl && imageUrl.startsWith('http')) {
+      body.mode = 'keyframe';
+      body.first_frame = imageUrl;
     } else {
       body.mode = 'text';
     }
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const videoId = createData.video_id || createData.id || createData.task_id;
+    const videoId = createData.video_id || createData.id;
     if (!videoId) throw new Error('Pas de video_id');
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
-  } catch (err) { console.error('Erreur vidéo:', err.message); res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error('Erreur vidéo:', err.message); 
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.get('/api/video/status', async (req, res) => {
@@ -143,7 +161,7 @@ app.get('/api/video/status', async (req, res) => {
     const apiKey = getApiKey(req);
     const { video_id } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-    // ✅ model_name OBLIGATOIRE - sinon 404 [citation:4]
+    // ✅ model_name OBLIGATOIRE pour keyframe/reference
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     if (!pollRes.ok) { const errText = await pollRes.text().catch(() => ''); return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); }
