@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v6', JSON.stringify({
+    try { localStorage.setItem('iamastor_miracle', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v6');
+      const s = localStorage.getItem('iamastor_miracle');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -41,9 +41,25 @@
     return res;
   }
 
-  function downloadFile(url) {
+  // Téléchargement direct (force sur iPhone et Android sans ouvrir de page)
+  async function downloadFile(url, filename) {
     if (!url) return;
-    window.location.href = `/api/download?url=${encodeURIComponent(url)}`;
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = filename || `iamastor-${Date.now()}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+    } catch (e) {
+      // Fallback si le navigateur bloque le fetch (CORS sur certains serveurs)
+      window.location.href = `/api/download?url=${encodeURIComponent(url)}`;
+    }
   }
 
   // ==========================================
@@ -87,7 +103,10 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select disabled><option>720P</option></select>`}
+            <select data-type="${type}" data-idx="${i}" data-key="size">
+              <option value="720P" ${s.size === '720P' ? 'selected' : ''}>720P</option>
+              <option value="1080P" ${s.size === '1080P' ? 'selected' : ''}>1080P</option>
+            </select>`}
           </div>
 
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
@@ -95,7 +114,7 @@
           ${s.videoUrl ? `
             <div style="margin-top:12px;">
               <video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video>
-              <button onclick="downloadFile('${s.videoUrl}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
+              <button onclick="downloadFile('${s.videoUrl}', 'video-${Date.now()}.mp4')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
             </div>
           ` : ''}
         </div>
@@ -130,7 +149,7 @@
   }
 
   // ==========================================
-  // GÉNÉRATION RAPIDE ET FIABLE (Anti-429)
+  // GÉNÉRATION (Vitesse maximale + Anti-blocage)
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -150,16 +169,24 @@
           s.status = 'success';
         } else { throw new Error("Erreur de génération"); }
       } else {
-        // On n'envoie PAS base64 comme first_frame, on utilise le mode text standard
-        // ou on envoie l'image de référence dans 'images' (mode reference)
-        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
+        // ✅ On envoie la taille (720P ou 1080P) et le mode reference si image
+        const body = { 
+          prompt: s.prompt, 
+          seconds: String(s.seconds || 8), 
+          aspect_ratio: s.ratio, 
+          size: s.size || '720P' 
+        };
+        if (s.imageBase64) {
+          body.mode = 'reference';
+          body.images = [s.imageBase64]; // Le serveur gérera si c'est une URL ou base64
+        }
         
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
         if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000)); // Attente de 15s pour respecter les 5 RPM
+        await new Promise(r => setTimeout(r, 10000)); // Attente initiale de 10s
 
         while (attempts < 30 && !finished) {
           attempts++; 
@@ -173,12 +200,12 @@
             }
           } catch (err) {
             if (err.message.includes('429')) {
-              await new Promise(r => setTimeout(r, 30000)); // Pause longue si 429
+              await new Promise(r => setTimeout(r, 25000)); 
             } else {
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 15000)); // 15s entre chaque vérif
+          if (!finished) await new Promise(r => setTimeout(r, 15000)); // 15s pour respecter les 5 RPM
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -251,7 +278,7 @@
     if (hi) hi.innerHTML = state.imageHistory.map(img => `
       <div class="item">
         <img src="${img.url}">
-        <button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="downloadFile('${img.url}', 'image-${Date.now()}.jpg')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
     
@@ -259,7 +286,7 @@
     if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="downloadFile('${v.videoUrl}', 'video-${Date.now()}.mp4')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
 
@@ -267,7 +294,7 @@
     if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="downloadFile('${v.videoUrl}', 'story-${Date.now()}.mp4')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
   }
