@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v13', JSON.stringify({
+    try { localStorage.setItem('iamastor_v14', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v13');
+      const s = localStorage.getItem('iamastor_v14');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -34,7 +34,10 @@
       ...options,
       headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({error:'Erreur'})); throw new Error(e.error || 'Erreur API'); }
+    if (!res.ok) { 
+      const e = await res.json().catch(()=>({error:'Erreur API'})); 
+      throw new Error(e.error || 'Erreur API'); 
+    }
     return res;
   }
 
@@ -122,7 +125,7 @@
   }
 
   // ==========================================
-  // LOGIQUE DE GÉNÉRATION
+  // LOGIQUE DE GÉNÉRATION (avec gestion 429)
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -149,15 +152,33 @@
         if (!data.video_id) throw new Error('Erreur ID');
         
         let attempts = 0;
-        while (attempts < 40) {
+        // Boucle de vérification avec protection anti-429
+        while (attempts < 30) {
           attempts++; 
-          await new Promise(r => setTimeout(r, 15000)); // 15s pour éviter l'erreur 429
-          const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
-          const pData = await pRes.json();
-          if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; break; }
-          if (pData.status === 'failed') throw new Error('Échec');
+          await new Promise(r => setTimeout(r, 20000)); // Attente de 20s entre chaque requête de statut
+          
+          try {
+            const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
+            const pData = await pRes.json();
+            
+            if (pData.status === 'completed') { 
+              s.status = 'success'; 
+              s.videoUrl = pData.video_url; 
+              break; 
+            }
+            if (pData.status === 'failed') throw new Error('Échec de la génération.');
+          } catch (pollError) {
+            // Si l'API renvoie une erreur 429 (Trop de requêtes)
+            if (pollError.message.includes('429') || pollError.message.includes('too many')) {
+              s.status = 'loading'; // Reste en chargement
+              // On attend 30 secondes de plus avant de réessayer pour calmer le serveur
+              await new Promise(r => setTimeout(r, 30000)); 
+            } else {
+              throw pollError; // Si c'est une autre erreur, on arrête tout
+            }
+          }
         }
-        if (attempts >= 40) throw new Error('Timeout');
+        if (attempts >= 30) throw new Error('Délai maximum dépassé. Réessaie plus tard.');
       }
     } catch(e) { s.status = 'error'; alert(e.message); }
     
@@ -166,18 +187,13 @@
   }
 
   // ==========================================
-  // LOGIQUE CHAT (avec message de bienvenue garanti)
+  // LOGIQUE CHAT (avec message de bienvenue)
   // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
-    if (welcome) {
-      c.messages.push({ role: 'assistant', content: welcome });
-    }
-    state.chatSessions.unshift(c); 
-    state.currentChatId = c.id;
-    renderChatList(); 
-    renderChatMessages(); 
-    save();
+    if (welcome) c.messages.push({ role: 'assistant', content: welcome });
+    state.chatSessions.unshift(c); state.currentChatId = c.id;
+    renderChatList(); renderChatMessages(); save();
   }
 
   function renderChatList() {
@@ -191,8 +207,7 @@
   }
 
   function renderChatMessages() {
-    const box = $('#chat-messages'); 
-    const sess = state.chatSessions.find(s => s.id === state.currentChatId);
+    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId);
     if (!box || !sess) return;
     box.innerHTML = sess.messages.map(m => {
       let content = typeof m.content === 'string' ? m.content : '';
@@ -233,7 +248,7 @@
   }
 
   // ==========================================
-  // HISTORIQUES (Images & Vidéos)
+  // HISTORIQUES
   // ==========================================
   function renderHistory() {
     const hi = $('#image-history');
@@ -258,6 +273,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     load();
     
+    // Login
     $('#login-form').onsubmit = async (e) => {
       e.preventDefault();
       const key = $('#api-key').value.trim();
@@ -265,27 +281,18 @@
       try {
         const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
         const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
-        
         state.apiKey = key;
         $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
         
-        // --- INITIALISATION DU CHAT ---
         if (state.chatSessions.length === 0) {
-          // Message de bienvenue du Mentor
-          const welcomeMsg = `Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 **Chat** : Générer des idées, écrire des scripts.\n🖼️ **Image** : Créer des visuels (1K/2K/4K).\n🎬 **Vidéo** : Transformer tes textes en vidéos virales.\n📖 **Histoire** : Écrire des récits complets.\n\n*Conseil : La régularité est la clé sur TikTok/Insta. Commence par 1 vidéo par jour.*`;
-          newChat(welcomeMsg);
-        } else { 
-          renderChatList(); 
-          renderChatMessages(); 
-        }
+          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 **Chat** : Générer des idées, écrire des scripts.\n🖼️ **Image** : Créer des visuels (1K/2K/4K).\n🎬 **Vidéo** : Transformer tes textes en vidéos virales.\n📖 **Histoire** : Écrire des récits complets.\n\n*Conseil : La régularité est la clé sur TikTok/Insta. Commence par 1 vidéo par jour, puis analyse ce qui fonctionne.*`);
+        } else { renderChatList(); renderChatMessages(); }
 
-        // --- INITIALISATION DES SCÈNES ---
         if (!state.imageScenes || state.imageScenes.length === 0) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
         if (!state.videoScenes || state.videoScenes.length === 0) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }];
         if (!state.storyScenes || state.storyScenes.length === 0) state.storyScenes = [{ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }];
         
         renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
-
       } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
     };
 
