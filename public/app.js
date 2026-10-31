@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v16', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v2', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v16');
+      const s = localStorage.getItem('iamastor_final_v2');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -41,28 +41,14 @@
     return res;
   }
 
-  // Fonction pour forcer le téléchargement (contourne le blocage cross-origin)
-  async function downloadFile(url, filename) {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(blobUrl);
-      document.body.removeChild(a);
-    } catch (e) {
-      // Si le fetch échoue (CORS), on ouvre dans un nouvel onglet
-      window.open(url, '_blank');
-    }
+  // Ouvre le fichier dans un nouvel onglet pour permettre le téléchargement sur iOS et Android
+  function openDownload(url) {
+    if (!url) return;
+    window.open(url, '_blank');
   }
 
   // ==========================================
-  // RENDU DES SCÈNES
+  // RENDU DES SCÈNES (Image, Vidéo, Histoire)
   // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
@@ -108,9 +94,12 @@
           </div>
 
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
+          
           ${s.videoUrl ? `
-            <video controls src="${s.videoUrl}"></video>
-            <button class="btn-download" onclick="downloadFile('${s.videoUrl}', 'iamastor-${Date.now()}.mp4')" style="margin-top:8px;width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
+            <div style="margin-top:12px;">
+              <video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video>
+              <button onclick="window.open('${s.videoUrl}', '_blank')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
+            </div>
           ` : ''}
         </div>
       `;
@@ -188,7 +177,7 @@
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000));
+          if (!finished) await new Promise(r => setTimeout(r, 20000)); 
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -262,7 +251,7 @@
     if (hi) hi.innerHTML = state.imageHistory.map(img => `
       <div class="item">
         <img src="${img.url}">
-        <button onclick="downloadFile('${img.url}', 'image-${Date.now()}.jpg')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="window.open('${img.url}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
     
@@ -270,7 +259,7 @@
     if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="downloadFile('${v.videoUrl}', 'video-${Date.now()}.mp4')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
 
@@ -278,13 +267,10 @@
     if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="downloadFile('${v.videoUrl}', 'story-${Date.now()}.mp4')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
   }
-
-  // Exposer downloadFile globalement pour les boutons onclick
-  window.downloadFile = downloadFile;
 
   // ==========================================
   // INITIALISATION
