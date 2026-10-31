@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v14', JSON.stringify({
+    try { localStorage.setItem('iamastor_v15', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v14');
+      const s = localStorage.getItem('iamastor_v15');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -84,9 +84,9 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
+            <!-- 1080P SUPPRIMÉ -->
             <select data-type="${type}" data-idx="${i}" data-key="size">
-              <option value="720P" ${s.size === '720P' ? 'selected' : ''}>720P</option>
-              <option value="1080P" ${s.size === '1080P' ? 'selected' : ''}>1080P</option>
+              <option value="720P" ${s.size === '720P' ? 'selected' : ''}>720P (Starter Plan)</option>
             </select>`}
           </div>
 
@@ -132,7 +132,9 @@
     const s = a[idx];
     if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; renderScenes(type);
+    s.status = 'loading'; 
+    s.videoUrl = null; // On nettoie l'ancienne vidéo
+    renderScenes(type);
 
     try {
       if (type === 'image') {
@@ -143,19 +145,25 @@
         if (data.images?.[0]) {
           state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio });
           s.status = 'success';
-        }
+        } else { throw new Error("Aucune image générée"); }
       } else {
-        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: s.size || '720P', aspect_ratio: s.ratio };
-        if (s.imageBase64) { body.mode = 'img2video'; body.first_frame = s.imageBase64; }
+        // Préparation de la vidéo avec l'image si elle existe
+        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: '720P', aspect_ratio: s.ratio };
+        if (s.imageBase64) { 
+          body.mode = 'img2video'; 
+          body.first_frame = s.imageBase64; 
+        }
+        
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
         if (!data.video_id) throw new Error('Erreur ID');
-        
+
         let attempts = 0;
-        // Boucle de vérification avec protection anti-429
-        while (attempts < 30) {
+        let finished = false;
+        
+        while (attempts < 30 && !finished) {
           attempts++; 
-          await new Promise(r => setTimeout(r, 20000)); // Attente de 20s entre chaque requête de statut
+          await new Promise(r => setTimeout(r, 20000)); // Attente de 20s entre chaque requête
           
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
@@ -164,23 +172,24 @@
             if (pData.status === 'completed') { 
               s.status = 'success'; 
               s.videoUrl = pData.video_url; 
-              break; 
+              finished = true;
+            } else if (pData.status === 'failed') { 
+              throw new Error('Échec de la génération.'); 
             }
-            if (pData.status === 'failed') throw new Error('Échec de la génération.');
           } catch (pollError) {
-            // Si l'API renvoie une erreur 429 (Trop de requêtes)
             if (pollError.message.includes('429') || pollError.message.includes('too many')) {
-              s.status = 'loading'; // Reste en chargement
-              // On attend 30 secondes de plus avant de réessayer pour calmer le serveur
-              await new Promise(r => setTimeout(r, 30000)); 
+              await new Promise(r => setTimeout(r, 30000)); // Si 429, pause de 30s en plus
             } else {
-              throw pollError; // Si c'est une autre erreur, on arrête tout
+              throw pollError;
             }
           }
         }
-        if (attempts >= 30) throw new Error('Délai maximum dépassé. Réessaie plus tard.');
+        if (!finished) throw new Error('Délai maximum dépassé.');
       }
-    } catch(e) { s.status = 'error'; alert(e.message); }
+    } catch(e) { 
+      s.status = 'error'; 
+      alert(e.message); 
+    }
     
     save(); renderScenes(type);
     renderHistory();
@@ -285,7 +294,7 @@
         $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
         
         if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 **Chat** : Générer des idées, écrire des scripts.\n🖼️ **Image** : Créer des visuels (1K/2K/4K).\n🎬 **Vidéo** : Transformer tes textes en vidéos virales.\n📖 **Histoire** : Écrire des récits complets.\n\n*Conseil : La régularité est la clé sur TikTok/Insta. Commence par 1 vidéo par jour, puis analyse ce qui fonctionne.*`);
+          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 **Chat** : Générer des idées, écrire des scripts.\n🖼️ **Image** : Créer des visuels (1K/2K/4K).\n🎬 **Vidéo** : Transformer tes textes en vidéos virales.\n📖 **Histoire** : Écrire des récits complets.\n\n*Conseil : La régularité est la clé sur TikTok/Insta. Commence par 1 vidéo par jour.*`);
         } else { renderChatList(); renderChatMessages(); }
 
         if (!state.imageScenes || state.imageScenes.length === 0) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
