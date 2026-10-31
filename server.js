@@ -43,7 +43,7 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
     const errText = await res.text().catch(() => 'Unknown error');
     let errJson; 
     try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
-    // ✅ On renvoie le message d'erreur EXACT d'Agnes (pour détecter "queue is full")
+    // ✅ On renvoie le message EXACT d'Agnes (pour détecter "queue is full")
     const exactMessage = errJson.error?.message || errJson.message || errJson.raw || `Agnes error ${res.status}`;
     const error = new Error(exactMessage);
     error.status = res.status;
@@ -52,7 +52,7 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
   return res.json();
 }
 
-// ✅ UPLOAD vers 0x0.st (renvoie une URL publique directe)
+// ✅ UPLOAD vers 0x0.st (URL publique directe pour keyframe)
 app.post('/api/upload', async (req, res) => {
   try {
     const { imageBase64 } = req.body;
@@ -126,7 +126,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO (gère keyframe si imageUrl est fournie)
+// ✅ VIDÉO : keyframe si imageUrl, texte sinon
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -144,7 +144,7 @@ app.post('/api/video', async (req, res) => {
       aspect_ratio: aspect_ratio || '16:9'
     };
 
-    // ✅ Mode keyframe (image vers vidéo)
+    // ✅ Mode keyframe pour image vers vidéo (URL publique obligatoire)
     if (imageUrl && imageUrl.startsWith('http')) {
       body.mode = 'keyframe';
       body.first_frame = imageUrl;
@@ -158,7 +158,6 @@ app.post('/api/video', async (req, res) => {
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
   } catch (err) { 
     console.error('Erreur vidéo (création):', err.message); 
-    // ✅ On renvoie le VRAI message d'erreur (ex: "video queue is full")
     res.status(500).json({ error: err.message }); 
   }
 });
@@ -196,7 +195,7 @@ app.get('/api/download', async (req, res) => {
   } catch (err) { res.status(500).send('Erreur : ' + err.message); }
 });
 
-// ✅ Fallback SPA (gère le dossier "public" en minuscule)
+// ✅ Fallback SPA (dossier "public" en minuscule)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
