@@ -23,7 +23,7 @@ const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 const MODELS = {
   chat: 'agnes-3.0-flash',
   image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash'  // ✅ Modèle GRATUIT Starter, 720P uniquement
+  videoFlash: 'agnes-video-2.5-flash'  // ✅ Le SEUL modèle gratuit Starter
 };
 
 function getApiKey(req) {
@@ -107,7 +107,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO FLASH - 720P UNIQUEMENT (doc officielle)
+// ✅ VIDÉO FLASH - 720P UNIQUEMENT
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -120,11 +120,10 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',  // ✅ OBLIGATOIRE pour Flash
+      size: '720P',  // ✅ OBLIGATOIRE pour Flash [citation:12]
       aspect_ratio: aspect_ratio || '16:9'
     };
 
-    // ✅ Vérification stricte : mode text = AUCUN média
     if (imageUrl && imageUrl.trim().length > 10 && imageUrl.startsWith('http')) {
       body.mode = 'reference';
       body.images = [imageUrl];
@@ -144,7 +143,7 @@ app.get('/api/video/status', async (req, res) => {
     const apiKey = getApiKey(req);
     const { video_id } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-    // ✅ model_name OBLIGATOIRE
+    // ✅ model_name OBLIGATOIRE - sinon 404 [citation:4]
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     if (!pollRes.ok) { const errText = await pollRes.text().catch(() => ''); return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); }
