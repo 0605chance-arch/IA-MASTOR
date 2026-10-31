@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_v16', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final');
+      const s = localStorage.getItem('iamastor_v16');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -41,8 +41,28 @@
     return res;
   }
 
+  // Fonction pour forcer le téléchargement (contourne le blocage cross-origin)
+  async function downloadFile(url, filename) {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+    } catch (e) {
+      // Si le fetch échoue (CORS), on ouvre dans un nouvel onglet
+      window.open(url, '_blank');
+    }
+  }
+
   // ==========================================
-  // RENDU DES SCÈNES (Image, Vidéo, Histoire)
+  // RENDU DES SCÈNES
   // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
@@ -88,12 +108,14 @@
           </div>
 
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
-          ${s.videoUrl ? `<video controls src="${s.videoUrl}"></video>` : ''}
+          ${s.videoUrl ? `
+            <video controls src="${s.videoUrl}"></video>
+            <button class="btn-download" onclick="downloadFile('${s.videoUrl}', 'iamastor-${Date.now()}.mp4')" style="margin-top:8px;width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
+          ` : ''}
         </div>
       `;
     }).join('');
 
-    // Événements
     c.querySelectorAll('textarea').forEach(el => el.oninput = e => {
       const t = e.target.dataset.type, idx = e.target.dataset.idx;
       const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes;
@@ -122,16 +144,14 @@
   }
 
   // ==========================================
-  // LOGIQUE DE GÉNÉRATION (Anti-429 garanti)
+  // LOGIQUE DE GÉNÉRATION (Anti-429)
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
     if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; 
-    s.videoUrl = null; 
-    renderScenes(type);
+    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
 
     try {
       if (type === 'image') {
@@ -152,7 +172,7 @@
         if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000)); // Pause initiale de 15s
+        await new Promise(r => setTimeout(r, 15000)); 
 
         while (attempts < 30 && !finished) {
           attempts++; 
@@ -162,14 +182,13 @@
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
             if (pData.status === 'failed') throw new Error('Échec de génération');
           } catch (err) {
-            // Si on reçoit l'erreur 429, on attend 30 secondes de plus
             if (err.message.includes('429') || err.message.includes('too many')) {
               await new Promise(r => setTimeout(r, 30000));
             } else {
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000)); // Pause de 20s
+          if (!finished) await new Promise(r => setTimeout(r, 20000));
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -240,14 +259,32 @@
   // ==========================================
   function renderHistory() {
     const hi = $('#image-history');
-    if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><a href="${img.url}" download class="item-btn">⬇ Télécharger</a></div>`).join('');
+    if (hi) hi.innerHTML = state.imageHistory.map(img => `
+      <div class="item">
+        <img src="${img.url}">
+        <button onclick="downloadFile('${img.url}', 'image-${Date.now()}.jpg')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+      </div>
+    `).join('');
     
     const hv = $('#video-history');
-    if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>`).join('');
+    if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
+      <div class="item">
+        <video controls src="${v.videoUrl}"></video>
+        <button onclick="downloadFile('${v.videoUrl}', 'video-${Date.now()}.mp4')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+      </div>
+    `).join('');
 
     const hs = $('#story-history');
-    if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>`).join('');
+    if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
+      <div class="item">
+        <video controls src="${v.videoUrl}"></video>
+        <button onclick="downloadFile('${v.videoUrl}', 'story-${Date.now()}.mp4')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+      </div>
+    `).join('');
   }
+
+  // Exposer downloadFile globalement pour les boutons onclick
+  window.downloadFile = downloadFile;
 
   // ==========================================
   // INITIALISATION
