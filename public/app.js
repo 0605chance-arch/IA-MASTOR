@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v18', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final');
+      const s = localStorage.getItem('iamastor_final_v18');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -34,6 +34,9 @@
 
   function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
 
+  // ==========================================
+  // RENDU DES SCÈNES
+  // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -79,10 +82,38 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  async function generate(type, idx) {
+  // ==========================================
+  // FILE D'ATTENTE STRICTE (respecte les 5 RPM)
+  // ==========================================
+  let generationQueue = [];
+  let isProcessing = false;
+
+  async function processQueue() {
+    if (isProcessing || generationQueue.length === 0) return;
+    isProcessing = true;
+    
+    while (generationQueue.length > 0) {
+      const { type, idx } = generationQueue.shift();
+      await executeGeneration(type, idx);
+      // ✅ 15 secondes entre chaque création = max 4 requêtes par minute (sous la limite de 5)
+      await new Promise(r => setTimeout(r, 15000));
+    }
+    
+    isProcessing = false;
+  }
+
+  function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
+    
     s.status = 'loading'; s.videoUrl = null; renderScenes(type);
+    generationQueue.push({ type, idx });
+    processQueue();
+  }
+
+  async function executeGeneration(type, idx) {
+    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+    const s = a[idx];
 
     try {
       if (type === 'image') {
@@ -101,6 +132,7 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
+        // ✅ Polling toutes les 2 minutes (très lent pour ne pas consommer le RPM)
         let attempts = 0, finished = false;
         await new Promise(r => setTimeout(r, 60000)); 
         
@@ -130,6 +162,9 @@
     save(); renderScenes(type); renderHistory();
   }
 
+  // ==========================================
+  // CHAT
+  // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
