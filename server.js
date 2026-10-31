@@ -4,7 +4,6 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-const FormData = require('form-data');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -14,8 +13,12 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const limiter = rateLimit({ windowMs: 60 * 1000, max: 100 });
-app.use('/api/', limiter);
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: "Trop de requêtes, veuillez patienter." }
+});
+app.use("/api/", apiLimiter);
 
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
@@ -30,6 +33,19 @@ function getApiKey(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) throw new Error('MISSING_API_KEY');
   return auth.replace('Bearer ', '').trim();
+}
+
+async function fetchWithRetry(url, options, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok && response.status >= 500) throw new Error("Erreur serveur");
+      return response;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(res => setTimeout(res, 1000 * (i + 1)));
+    }
+  }
 }
 
 async function agnesFetch(endpoint, apiKey, options = {}) {
@@ -50,35 +66,6 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
   }
   return res.json();
 }
-
-// ✅ UPLOAD vers 0x0.st (renvoie une URL publique directe pour keyframe)
-app.post('/api/upload', async (req, res) => {
-  try {
-    const { imageBase64 } = req.body;
-    if (!imageBase64) return res.status(400).json({ error: 'Image manquante' });
-    
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-    const buffer = Buffer.from(base64Data, 'base64');
-    
-    const form = new FormData();
-    form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
-    
-    const response = await fetch('https://0x0.st', {
-      method: 'POST',
-      body: form,
-      headers: { 'User-Agent': 'IA-MASTOR/1.0' }
-    });
-    
-    if (!response.ok) throw new Error('Erreur upload 0x0.st');
-    const url = (await response.text()).trim();
-    if (!url.startsWith('http')) throw new Error('URL invalide reçue');
-    
-    res.json({ url });
-  } catch (err) { 
-    console.error('Erreur upload:', err);
-    res.status(500).json({ error: err.message }); 
-  }
-});
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -125,30 +112,31 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : keyframe si imageUrl fournie, text sinon
+// ✅ VIDÉO : Mode 1080P + base64 direct (comme l'ancien code qui marchait)
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { prompt, seconds = '5', aspect_ratio = '16:9', imageUrl } = req.body;
+    const { prompt, seconds = '5', aspect_ratio = '16:9', imageBase64 } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
     
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
+    // ✅ On utilise 1080P comme l'ancien code
     const body = {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',
-      aspect_ratio: aspect_ratio || '16:9'
+      size: '1080P',
+      aspect_ratio: aspect_ratio || '16:9',
+      seed: Math.floor(Math.random() * 1000000),
+      mode: 'text'
     };
 
-    // ✅ Mode keyframe pour image vers vidéo (URL publique obligatoire)
-    if (imageUrl && imageUrl.startsWith('http')) {
-      body.mode = 'keyframe';
-      body.first_frame = imageUrl;
-    } else {
-      body.mode = 'text';
+    // ✅ On envoie le base64 direct dans body.images comme l'ancien code
+    if (imageBase64) {
+      body.mode = 'reference';
+      body.images = [`data:image/jpeg;base64,${imageBase64}`];
     }
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
@@ -164,11 +152,9 @@ app.post('/api/video', async (req, res) => {
 app.get('/api/video/status', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    // ✅ On accepte le paramètre `model` envoyé par l'app.js
     const { video_id, model = MODELS.videoFlash } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
     
-    // ✅ model_name OBLIGATOIRE pour le polling
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     
@@ -196,7 +182,6 @@ app.get('/api/download', async (req, res) => {
   } catch (err) { res.status(500).send('Erreur : ' + err.message); }
 });
 
-// ✅ Fallback SPA (dossier "public" en minuscule)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
