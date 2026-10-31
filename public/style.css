@@ -111,7 +111,7 @@ button { cursor: pointer; }
 .header { display: none; }
 .main { flex: 1; overflow: hidden; position: relative; }
 
-/* Correctif : padding-bottom pour ne pas cacher le contenu sous la nav */
+/* Padding bottom pour éviter que le contenu soit caché par la nav mobile */
 .tab { 
   display: none; 
   height: 100%; 
@@ -152,7 +152,6 @@ button { cursor: pointer; }
   border: 1px solid var(--border); 
 }
 
-/* Correctif : ajout de padding-bottom pour les puces */
 .chat-history-list { 
   display: flex; 
   gap: 8px; 
@@ -224,6 +223,7 @@ button { cursor: pointer; }
   appearance: none; 
 }
 
+/* Correction : le bouton générer est bien visible */
 .scene .btn-gen { 
   width: 100%; 
   padding: 12px; 
@@ -233,6 +233,7 @@ button { cursor: pointer; }
   font-weight: 600; 
   font-size: 14px; 
   transition: opacity .2s; 
+  display: block;
 }
 .scene .btn-gen:disabled { opacity: .5; }
 
