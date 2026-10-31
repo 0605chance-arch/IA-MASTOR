@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v15', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v16', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v15');
+      const s = localStorage.getItem('iamastor_final_v16');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -95,7 +95,6 @@
     while (generationQueue.length > 0) {
       const { type, idx } = generationQueue.shift();
       await executeGeneration(type, idx);
-      // Attente de 2 secondes entre chaque vidéo pour respecter le RPM
       await new Promise(r => setTimeout(r, 2000));
     }
     
@@ -132,11 +131,11 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
-        // ✅ Polling lent : 15 secondes d'attente initiale, puis 20 secondes entre chaque
+        // ✅ POLLING LENT : 1 minute d'attente initiale, puis 2 minutes entre chaque vérification
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000));
+        await new Promise(r => setTimeout(r, 60000)); 
         
-        while (attempts < 30 && !finished) {
+        while (attempts < 15 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
@@ -148,16 +147,19 @@
               throw new Error('Échec Agnes'); 
             }
           } catch (err) {
-            const errMsg = (err.message || '').toLowerCase();
-            if (errMsg.includes('429') || errMsg.includes('too many')) {
-              await new Promise(r => setTimeout(r, 60000)); // Pause 60s si 429
-            }
+            console.warn('Polling erreur:', err.message);
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000)); // 20s entre chaque vérif
+          
+          if (!finished) await new Promise(r => setTimeout(r, 120000)); // 2 minutes entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
-    } catch(e) { s.status = 'error'; console.error(e); }
+    } catch(e) { 
+      s.status = 'error'; 
+      console.error(e); 
+      // On affiche l'erreur pour comprendre
+      if (e.message.includes('quota')) alert(e.message);
+    }
     save(); renderScenes(type); renderHistory();
   }
 
