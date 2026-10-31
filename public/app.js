@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v2', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_fix', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v2');
+      const s = localStorage.getItem('iamastor_final_fix');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -41,14 +41,8 @@
     return res;
   }
 
-  // Ouvre le fichier dans un nouvel onglet pour permettre le téléchargement sur iOS et Android
-  function openDownload(url) {
-    if (!url) return;
-    window.open(url, '_blank');
-  }
-
   // ==========================================
-  // RENDU DES SCÈNES (Image, Vidéo, Histoire)
+  // RENDU DES SCÈNES
   // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
@@ -98,7 +92,7 @@
           ${s.videoUrl ? `
             <div style="margin-top:12px;">
               <video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video>
-              <button onclick="window.open('${s.videoUrl}', '_blank')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
+              <button onclick="window.open('${s.videoUrl}', '_blank')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">📥 Ouvrir pour télécharger</button>
             </div>
           ` : ''}
         </div>
@@ -133,7 +127,7 @@
   }
 
   // ==========================================
-  // LOGIQUE DE GÉNÉRATION (Anti-429)
+  // GÉNÉRATION (avec gestion d'erreur stricte)
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -161,33 +155,39 @@
         if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000)); 
+        await new Promise(r => setTimeout(r, 20000));
 
-        while (attempts < 30 && !finished) {
+        while (attempts < 25 && !finished) {
           attempts++; 
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
             const pData = await pRes.json();
-            if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
-            if (pData.status === 'failed') throw new Error('Échec de génération');
+            if (pData.status === 'completed') { 
+              s.status = 'success'; s.videoUrl = pData.video_url; finished = true; 
+            } else if (pData.status === 'failed') { 
+              throw new Error('La génération a échoué côté Agnes'); 
+            }
           } catch (err) {
             if (err.message.includes('429') || err.message.includes('too many')) {
-              await new Promise(r => setTimeout(r, 30000));
+              await new Promise(r => setTimeout(r, 40000));
             } else {
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000)); 
+          if (!finished) await new Promise(r => setTimeout(r, 25000)); 
         }
-        if (!finished) throw new Error('Délai dépassé');
+        if (!finished) throw new Error('Délai dépassé (plus de 10 minutes)');
       }
-    } catch(e) { s.status = 'error'; alert(e.message); }
+    } catch(e) { 
+      s.status = 'error'; 
+      console.error(e);
+    }
     
     save(); renderScenes(type); renderHistory();
   }
 
   // ==========================================
-  // LOGIQUE CHAT
+  // CHAT
   // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
@@ -251,7 +251,7 @@
     if (hi) hi.innerHTML = state.imageHistory.map(img => `
       <div class="item">
         <img src="${img.url}">
-        <button onclick="window.open('${img.url}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="window.open('${img.url}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">📥 Ouvrir l'image</button>
       </div>
     `).join('');
     
@@ -259,7 +259,7 @@
     if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">📥 Ouvrir la vidéo</button>
       </div>
     `).join('');
 
@@ -267,7 +267,7 @@
     if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
+        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">📥 Ouvrir la vidéo</button>
       </div>
     `).join('');
   }
