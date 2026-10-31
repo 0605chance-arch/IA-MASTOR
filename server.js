@@ -121,13 +121,14 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',  // ✅ OBLIGATOIRE pour Flash [citation:1][citation:5]
+      size: '720P',  // ✅ OBLIGATOIRE pour Flash 
       aspect_ratio: aspect_ratio || '16:9'
     };
 
-    if (imageUrl) {
+    // ✅ Vérification stricte de l'URL
+    if (imageUrl && imageUrl.trim().length > 10 && imageUrl.startsWith('http')) {
       body.mode = 'reference';
-      body.images = [imageUrl];  // ✅ URL publique uniquement [citation:1]
+      body.images = [imageUrl];
     } else {
       body.mode = 'text';
     }
@@ -144,7 +145,7 @@ app.get('/api/video/status', async (req, res) => {
     const apiKey = getApiKey(req);
     const { video_id } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-    // ✅ model_name OBLIGATOIRE pour tous les modes Flash [citation:5][citation:9]
+    // ✅ model_name OBLIGATOIRE pour tous les modes Flash 
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     if (!pollRes.ok) { const errText = await pollRes.text().catch(() => ''); return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); }
