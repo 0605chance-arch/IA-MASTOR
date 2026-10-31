@@ -1,311 +1,383 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const fetch = require('node-fetch');
-const rateLimit = require('express-rate-limit');
-const path = require('path');
+(function () {
+  'use strict';
 
-const app = express();
-const PORT = process.env.PORT || 10000;
+  const state = {
+    apiKey: null, chatSessions: [], currentChatId: null, imageHistory: [],
+    videoScenes: [], storyScenes: [], imageScenes: [], storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}]
+  };
 
-// ✅ CORRECTION CRITIQUE POUR RENDER (Proxy)
-app.set('trust proxy', 1);
+  const $ = s => document.querySelector(s);
 
-// ============================================================
-// MIDDLEWARE
-// ============================================================
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '50mb' })); // 50mb pour les images en base64
-app.use(express.static(path.join(__dirname, 'public')));
+  function save() {
+    try { localStorage.setItem('iamastor_final_v1', JSON.stringify({
+      chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
+      videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
+      storyChars: state.storyChars
+    })); } catch(e){}
+  }
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  message: { error: 'Trop de requêtes. Patiente une minute.' }
-});
-app.use('/api/', limiter);
+  function load() {
+    try {
+      const s = localStorage.getItem('iamastor_final_v1');
+      if (s) {
+        const p = JSON.parse(s);
+        state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
+        state.videoScenes = p.videoScenes || []; state.storyScenes = p.storyScenes || [];
+        state.imageScenes = p.imageScenes || []; state.storyChars = p.storyChars || [{name:'', img:null},{name:'', img:null},{name:'', img:null}];
+      }
+    } catch(e){}
+  }
 
-// ============================================================
-// CONFIGURATION AGNES
-// ============================================================
-const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
-const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
-
-const MODELS = {
-  chat: 'agnes-3.0-flash',                // Modèle texte actuel
-  image: 'agnes-image-2.5-flash',         // Modèle image
-  videoFlash: 'agnes-video-2.5-flash',    // Vidéo 720P (Starter)
-  videoPro: 'agnes-video-2.5'             // Vidéo 1080P (Pro)
-};
-
-// ============================================================
-// HELPERS
-// ============================================================
-function getApiKey(req) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) throw new Error('MISSING_API_KEY');
-  return auth.replace('Bearer ', '').trim();
-}
-
-async function agnesFetch(endpoint, apiKey, options = {}) {
-  const url = `${AGNES_BASE}${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
+  async function api(url, options = {}) {
+    if (!state.apiKey) throw new Error('Clé manquante');
+    const res = await fetch(`/api${url}`, {
+      ...options,
+      headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
+    });
+    if (!res.ok) { 
+      const e = await res.json().catch(()=>({error:'Erreur API'})); 
+      throw new Error(e.error || 'Erreur API'); 
     }
+    return res;
+  }
+
+  // ==========================================
+  // RENDU DES SCÈNES (Image, Vidéo, Histoire)
+  // ==========================================
+  function renderScenes(type) {
+    const isImg = type === 'image', isVid = type === 'video', isStory = type === 'story';
+    const c = $(`#${type}-scenes`);
+    if (!c) return;
+    const arr = isImg ? state.imageScenes : (isVid ? state.videoScenes : state.storyScenes);
+
+    if (!arr || arr.length === 0) {
+      c.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">Aucune scène. Clique sur +.</p>';
+      return;
+    }
+
+    c.innerHTML = arr.map((s, i) => {
+      const status = s.status === 'loading' ? '⏳ En cours...' : s.status === 'error' ? '❌ Erreur' : s.status === 'success' ? '✅ Prêt' : '⏸ En attente';
+      return `
+        <div class="scene">
+          <div class="scene-head"><span>SCÈNE ${i+1}</span><span>${status}</span></div>
+          <textarea placeholder="Décris cette scène..." data-type="${type}" data-idx="${i}">${s.prompt || ''}</textarea>
+          
+          <input type="file" accept="image/*" hidden id="${type}-ref-${i}">
+          <label for="${type}-ref-${i}" class="btn-upload" style="display:block;padding:10px;background:var(--bg);border-radius:8px;text-align:center;font-size:12px;margin-bottom:12px;cursor:pointer;">
+            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image (Optionnel)'}
+          </label>
+
+          <div class="row">
+            <select data-type="${type}" data-idx="${i}" data-key="ratio">
+              <option value="9:16" ${s.ratio === '9:16' ? 'selected' : ''}>9:16</option>
+              <option value="16:9" ${s.ratio === '16:9' ? 'selected' : ''}>16:9</option>
+              ${isImg ? `<option value="1:1" ${s.ratio === '1:1' ? 'selected' : ''}>1:1</option>` : ''}
+            </select>
+            ${isImg ? `
+            <select data-type="${type}" data-idx="${i}" data-key="size">
+              <option value="1K" ${s.size === '1K' ? 'selected' : ''}>1K</option>
+              <option value="2K" ${s.size === '2K' ? 'selected' : ''}>2K</option>
+              <option value="4K" ${s.size === '4K' ? 'selected' : ''}>4K</option>
+            </select>` : `
+            <select data-type="${type}" data-idx="${i}" data-key="seconds">
+              ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
+            </select>
+            <select data-type="${type}" data-idx="${i}" data-key="size" disabled>
+              <option value="720P" selected>720P (Starter)</option>
+            </select>`}
+          </div>
+
+          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
+          ${s.videoUrl ? `<video controls src="${s.videoUrl}"></video>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    // Événements de saisie
+    c.querySelectorAll('textarea').forEach(el => el.addEventListener('input', e => {
+      const t = e.target.dataset.type, idx = e.target.dataset.idx;
+      const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes;
+      a[idx].prompt = e.target.value; save();
+    }));
+    c.querySelectorAll('select').forEach(el => el.addEventListener('change', e => {
+      const t = e.target.dataset.type, idx = e.target.dataset.idx, key = e.target.dataset.key;
+      const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes;
+      a[idx][key] = e.target.value; save();
+    }));
+    
+    // Événements d'upload d'image
+    c.querySelectorAll('.btn-upload').forEach((el, i) => {
+      const input = c.querySelector(`#${type}-ref-${i}`);
+      if (input) input.addEventListener('change', e => {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => { 
+          const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+          a[i].imageBase64 = ev.target.result; renderScenes(type); save(); 
+        };
+        r.readAsDataURL(f);
+      });
+    });
+
+    // Événements de génération
+    c.querySelectorAll('.btn-gen').forEach(el => el.addEventListener('click', e => {
+      const t = e.target.dataset.type, idx = e.target.dataset.idx;
+      generate(t, idx);
+    }));
+  }
+
+  // ==========================================
+  // LOGIQUE DE GÉNÉRATION (Anti-429 garanti)
+  // ==========================================
+  async function generate(type, idx) {
+    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+    const s = a[idx];
+    if (!s.prompt) return alert('Écris un prompt.');
+    
+    s.status = 'loading'; 
+    s.videoUrl = null; 
+    renderScenes(type);
+
+    try {
+      if (type === 'image') {
+        const body = { prompt: s.prompt, size: s.size || '2K', ratio: s.ratio, n: 1 };
+        if (s.imageBase64) { body.mode = 'img2img'; body.referenceImages = [s.imageBase64]; }
+        
+        const res = await api('/image', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
+        if (data.images?.[0]) {
+          state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio });
+          s.status = 'success';
+        } else { throw new Error("Aucune image générée"); }
+
+      } else {
+        // Préparation de la vidéo
+        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: '720P', aspect_ratio: s.ratio };
+        if (s.imageBase64) { 
+          body.mode = 'img2video'; 
+          body.first_frame = s.imageBase64; 
+        }
+        
+        const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!data.video_id) throw new Error('Erreur ID de génération');
+
+        let attempts = 0;
+        let finished = false;
+        
+        // Pause initiale de 15 secondes pour laisser Agnes respirer
+        await new Promise(r => setTimeout(r, 15000));
+
+        while (attempts < 30 && !finished) {
+          attempts++; 
+          
+          try {
+            const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
+            const pData = await pRes.json();
+            
+            if (pData.status === 'completed') { 
+              s.status = 'success'; 
+              s.videoUrl = pData.video_url; 
+              finished = true;
+            } else if (pData.status === 'failed') { 
+              throw new Error('Échec de la génération.'); 
+            }
+          } catch (pollError) {
+            // Si on reçoit l'erreur 429 (Too many requests)
+            if (pollError.message.includes('429') || pollError.message.toLowerCase().includes('too many')) {
+              // On attend 35 secondes de plus avant de relancer la vérification
+              await new Promise(r => setTimeout(r, 35000));
+            } else {
+              throw pollError;
+            }
+          }
+          
+          // Attente de 20 secondes entre chaque vérification normale
+          if (!finished) {
+            await new Promise(r => setTimeout(r, 20000)); 
+          }
+        }
+        if (!finished) throw new Error('Délai maximum dépassé.');
+      }
+    } catch(e) { 
+      s.status = 'error'; 
+      alert(e.message); 
+    }
+    
+    save(); renderScenes(type);
+    renderHistory();
+  }
+
+  // ==========================================
+  // LOGIQUE CHAT (avec message de bienvenue)
+  // ==========================================
+  function newChat(welcome = null) {
+    const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
+    if (welcome) c.messages.push({ role: 'assistant', content: welcome });
+    state.chatSessions.unshift(c); state.currentChatId = c.id;
+    renderChatList(); renderChatMessages(); save();
+  }
+
+  function renderChatList() {
+    const l = $('#chat-history-list'); if (!l) return;
+    l.innerHTML = state.chatSessions.map(s => `
+      <div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">${s.title}</div>
+    `).join('');
+    l.querySelectorAll('.history-chip').forEach(el => {
+      el.onclick = () => { state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); };
+    });
+  }
+
+  function renderChatMessages() {
+    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId);
+    if (!box || !sess) return;
+    box.innerHTML = sess.messages.map(m => {
+      let content = typeof m.content === 'string' ? m.content : '';
+      if (Array.isArray(m.content)) m.content.forEach(c => { if (c.type === 'text') content += c.text; });
+      return `<div class="msg ${m.role}">${content.replace(/\n/g, '<br>')}</div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function sendChat(text) {
+    const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
+    
+    let content = text;
+    if (state.chatImageBase64) {
+      content = [{ type: 'text', text: text }, { type: 'image_url', image_url: { url: state.chatImageBase64 } }];
+      state.chatImageBase64 = null; // Reset après envoi
+      $('#chat-input').placeholder = 'Message...';
+    }
+
+    sess.messages.push({ role: 'user', content });
+    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
+    renderChatList(); renderChatMessages();
+    
+    const box = $('#chat-messages'); const placeholder = document.createElement('div');
+    placeholder.className = 'msg assistant'; placeholder.textContent = '...'; box.appendChild(placeholder);
+
+    try {
+      const res = await api('/chat', { method: 'POST', body: JSON.stringify({ messages: sess.messages.slice(-15), stream: true }) });
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = '', buffer = '';
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim(); if (data === '[DONE]') continue;
+            try { 
+              const p = JSON.parse(data); const delta = p.choices?.[0]?.delta?.content || '';
+              if (delta) { full += delta; placeholder.innerHTML = full.replace(/\n/g, '<br>'); box.scrollTop = box.scrollHeight; }
+            } catch(e) {}
+          }
+        }
+      }
+      sess.messages.push({ role: 'assistant', content: full }); save();
+    } catch(err) { placeholder.textContent = `❌ ${err.message}`; }
+  }
+
+  // ==========================================
+  // HISTORIQUES
+  // ==========================================
+  function renderHistory() {
+    const hi = $('#image-history');
+    if (hi) hi.innerHTML = state.imageHistory.map(img => `
+      <div class="item"><img src="${img.url}"><a href="${img.url}" download class="item-btn">⬇ Télécharger</a></div>
+    `).join('');
+    
+    const hv = $('#video-history');
+    if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
+      <div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>
+    `).join('');
+
+    const hs = $('#story-history');
+    if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
+      <div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>
+    `).join('');
+  }
+
+  // ==========================================
+  // INITIALISATION
+  // ==========================================
+  document.addEventListener('DOMContentLoaded', () => {
+    load();
+    
+    $('#login-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const key = $('#api-key').value.trim();
+      const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = '...';
+      try {
+        const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
+        const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
+        state.apiKey = key;
+        $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
+        
+        if (state.chatSessions.length === 0) {
+          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 **Chat** : Générer des idées, écrire des scripts.\n🖼️ **Image** : Créer des visuels (1K/2K/4K).\n🎬 **Vidéo** : Transformer tes textes en vidéos virales.\n📖 **Histoire** : Écrire des récits complets.\n\n*Conseil : La régularité est la clé sur TikTok/Insta.*`);
+        } else { renderChatList(); renderChatMessages(); }
+
+        if (!state.imageScenes || state.imageScenes.length === 0) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
+        if (!state.videoScenes || state.videoScenes.length === 0) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }];
+        if (!state.storyScenes || state.storyScenes.length === 0) state.storyScenes = [{ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }];
+        
+        renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
+      } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
+    };
+
+    document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => {
+      b.onclick = () => {
+        document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll(`[data-tab="${b.dataset.tab}"]`).forEach(x => x.classList.add('active'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelector(`#tab-${b.dataset.tab}`).classList.add('active');
+      };
+    });
+
+    $('#new-chat-btn').onclick = () => newChat();
+    $('#chat-form').onsubmit = (e) => {
+      e.preventDefault();
+      const v = $('#chat-input').value.trim(); if (!v) return;
+      $('#chat-input').value = ''; sendChat(v);
+    };
+    $('#chat-file-btn').onclick = () => $('#chat-file').click();
+    $('#chat-file').onchange = (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; };
+      r.readAsDataURL(f);
+    };
+
+    $('#add-image-prompt').onclick = () => {
+      state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' });
+      renderScenes('image'); save();
+    };
+    $('#add-scene-video').onclick = () => {
+      state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' });
+      renderScenes('video'); save();
+    };
+    $('#add-story-scene').onclick = () => {
+      state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' });
+      renderScenes('story'); save();
+    };
+    
+    $('#story-synopsis').oninput = e => { save(); };
+    document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => {
+      el.oninput = e => { state.storyChars[i].name = e.target.value; save(); };
+    });
+    document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => {
+      el.onchange = e => {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => { 
+          state.storyChars[i].img = ev.target.result; 
+          const btn = document.querySelector(`#char-btn-${i}`);
+          if(btn) btn.innerHTML = '✅';
+          save(); 
+        };
+        r.readAsDataURL(f);
+      };
+    });
   });
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => 'Unknown error');
-    let errJson;
-    try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
-    const error = new Error(errJson.error?.message || errJson.message || `Agnes API error ${res.status}`);
-    error.status = res.status;
-    error.details = errJson;
-    throw error;
-  }
-  return res.json();
-}
-
-// ============================================================
-// ROUTES API
-// ============================================================
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', app: 'IA MASTOR', timestamp: Date.now() });
-});
-
-app.post('/api/validate-key', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    await agnesFetch('/chat/completions', apiKey, {
-      method: 'POST',
-      body: JSON.stringify({
-        model: MODELS.chat,
-        messages: [{ role: 'user', content: 'Hi' }],
-        max_tokens: 5,
-        stream: false
-      })
-    });
-    res.json({ valid: true, message: 'Clé valide.' });
-  } catch (err) {
-    const status = err.status || 401;
-    res.status(status).json({
-      valid: false,
-      error: err.message === 'MISSING_API_KEY' ? 'Clé API manquante.' : 'Clé invalide ou expirée.'
-    });
-  }
-});
-
-// CHAT
-app.post('/api/chat', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { messages, stream = true } = req.body;
-    if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages requis' });
-
-    const body = {
-      model: MODELS.chat,
-      messages: messages.slice(-20),
-      stream: stream,
-      temperature: 0.8,
-      max_tokens: 4096
-    };
-
-    const response = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
-    if (!response.ok) return res.status(response.status).json({ error: await response.text() });
-
-    if (!stream) {
-      const data = await response.json();
-      return res.json(data);
-    }
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    response.body.on('data', (chunk) => {
-      res.write(chunk);
-      if (typeof res.flush === 'function') res.flush();
-    });
-    response.body.on('end', () => res.end());
-    response.body.on('error', (e) => {
-      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
-      res.end();
-    });
-
-  } catch (err) {
-    if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-      res.end();
-    } else {
-      res.status(err.status || 500).json({ error: err.message });
-    }
-  }
-});
-
-// IMAGE
-app.post('/api/image', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { prompt, size = '2K', ratio = '16:9', n = 1 } = req.body;
-    if (!prompt) return res.status(400).json({ error: 'prompt requis' });
-
-    const validSizes = ['1K', '2K', '3K', '4K'];
-    const finalSize = validSizes.includes(size) ? size : '2K';
-
-    const body = {
-      model: MODELS.image,
-      prompt: prompt.trim(),
-      n: Math.min(n, 4),
-      size: finalSize,
-      extra_body: { response_format: 'url', ratio: ratio || '16:9' }
-    };
-
-    const data = await agnesFetch('/images/generations', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const images = (data.data || []).map(item => ({ url: item.url || null, b64: item.b64_json || null })).filter(i => i.url || i.b64);
-
-    res.json({ success: true, images, size: finalSize, ratio, prompt });
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
-});
-
-// VIDEO
-app.post('/api/video', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { prompt, seconds = '5', size = '720P', aspect_ratio = '16:9' } = req.body;
-    if (!prompt) return res.status(400).json({ error: 'prompt requis' });
-
-    const isPro = size === '1080P' || size === '2K';
-    const model = isPro ? MODELS.videoPro : MODELS.videoFlash;
-    const finalSize = isPro ? '1080P' : '720P';
-
-    const body = {
-      model,
-      prompt: prompt.trim(),
-      mode: 'text',
-      seconds: String(Math.min(12, Math.max(4, parseInt(seconds) || 5))),
-      size: finalSize,
-      aspect_ratio: aspect_ratio || '16:9'
-    };
-
-    const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const videoId = createData.video_id || createData.id || createData.task_id;
-    if (!videoId) return res.status(500).json({ error: 'Pas de video_id', raw: createData });
-
-    res.json({ success: true, video_id: videoId, model, status: 'queued' });
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
-});
-
-app.get('/api/video/status', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { video_id, model = MODELS.videoFlash } = req.query;
-    if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-
-    const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
-    const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-
-    if (!pollRes.ok) {
-      const err = await pollRes.text().catch(() => '');
-      return res.status(pollRes.status).json({ error: `Polling error: ${err}` });
-    }
-
-    const data = await pollRes.json();
-    res.json({
-      success: true,
-      status: data.status || 'unknown',
-      video_url: data.url || data.video_url || data.output?.url || null,
-      progress: data.progress || null,
-      error: data.error || null
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// STORY
-app.post('/api/story', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { messages, storyState = {}, theme = null } = req.body;
-    if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages requis' });
-
-    let systemPrompt = `Tu es le moteur narratif d'IA MASTOR. Tu génères des histoires cohérentes, captivantes et virales.
-RÈGLES ABSOLUES :
-1. Tu te souviens de TOUT l'historique.
-2. Tu maintiens la cohérence des personnages et du ton.
-3. Tu génères des prompts vidéo ultra-détaillés pour Agnes Video (720P/1080P).
-`;
-
-    if (theme) systemPrompt += `THÉMATIQUE ACTIVE : ${theme}\n`;
-    if (storyState.synopsis) systemPrompt += `SYNOPSIS ACTUEL : ${storyState.synopsis}\n`;
-    if (storyState.characters && storyState.characters.length > 0) {
-      systemPrompt += `PERSONNAGES PRINCIPAUX :\n`;
-      storyState.characters.forEach((c, i) => { systemPrompt += `  ${i + 1}. ${c.name || 'Personnage ' + (i+1)}\n`; });
-    }
-
-    const augmentedMessages = [{ role: 'system', content: systemPrompt }, ...messages.slice(-15)];
-    const body = { model: MODELS.chat, messages: augmentedMessages, stream: true, temperature: 0.9, max_tokens: 8192 };
-
-    const response = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
-    if (!response.ok) return res.status(response.status).json({ error: await response.text() });
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    response.body.on('data', (chunk) => {
-      res.write(chunk);
-      if (typeof res.flush === 'function') res.flush();
-    });
-    response.body.on('end', () => res.end());
-    response.body.on('error', (e) => {
-      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
-      res.end();
-    });
-  } catch (err) {
-    if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-      res.end();
-    } else {
-      res.status(err.status || 500).json({ error: err.message });
-    }
-  }
-});
-
-// FALLBACK SPA
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// DÉMARRAGE
-app.listen(PORT, () => {
-  console.log(`🚀 IA MASTOR démarré sur le port ${PORT}`);
-});
-
-process.on('SIGTERM', () => {
-  process.exit(0);
-});
+})();
