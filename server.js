@@ -52,7 +52,7 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
   return res.json();
 }
 
-// ✅ UPLOAD vers 0x0.st (URL publique directe pour keyframe)
+// ✅ UPLOAD vers 0x0.st (renvoie une URL publique directe pour keyframe)
 app.post('/api/upload', async (req, res) => {
   try {
     const { imageBase64 } = req.body;
@@ -126,7 +126,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : keyframe si imageUrl, texte sinon
+// ✅ VIDÉO : keyframe si imageUrl fournie, text sinon
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -168,6 +168,7 @@ app.get('/api/video/status', async (req, res) => {
     const { video_id } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
     
+    // ✅ model_name OBLIGATOIRE pour le polling
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     
