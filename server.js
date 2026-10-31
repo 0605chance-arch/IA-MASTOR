@@ -8,27 +8,36 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// ✅ Configuration critique pour Render (gestion des IP derrière le proxy)
 app.set('trust proxy', 1);
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Limiteur de requêtes (protection contre le spam)
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: { error: 'Trop de requêtes.' }
+  message: { error: 'Trop de requêtes. Patiente une minute.' }
 });
 app.use('/api/', limiter);
 
+// ============================================================
+// CONFIGURATION AGNES
+// ============================================================
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
 const MODELS = {
   chat: 'agnes-3.0-flash',
   image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash'
+  video: 'agnes-video-2.5'  // ✅ Modèle non-Flash qui accepte le 1080P
 };
 
+// ============================================================
+// HELPERS
+// ============================================================
 function getApiKey(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) throw new Error('MISSING_API_KEY');
@@ -61,14 +70,20 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
 // ROUTES API
 // ============================================================
 
+// Vérification de la santé du serveur
 app.get('/api/health', (req, res) => res.json({ status: 'ok', app: 'IA MASTOR' }));
 
+// Validation de la clé API
 app.post('/api/validate-key', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     await agnesFetch('/chat/completions', apiKey, {
       method: 'POST',
-      body: JSON.stringify({ model: MODELS.chat, messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 })
+      body: JSON.stringify({ 
+        model: MODELS.chat, 
+        messages: [{ role: 'user', content: 'Hi' }], 
+        max_tokens: 5 
+      })
     });
     res.json({ valid: true });
   } catch (err) {
@@ -76,11 +91,18 @@ app.post('/api/validate-key', async (req, res) => {
   }
 });
 
+// CHAT (Streaming)
 app.post('/api/chat', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { messages, stream = true } = req.body;
-    const body = { model: MODELS.chat, messages: messages.slice(-20), stream, temperature: 0.8 };
+    
+    const body = { 
+      model: MODELS.chat, 
+      messages: messages.slice(-20), 
+      stream, 
+      temperature: 0.8 
+    };
 
     const response = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: 'POST',
@@ -97,7 +119,10 @@ app.post('/api/chat', async (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
+    response.body.on('data', (chunk) => { 
+      res.write(chunk); 
+      if (typeof res.flush === 'function') res.flush(); 
+    });
     response.body.on('end', () => res.end());
   } catch (err) {
     if (res.headersSent) res.end();
@@ -105,10 +130,12 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// IMAGE
 app.post('/api/image', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, size = '2K', ratio = '16:9', n = 1 } = req.body;
+    
     const body = {
       model: MODELS.image,
       prompt: prompt.trim(),
@@ -116,8 +143,10 @@ app.post('/api/image', async (req, res) => {
       size: ['1K', '2K', '3K', '4K'].includes(size) ? size : '2K',
       extra_body: { response_format: 'url', ratio: ratio || '16:9' }
     };
+
     const data = await agnesFetch('/images/generations', apiKey, { method: 'POST', body: JSON.stringify(body) });
     const images = (data.data || []).map(item => ({ url: item.url })).filter(i => i.url);
+    
     res.json({ success: true, images });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -125,42 +154,44 @@ app.post('/api/image', async (req, res) => {
 });
 
 // ============================================================
-// VIDÉO - CORRIGÉ (mode 'text' uniquement pour Flash)
+// VIDÉO (Modèle non-Flash pour le 1080P)
 // ============================================================
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { prompt, seconds = '5', aspect_ratio = '16:9' } = req.body;
+    const { prompt, seconds = '5', aspect_ratio = '16:9', size = '1080P' } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
 
+    // On s'assure que la durée est entre 4 et 12 secondes
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
-    // ✅ On force le mode 'text' car le mode reference n'est pas supporté sur Starter
     const body = {
-      model: MODELS.videoFlash,
+      model: MODELS.video,
       prompt: prompt.trim(),
       mode: 'text',
       seconds: finalSeconds,
-      size: '720P',
+      size: size,  // ✅ Accepte 720P ou 1080P
       aspect_ratio: aspect_ratio || '16:9'
     };
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
     const videoId = createData.video_id || createData.id || createData.task_id;
-    if (!videoId) throw new Error('Pas de video_id');
+    
+    if (!videoId) throw new Error('Pas de video_id reçu');
 
-    res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
+    res.json({ success: true, video_id: videoId, model: MODELS.video });
   } catch (err) {
     console.error('Erreur création vidéo:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Statut de la vidéo (Polling)
 app.get('/api/video/status', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { video_id, model = MODELS.videoFlash } = req.query;
+    const { video_id, model = MODELS.video } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
 
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
@@ -185,7 +216,7 @@ app.get('/api/video/status', async (req, res) => {
 });
 
 // ============================================================
-// TÉLÉCHARGEMENT DIRECT
+// TÉLÉCHARGEMENT DIRECT (Le bouton magique)
 // ============================================================
 app.get('/api/download', async (req, res) => {
   try {
@@ -207,9 +238,13 @@ app.get('/api/download', async (req, res) => {
   }
 });
 
+// Fallback : redirige toutes les autres requêtes vers l'index.html
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ============================================================
+// DÉMARRAGE
+// ============================================================
 app.listen(PORT, () => console.log(`🚀 IA MASTOR démarré sur le port ${PORT}`));
