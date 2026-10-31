@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_fix', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v4', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_fix');
+      const s = localStorage.getItem('iamastor_final_v4');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -39,6 +39,13 @@
       throw new Error(e.error || 'Erreur API'); 
     }
     return res;
+  }
+
+  // Fonction magique de téléchargement via le serveur
+  function downloadFile(url, filename) {
+    if (!url) return;
+    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}`;
+    window.location.href = downloadUrl;
   }
 
   // ==========================================
@@ -82,9 +89,7 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select data-type="${type}" data-idx="${i}" disabled>
-              <option value="720P" selected>720P</option>
-            </select>`}
+            <select disabled><option>720P</option></select>`}
           </div>
 
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
@@ -92,7 +97,7 @@
           ${s.videoUrl ? `
             <div style="margin-top:12px;">
               <video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video>
-              <button onclick="window.open('${s.videoUrl}', '_blank')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">📥 Ouvrir pour télécharger</button>
+              <button onclick="downloadFile('${s.videoUrl}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button>
             </div>
           ` : ''}
         </div>
@@ -127,7 +132,7 @@
   }
 
   // ==========================================
-  // GÉNÉRATION (avec gestion d'erreur stricte)
+  // GÉNÉRATION
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -155,7 +160,7 @@
         if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 20000));
+        await new Promise(r => setTimeout(r, 15000));
 
         while (attempts < 25 && !finished) {
           attempts++; 
@@ -165,23 +170,20 @@
             if (pData.status === 'completed') { 
               s.status = 'success'; s.videoUrl = pData.video_url; finished = true; 
             } else if (pData.status === 'failed') { 
-              throw new Error('La génération a échoué côté Agnes'); 
+              throw new Error('Échec côté Agnes'); 
             }
           } catch (err) {
-            if (err.message.includes('429') || err.message.includes('too many')) {
-              await new Promise(r => setTimeout(r, 40000));
+            if (err.message.includes('429')) {
+              await new Promise(r => setTimeout(r, 35000));
             } else {
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 25000)); 
+          if (!finished) await new Promise(r => setTimeout(r, 20000)); 
         }
-        if (!finished) throw new Error('Délai dépassé (plus de 10 minutes)');
+        if (!finished) throw new Error('Délai dépassé');
       }
-    } catch(e) { 
-      s.status = 'error'; 
-      console.error(e);
-    }
+    } catch(e) { s.status = 'error'; console.error(e); }
     
     save(); renderScenes(type); renderHistory();
   }
@@ -207,7 +209,6 @@
     if (!box || !sess) return;
     box.innerHTML = sess.messages.map(m => {
       let content = typeof m.content === 'string' ? m.content : '';
-      if (Array.isArray(m.content)) m.content.forEach(c => { if (c.type === 'text') content += c.text; });
       return `<div class="msg ${m.role}">${content.replace(/\n/g, '<br>')}</div>`;
     }).join('');
     box.scrollTop = box.scrollHeight;
@@ -251,7 +252,7 @@
     if (hi) hi.innerHTML = state.imageHistory.map(img => `
       <div class="item">
         <img src="${img.url}">
-        <button onclick="window.open('${img.url}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">📥 Ouvrir l'image</button>
+        <button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
     
@@ -259,7 +260,7 @@
     if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">📥 Ouvrir la vidéo</button>
+        <button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
 
@@ -267,10 +268,13 @@
     if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
       <div class="item">
         <video controls src="${v.videoUrl}"></video>
-        <button onclick="window.open('${v.videoUrl}', '_blank')" class="item-btn" style="cursor:pointer;border:none;width:100%;">📥 Ouvrir la vidéo</button>
+        <button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button>
       </div>
     `).join('');
   }
+
+  // Rendre downloadFile accessible
+  window.downloadFile = downloadFile;
 
   // ==========================================
   // INITIALISATION
