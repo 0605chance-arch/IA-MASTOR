@@ -1,11 +1,10 @@
 {
   "name": "ia-mastor",
   "version": "1.0.0",
-  "description": "IA MASTOR - BYOK AI Suite (Chat, Image, Video, Story)",
+  "description": "IA MASTOR - Suite créative IA (BYOK Agnes)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.21.2",
