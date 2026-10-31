@@ -43,7 +43,6 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
     const errText = await res.text().catch(() => 'Unknown error');
     let errJson; 
     try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
-    // ✅ On renvoie le message EXACT d'Agnes (pour détecter "queue is full")
     const exactMessage = errJson.error?.message || errJson.message || errJson.raw || `Agnes error ${res.status}`;
     const error = new Error(exactMessage);
     error.status = res.status;
@@ -165,11 +164,12 @@ app.post('/api/video', async (req, res) => {
 app.get('/api/video/status', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { video_id } = req.query;
+    // ✅ On accepte le paramètre `model` envoyé par l'app.js
+    const { video_id, model = MODELS.videoFlash } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
     
     // ✅ model_name OBLIGATOIRE pour le polling
-    const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
+    const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     
     if (!pollRes.ok) { 
