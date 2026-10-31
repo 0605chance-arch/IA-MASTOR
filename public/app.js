@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v10', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final');
+      const s = localStorage.getItem('iamastor_final_v10');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -83,7 +83,7 @@
   }
 
   // ==========================================
-  // GÉNÉRATION (avec gestion 429, file pleine et upload d'image)
+  // GÉNÉRATION
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -99,41 +99,53 @@
         if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
         else throw new Error("Erreur génération");
       } else {
-        // 1. Upload de l'image si présente
+        // 1. Upload image
         let imageUrl = null;
         if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
-          const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
-          const upData = await upRes.json(); 
-          if (upData.url) imageUrl = upData.url;
+          try {
+            const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
+            const upData = await upRes.json(); 
+            if (upData.url) imageUrl = upData.url;
+          } catch (e) { console.warn('Upload image échoué, mode text utilisé', e); }
         }
 
-        // 2. Création de la vidéo (avec retry si file pleine)
+        // 2. Création vidéo avec retry (file pleine)
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
         if (imageUrl) body.imageUrl = imageUrl;
 
         let res, data;
         let videoAttempts = 0;
-        while (videoAttempts < 6) {
+        while (videoAttempts < 10) { // Jusqu'à 10 tentatives (5 minutes d'attente)
           videoAttempts++;
           try {
             res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
             data = await res.json();
-            if (data.video_id) break;
-            if (data.error && data.error.includes('queue is full')) {
+            
+            if (data.video_id) break; // Succès
+            
+            const errMsg = (data.error || '').toLowerCase();
+            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
+              console.log(`File Agnes pleine (tentative ${videoAttempts}/10). Attente 30s...`);
               await new Promise(r => setTimeout(r, 30000));
               continue;
             }
             throw new Error(data.error || 'Erreur création');
           } catch (err) {
-            if (videoAttempts >= 6) throw err;
-            await new Promise(r => setTimeout(r, 30000));
+            const errMsg = err.message.toLowerCase();
+            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
+              if (videoAttempts >= 10) throw err;
+              await new Promise(r => setTimeout(r, 30000));
+            } else {
+              throw err;
+            }
           }
         }
-        if (!data || !data.video_id) throw new Error('File Agnes saturée. Réessaie plus tard.');
+        if (!data || !data.video_id) throw new Error('File Agnes saturée. Réessaie dans quelques minutes.');
 
-        // 3. Polling (attente initiale 25s)
+        // 3. Polling avec attente initiale longue
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 25000));
+        await new Promise(r => setTimeout(r, 25000)); // Attente initiale 25s
+        
         while (attempts < 25 && !finished) {
           attempts++;
           try {
@@ -142,11 +154,12 @@
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
             else if (pData.status === 'failed') throw new Error('Échec Agnes');
           } catch (err) {
-            if (err.message.includes('404') && attempts < 3) { /* ignorer 404 temporaire */ }
-            else if (err.message.includes('429')) { await new Promise(r => setTimeout(r, 30000)); }
+            const errMsg = err.message.toLowerCase();
+            if (errMsg.includes('404') && attempts < 3) { /* ignorer 404 temporaire */ }
+            else if (errMsg.includes('429')) { await new Promise(r => setTimeout(r, 30000)); }
             else throw err;
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000));
+          if (!finished) await new Promise(r => setTimeout(r, 20000)); // 20s entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -223,7 +236,6 @@
         const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
         state.apiKey = key; $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
         
-        // ✅ MESSAGE DE BIENVENUE
         if (state.chatSessions.length === 0) {
           newChat(`Bienvenue sur IA MASTOR 🚀
 
