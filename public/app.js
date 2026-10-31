@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_flash_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_fix2', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_flash_final');
+      const s = localStorage.getItem('iamastor_final_fix2');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -94,12 +94,13 @@
         else throw new Error("Erreur génération");
       } else {
         let imageUrl = null;
-        if (s.imageBase64) {
+        if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
           const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
           const upData = await upRes.json(); if (upData.url) imageUrl = upData.url;
         }
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
         if (imageUrl) body.imageUrl = imageUrl;
+        
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json(); if (!data.video_id) throw new Error('Erreur ID');
 
