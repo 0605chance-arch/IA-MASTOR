@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_fix3', JSON.stringify({
+    try { localStorage.setItem('iamastor_v9', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_fix3');
+      const s = localStorage.getItem('iamastor_v9');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -93,6 +93,7 @@
         if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
         else throw new Error("Erreur génération");
       } else {
+        // ✅ Upload de l'image vers 0x0.st si présente
         let imageUrl = null;
         if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
           const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
@@ -101,13 +102,30 @@
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
         if (imageUrl) body.imageUrl = imageUrl;
         
-        const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
-        const data = await res.json(); if (!data.video_id) throw new Error('Erreur ID');
+        // ✅ Retry si la file d'attente Agnes est pleine
+        let res, data;
+        let videoAttempts = 0;
+        while (videoAttempts < 6) {
+          videoAttempts++;
+          try {
+            res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
+            data = await res.json();
+            if (data.video_id) break;
+            if (data.error && data.error.includes('queue is full')) {
+              await new Promise(r => setTimeout(r, 30000));
+              continue;
+            }
+            throw new Error(data.error || 'Erreur création vidéo');
+          } catch (err) {
+            if (videoAttempts >= 6) throw err;
+            await new Promise(r => setTimeout(r, 30000));
+          }
+        }
+        if (!data.video_id) throw new Error('File Agnes saturée. Réessaie plus tard.');
 
+        // ✅ Polling avec 20s d'attente
         let attempts = 0, finished = false;
-        // ✅ Attente initiale de 25s (laisse Agnes enregistrer la tâche) [citation:9]
         await new Promise(r => setTimeout(r, 25000));
-
         while (attempts < 25 && !finished) {
           attempts++;
           try {
@@ -116,16 +134,11 @@
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
             else if (pData.status === 'failed') throw new Error('Échec Agnes');
           } catch (err) {
-            // ✅ IGNORER les 404 pendant les 30 premières secondes (tâche pas encore enregistrée) [citation:9]
-            if (err.message.includes('404') && attempts < 3) {
-              console.log('404 temporaire, on continue...');
-            } else if (err.message.includes('429')) {
-              await new Promise(r => setTimeout(r, 30000)); // Pause si 429 [citation:1]
-            } else {
-              throw err;
-            }
+            if (err.message.includes('404') && attempts < 3) { /* ignorer 404 temporaire */ }
+            else if (err.message.includes('429')) { await new Promise(r => setTimeout(r, 30000)); }
+            else throw err;
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000)); // 20s entre chaque vérif [citation:3]
+          if (!finished) await new Promise(r => setTimeout(r, 20000));
         }
         if (!finished) throw new Error('Délai dépassé');
       }
