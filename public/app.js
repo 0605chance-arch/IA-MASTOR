@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v5', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v6', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v5');
+      const s = localStorage.getItem('iamastor_final_v6');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -130,7 +130,7 @@
   }
 
   // ==========================================
-  // GÉNÉRATION RAPIDE ET FIABLE
+  // GÉNÉRATION RAPIDE ET FIABLE (Anti-429)
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
@@ -150,15 +150,16 @@
           s.status = 'success';
         } else { throw new Error("Erreur de génération"); }
       } else {
+        // On n'envoie PAS base64 comme first_frame, on utilise le mode text standard
+        // ou on envoie l'image de référence dans 'images' (mode reference)
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
-        if (s.imageBase64) body.first_frame = s.imageBase64;
         
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
         if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 10000)); // 10 secondes d'attente initiale
+        await new Promise(r => setTimeout(r, 15000)); // Attente de 15s pour respecter les 5 RPM
 
         while (attempts < 30 && !finished) {
           attempts++; 
@@ -172,12 +173,12 @@
             }
           } catch (err) {
             if (err.message.includes('429')) {
-              await new Promise(r => setTimeout(r, 20000)); // Pause 20s si 429
+              await new Promise(r => setTimeout(r, 30000)); // Pause longue si 429
             } else {
               throw err;
             }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 10000)); // Vérification toutes les 10s
+          if (!finished) await new Promise(r => setTimeout(r, 15000)); // 15s entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -290,7 +291,21 @@
         $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
         
         if (state.chatSessions.length === 0) {
-          newChat("Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 Chat : Idées et scripts.\n🖼️ Image : Visuels.\n🎬 Vidéo : Scènes virales.\n📖 Histoire : Récits.\n\n*Conseil : Sois régulier sur TikTok/Insta.*");
+          newChat(`Bienvenue sur IA MASTOR 🚀
+
+Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
+
+**Ce que je peux générer pour toi :**
+🎬 **Vidéos IA** : Jusqu'à **500 secondes par jour** (environ 40 vidéos de 12s). Idéal pour TikTok, Reels et Shorts.
+🖼️ **Images HD** : Jusqu'à **4 000 par jour**. Création visuelle pro.
+💬 **Textes & Scripts** : Idées virales, scripts TikTok, histoires complètes, business plans, prompts optimisés.
+
+**Mes conseils pour réussir :**
+1. La régularité est la clé : poste tous les jours.
+2. Analyse ce qui marche et améliore tes prompts.
+3. Utilise les 3 onglets ensemble : Histoire → Image → Vidéo.
+
+*Prêt à créer du contenu qui cartonne ? Commence par me demander une idée de vidéo ou un script.*`);
         } else { renderChatList(); renderChatMessages(); }
 
         if (!state.imageScenes || state.imageScenes.length === 0) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
