@@ -99,7 +99,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : 720P obligatoire + base64 pur
+// ✅ VIDÉO : 720P + base64 pur (sans préfixe)
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -113,13 +113,12 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P', // ✅ Le modèle Flash n'accepte que le 720P
+      size: '720P',
       aspect_ratio: aspect_ratio || '16:9',
       seed: Math.floor(Math.random() * 1000000),
       mode: 'text'
     };
 
-    // ✅ Base64 pur (sans le préfixe data:image/jpeg;base64,)
     if (imageBase64) {
       body.mode = 'reference';
       const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
