@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v14', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v15', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v14');
+      const s = localStorage.getItem('iamastor_final_v15');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -83,36 +83,32 @@
   }
 
   // ==========================================
-  // GÉNÉRATION
+  // GÉNÉRATION AVEC FILE D'ATTENTE
   // ==========================================
-  let videoQueue = [];
-  let isProcessingVideo = false;
+  let generationQueue = [];
+  let isProcessing = false;
 
-  async function processVideoQueue() {
-    if (isProcessingVideo || videoQueue.length === 0) return;
-    isProcessingVideo = true;
+  async function processQueue() {
+    if (isProcessing || generationQueue.length === 0) return;
+    isProcessing = true;
     
-    while (videoQueue.length > 0) {
-      const { type, idx } = videoQueue.shift();
+    while (generationQueue.length > 0) {
+      const { type, idx } = generationQueue.shift();
       await executeGeneration(type, idx);
-      // ✅ Pause de 2 secondes entre chaque vidéo (respecte les 5 RPM d'Agnes)
+      // Attente de 2 secondes entre chaque vidéo pour respecter le RPM
       await new Promise(r => setTimeout(r, 2000));
     }
     
-    isProcessingVideo = false;
+    isProcessing = false;
   }
 
   function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
     
-    // ✅ Mise en file d'attente pour éviter le blocage "RPM limit"
-    s.status = 'loading'; 
-    s.videoUrl = null; 
-    renderScenes(type);
-    
-    videoQueue.push({ type, idx });
-    processVideoQueue();
+    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
+    generationQueue.push({ type, idx });
+    processQueue();
   }
 
   async function executeGeneration(type, idx) {
@@ -136,10 +132,11 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
+        // ✅ Polling lent : 15 secondes d'attente initiale, puis 20 secondes entre chaque
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 15000));
         
-        while (attempts < 40 && !finished) {
+        while (attempts < 30 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
@@ -151,17 +148,16 @@
               throw new Error('Échec Agnes'); 
             }
           } catch (err) {
-            console.warn('Polling erreur:', err.message);
+            const errMsg = (err.message || '').toLowerCase();
+            if (errMsg.includes('429') || errMsg.includes('too many')) {
+              await new Promise(r => setTimeout(r, 60000)); // Pause 60s si 429
+            }
           }
-          
-          if (!finished) await new Promise(r => setTimeout(r, 5000));
+          if (!finished) await new Promise(r => setTimeout(r, 20000)); // 20s entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
-    } catch(e) { 
-      s.status = 'error'; 
-      console.error(e); 
-    }
+    } catch(e) { s.status = 'error'; console.error(e); }
     save(); renderScenes(type); renderHistory();
   }
 
