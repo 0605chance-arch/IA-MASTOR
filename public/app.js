@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v9', JSON.stringify({
+    try { localStorage.setItem('iamastor_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v9');
+      const s = localStorage.getItem('iamastor_final');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -28,12 +28,15 @@
   async function api(url, options = {}) {
     if (!state.apiKey) throw new Error('Clé manquante');
     const res = await fetch(`/api${url}`, { ...options, headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) } });
-    if (!res.ok) { const e = await res.json().catch(()=>({error:'Erreur'})); throw new Error(e.error || 'Erreur API'); }
+    if (!res.ok) { const e = await res.json().catch(()=>({error:'Erreur API'})); throw new Error(e.error || 'Erreur API'); }
     return res;
   }
 
   function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
 
+  // ==========================================
+  // RENDU DES SCÈNES
+  // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -79,6 +82,9 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
+  // ==========================================
+  // GÉNÉRATION (avec gestion 429, file pleine et upload d'image)
+  // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
@@ -93,16 +99,18 @@
         if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
         else throw new Error("Erreur génération");
       } else {
-        // ✅ Upload de l'image vers 0x0.st si présente
+        // 1. Upload de l'image si présente
         let imageUrl = null;
         if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
           const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
-          const upData = await upRes.json(); if (upData.url) imageUrl = upData.url;
+          const upData = await upRes.json(); 
+          if (upData.url) imageUrl = upData.url;
         }
+
+        // 2. Création de la vidéo (avec retry si file pleine)
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
         if (imageUrl) body.imageUrl = imageUrl;
-        
-        // ✅ Retry si la file d'attente Agnes est pleine
+
         let res, data;
         let videoAttempts = 0;
         while (videoAttempts < 6) {
@@ -115,15 +123,15 @@
               await new Promise(r => setTimeout(r, 30000));
               continue;
             }
-            throw new Error(data.error || 'Erreur création vidéo');
+            throw new Error(data.error || 'Erreur création');
           } catch (err) {
             if (videoAttempts >= 6) throw err;
             await new Promise(r => setTimeout(r, 30000));
           }
         }
-        if (!data.video_id) throw new Error('File Agnes saturée. Réessaie plus tard.');
+        if (!data || !data.video_id) throw new Error('File Agnes saturée. Réessaie plus tard.');
 
-        // ✅ Polling avec 20s d'attente
+        // 3. Polling (attente initiale 25s)
         let attempts = 0, finished = false;
         await new Promise(r => setTimeout(r, 25000));
         while (attempts < 25 && !finished) {
@@ -146,6 +154,9 @@
     save(); renderScenes(type); renderHistory();
   }
 
+  // ==========================================
+  // CHAT
+  // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -189,6 +200,9 @@
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
   }
 
+  // ==========================================
+  // HISTORIQUES
+  // ==========================================
   function renderHistory() {
     const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
@@ -197,6 +211,9 @@
 
   window.downloadFile = downloadFile;
 
+  // ==========================================
+  // INITIALISATION
+  // ==========================================
   document.addEventListener('DOMContentLoaded', () => {
     load();
     $('#login-form').onsubmit = async (e) => {
@@ -205,9 +222,26 @@
         const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
         const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
         state.apiKey = key; $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
+        
+        // ✅ MESSAGE DE BIENVENUE
         if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA. Voici ce que je peux générer :\n\n🎬 Vidéos IA : 500 sec/jour (environ 40 vidéos de 12s).\n🖼️ Images HD : 4000/jour.\n💬 Textes & Scripts : Idées virales, scripts TikTok, histoires, business plans.\n\n*Conseil : Sois régulier sur TikTok/Insta.*`);
+          newChat(`Bienvenue sur IA MASTOR 🚀
+
+Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
+
+**Ce que je peux générer pour toi :**
+🎬 **Vidéos IA** : Jusqu'à **500 secondes par jour** (environ 40 vidéos de 12s). Idéal pour TikTok, Reels et Shorts.
+🖼️ **Images HD** : Jusqu'à **4 000 par jour**. Création visuelle pro.
+💬 **Textes & Scripts** : Idées virales, scripts TikTok, histoires complètes, business plans, prompts optimisés.
+
+**Mes conseils pour réussir :**
+1. La régularité est la clé : poste tous les jours.
+2. Analyse ce qui marche et améliore tes prompts.
+3. Utilise les 3 onglets ensemble : Histoire → Image → Vidéo.
+
+*Prêt à créer du contenu qui cartonne ? Commence par me demander une idée de vidéo ou un script.*`);
         } else { renderChatList(); renderChatMessages(); }
+        
         renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
       } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
     };
