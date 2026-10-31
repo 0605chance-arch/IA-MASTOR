@@ -1,4 +1,4 @@
-(function () {
+((function () {
   'use strict';
 
   const state = {
@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v16', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v17', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v16');
+      const s = localStorage.getItem('iamastor_final_v17');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -83,7 +83,7 @@
   }
 
   // ==========================================
-  // GÉNÉRATION AVEC FILE D'ATTENTE
+  // GÉNÉRATION
   // ==========================================
   let generationQueue = [];
   let isProcessing = false;
@@ -95,7 +95,8 @@
     while (generationQueue.length > 0) {
       const { type, idx } = generationQueue.shift();
       await executeGeneration(type, idx);
-      await new Promise(r => setTimeout(r, 2000));
+      // Attente de 20 secondes entre chaque création (respecte les 5 RPM + marge de sécurité)
+      await new Promise(r => setTimeout(r, 20000)); 
     }
     
     isProcessing = false;
@@ -131,7 +132,7 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
-        // ✅ POLLING LENT : 1 minute d'attente initiale, puis 2 minutes entre chaque vérification
+        // Polling lent : 1 minute d'attente initiale, puis 2 minutes entre chaque vérification
         let attempts = 0, finished = false;
         await new Promise(r => setTimeout(r, 60000)); 
         
@@ -150,15 +151,13 @@
             console.warn('Polling erreur:', err.message);
           }
           
-          if (!finished) await new Promise(r => setTimeout(r, 120000)); // 2 minutes entre chaque vérif
+          if (!finished) await new Promise(r => setTimeout(r, 120000)); 
         }
         if (!finished) throw new Error('Délai dépassé');
       }
     } catch(e) { 
       s.status = 'error'; 
       console.error(e); 
-      // On affiche l'erreur pour comprendre
-      if (e.message.includes('quota')) alert(e.message);
     }
     save(); renderScenes(type); renderHistory();
   }
