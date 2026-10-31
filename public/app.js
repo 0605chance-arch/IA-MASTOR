@@ -20,7 +20,7 @@
 
   function save() {
     try {
-      localStorage.setItem('iamastor_final_v3', JSON.stringify({
+      localStorage.setItem('iamastor_final_v4', JSON.stringify({
         chatSessions: state.chatSessions,
         imageHistory: state.imageHistory.slice(0, 30),
         imageScenes: state.imageScenes,
@@ -35,7 +35,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v3');
+      const s = localStorage.getItem('iamastor_final_v4');
       if (s) {
         const p = JSON.parse(s);
         Object.assign(state, p);
@@ -68,7 +68,12 @@
     
     try {
       const body = { prompt: scene.prompt, seconds: String(scene.seconds), size: scene.size || '720P', aspect_ratio: scene.ratio };
-      if (scene.imageBase64) { body.mode = 'img2video'; body.first_frame = scene.imageBase64; }
+      
+      // Si une image de référence (first_frame) est jointe, on l'envoie
+      if (scene.imageBase64) { 
+        body.mode = 'img2video'; 
+        body.first_frame = scene.imageBase64; 
+      }
       
       const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
@@ -178,7 +183,7 @@
   }
 
   // ==========================================
-  // ONGLET VIDÉO
+  // ONGLET VIDÉO (Ajout de l'upload d'image)
   // ==========================================
   function renderVideos(containerId, scenes, type) {
     const c = $('#video-scenes');
@@ -191,6 +196,11 @@
         </div>
         
         <textarea placeholder="Décris cette scène..." data-idx="${index}" class="vid-prompt">${scene.prompt || ''}</textarea>
+        
+        <input type="file" accept="image/*" hidden id="vid-ref-${index}">
+        <label for="vid-ref-${index}" class="btn-upload" style="display:block; padding:10px; background:var(--bg); border-radius:8px; text-align:center; font-size:12px; margin-bottom:12px; cursor:pointer;">
+          ${scene.imageBase64 ? '✅ Image de départ jointe (img2video)' : '📷 Joindre une image de départ (Optionnel)'}
+        </label>
         
         <div class="row">
           <select data-idx="${index}" class="vid-ratio">
@@ -215,6 +225,17 @@
     c.querySelectorAll('.vid-sec').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].seconds = e.target.value; save(); });
     c.querySelectorAll('.vid-size').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].size = e.target.value; save(); });
     
+    // Upload d'image pour la vidéo
+    c.querySelectorAll('.btn-upload').forEach((el, i) => {
+      const input = c.querySelector(`#vid-ref-${i}`);
+      if(input) input.onchange = (e) => {
+        const f = e.target.files[0]; if(!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => { scenes[i].imageBase64 = ev.target.result; renderVideos(containerId, scenes, type); save(); };
+        r.readAsDataURL(f);
+      };
+    });
+
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = (e) => {
       generateVideoScene(scenes, e.target.dataset.idx, renderVideos, containerId, type);
     });
@@ -231,7 +252,7 @@
   }
 
   // ==========================================
-  // ONGLET HISTOIRE
+  // ONGLET HISTOIRE (Ajout de l'upload d'image)
   // ==========================================
   function renderStory(containerId, scenes, type) {
     state.storyChars.forEach((c, i) => {
@@ -249,6 +270,11 @@
         </div>
         
         <textarea placeholder="Décris cette scène (l'IA connaît le synopsis)..." data-idx="${index}" class="story-prompt">${scene.prompt || ''}</textarea>
+        
+        <input type="file" accept="image/*" hidden id="story-ref-${index}">
+        <label for="story-ref-${index}" class="btn-upload" style="display:block; padding:10px; background:var(--bg); border-radius:8px; text-align:center; font-size:12px; margin-bottom:12px; cursor:pointer;">
+          ${scene.imageBase64 ? '✅ Image de scène jointe (img2video)' : '📷 Joindre une image de scène (Optionnel)'}
+        </label>
         
         <div class="row">
           <select data-idx="${index}" class="story-ratio">
@@ -268,6 +294,17 @@
     c.querySelectorAll('.story-ratio').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].ratio = e.target.value; save(); });
     c.querySelectorAll('.story-sec').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].seconds = e.target.value; save(); });
     
+    // Upload d'image pour l'histoire
+    c.querySelectorAll('.btn-upload').forEach((el, i) => {
+      const input = c.querySelector(`#story-ref-${i}`);
+      if(input) input.onchange = (e) => {
+        const f = e.target.files[0]; if(!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => { scenes[i].imageBase64 = ev.target.result; renderStory(containerId, scenes, type); save(); };
+        r.readAsDataURL(f);
+      };
+    });
+
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = (e) => {
       generateVideoScene(scenes, e.target.dataset.idx, renderStory, containerId, type);
     });
@@ -281,7 +318,7 @@
         </div>
       `).join('');
     }
-  }// ==========================================
+  // ==========================================
   // ONGLET CHAT (Historique + Message de bienvenue)
   // ==========================================
   function createNewChat(initialMessage = null) {
@@ -496,7 +533,7 @@
     // Sauvegarde des champs de l'histoire
     $('#story-synopsis').oninput = e => { save(); };
     
-    // Noms et photos des personnages
+    // Noms et photos des personnages (menu de gauche de l'histoire)
     $$('.char-row input[type="text"]').forEach((el, i) => {
       el.oninput = e => { state.storyChars[i].name = e.target.value; save(); };
     });
