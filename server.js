@@ -38,17 +38,21 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
     ...options,
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
   });
+  
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
-    let errJson; try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
-    const error = new Error(errJson.error?.message || errJson.message || `Agnes error ${res.status}`);
+    let errJson; 
+    try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
+    // ✅ On renvoie le message d'erreur EXACT d'Agnes (pour détecter "queue is full")
+    const exactMessage = errJson.error?.message || errJson.message || errJson.raw || `Agnes error ${res.status}`;
+    const error = new Error(exactMessage);
     error.status = res.status;
     throw error;
   }
   return res.json();
 }
 
-// ✅ UPLOAD vers 0x0.st (URL publique directe)
+// ✅ UPLOAD vers 0x0.st (renvoie une URL publique directe)
 app.post('/api/upload', async (req, res) => {
   try {
     const { imageBase64 } = req.body;
@@ -99,11 +103,13 @@ app.post('/api/chat', async (req, res) => {
     });
     if (!response.ok) return res.status(response.status).json({ error: await response.text() });
     if (!stream) return res.json(await response.json());
+    
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
+    
     response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
     response.body.on('end', () => res.end());
   } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
@@ -120,7 +126,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : mode keyframe si imageUrl fournie
+// ✅ VIDÉO (gère keyframe si imageUrl est fournie)
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -138,7 +144,7 @@ app.post('/api/video', async (req, res) => {
       aspect_ratio: aspect_ratio || '16:9'
     };
 
-    // ✅ Mode keyframe : first_frame = URL publique
+    // ✅ Mode keyframe (image vers vidéo)
     if (imageUrl && imageUrl.startsWith('http')) {
       body.mode = 'keyframe';
       body.first_frame = imageUrl;
@@ -151,7 +157,8 @@ app.post('/api/video', async (req, res) => {
     if (!videoId) throw new Error('Pas de video_id');
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
   } catch (err) { 
-    console.error('Erreur vidéo:', err.message); 
+    console.error('Erreur vidéo (création):', err.message); 
+    // ✅ On renvoie le VRAI message d'erreur (ex: "video queue is full")
     res.status(500).json({ error: err.message }); 
   }
 });
@@ -161,10 +168,15 @@ app.get('/api/video/status', async (req, res) => {
     const apiKey = getApiKey(req);
     const { video_id } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-    // ✅ model_name OBLIGATOIRE pour keyframe
+    
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-    if (!pollRes.ok) { const errText = await pollRes.text().catch(() => ''); return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); }
+    
+    if (!pollRes.ok) { 
+      const errText = await pollRes.text().catch(() => ''); 
+      return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); 
+    }
+    
     const data = await pollRes.json();
     res.json({ success: true, status: data.status || 'unknown', video_url: data.url || data.video_url || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -184,6 +196,7 @@ app.get('/api/download', async (req, res) => {
   } catch (err) { res.status(500).send('Erreur : ' + err.message); }
 });
 
+// ✅ Fallback SPA (gère le dossier "public" en minuscule)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
