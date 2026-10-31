@@ -1,144 +1,159 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#09090b">
-<title>IA MASTOR</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
+  <title>IA MASTOR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-<!-- WELCOME -->
-<div id="welcome" class="welcome">
-  <div class="welcome-box">
-    <div class="logo">🚀</div>
-    <h1>IA MASTOR</h1>
-    <p>L'usine à contenu viral propulsée par Agnes AI.</p>
-    <div class="info">
-      <strong>Starter Plan requis (4$)</strong><br>
-      <a href="https://platform.agnes-ai.com" target="_blank">Obtenir une clé Agnes</a>
+  <!-- ÉCRAN DE CONNEXION -->
+  <div id="welcome" class="welcome">
+    <div class="welcome-box">
+      <div class="logo">🚀</div>
+      <h1>IA MASTOR</h1>
+      <p>L'usine à contenu viral propulsée par Agnes AI.</p>
+      
+      <div class="info">
+        <strong>Clé API requise (Starter Plan 4$)</strong><br>
+        <span>Chat, Images 4K, Vidéos 720P/1080P.</span><br>
+        <a href="https://platform.agnes-ai.com" target="_blank" rel="noopener">Obtenir une clé Agnes →</a>
+      </div>
+
+      <form id="login-form">
+        <input type="password" id="api-key" placeholder="Colle ta clé API (sk-...)" required spellcheck="false">
+        <p id="login-error"></p>
+        <button type="submit" class="btn-white">Démarrer</button>
+      </form>
     </div>
-    <form id="login-form">
-      <input type="password" id="api-key" placeholder="Colle ta clé API (sk-...)" required>
-      <p id="login-error"></p>
-      <button type="submit" class="btn-white">Démarrer</button>
-    </form>
+    <p class="footer-note">Après achat, cette application est interdite à la vente.</p>
   </div>
-  <p class="footer-note">Après achat, cette application est interdite à la vente.</p>
-</div>
 
-<!-- APP -->
-<div id="app" class="app hidden">
-  <header class="header">
-    <div class="brand">🚀 IA MASTOR</div>
-    <nav class="nav">
-      <button class="nav-btn active" data-tab="chat">Chat</button>
-      <button class="nav-btn" data-tab="image">Image</button>
-      <button class="nav-btn" data-tab="video">Vidéo</button>
-      <button class="nav-btn" data-tab="story">Histoire</button>
-    </nav>
-  </header>
-
-  <main class="main">
+  <!-- APPLICATION PRINCIPALE -->
+  <div id="app" class="app hidden">
     
-    <!-- CHAT -->
-    <section id="tab-chat" class="tab active">
-      <div class="chat-wrap">
-        <div class="chat-header">
-          <h2>Conversations</h2>
-          <button id="new-chat-btn" class="btn-new-chat">+ Nouvelle discussion</button>
-        </div>
-        <div id="chat-history-list" class="chat-history-list"></div>
-        <div id="chat-messages" class="chat-messages"></div>
-        <form id="chat-form" class="chat-form">
-          <input type="file" id="chat-file" accept="image/*" hidden>
-          <button type="button" id="chat-file-btn" class="btn-icon">📎</button>
-          <textarea id="chat-input" placeholder="Message..." rows="1"></textarea>
-          <button type="submit" class="btn-send">↑</button>
-        </form>
-      </div>
-    </section>
+    <!-- Header (Desktop) -->
+    <header class="header">
+      <div class="brand">🚀 IA MASTOR</div>
+      <nav class="nav">
+        <button class="nav-btn active" data-tab="chat">Chat</button>
+        <button class="nav-btn" data-tab="image">Image</button>
+        <button class="nav-btn" data-tab="video">Vidéo</button>
+        <button class="nav-btn" data-tab="story">Histoire</button>
+      </nav>
+    </header>
 
-    <!-- IMAGE -->
-    <section id="tab-image" class="tab">
-      <div class="container">
-        <h2>Générateur d'images</h2>
-        <div class="actions">
-          <button id="add-image-prompt" class="btn-gray">+ Nouveau prompt</button>
-        </div>
-        <div id="image-prompts" class="scenes"></div>
-        
-        <h2 style="margin-top: 30px;">Galerie</h2>
-        <div id="image-history" class="grid"></div>
-      </div>
-    </section>
-
-    <!-- VIDÉO -->
-    <section id="tab-video" class="tab">
-      <div class="container">
-        <h2>Storyboard Vidéo</h2>
-        <div class="actions">
-          <button id="add-scene-video" class="btn-gray">+ Nouvelle scène</button>
-        </div>
-        <div id="video-scenes" class="scenes"></div>
-        
-        <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
-        <div id="video-history" class="grid"></div>
-      </div>
-    </section>
-
-    <!-- HISTOIRE -->
-    <section id="tab-story" class="tab">
-      <div class="container">
-        <h2>Mode Histoire</h2>
-        
-        <div class="story-layout">
-          <aside class="story-side">
-            <textarea id="story-synopsis" placeholder="Synopsis global de l'histoire..." rows="3"></textarea>
-            
-            <p class="label">Personnages (Optionnel)</p>
-            <div class="char-row">
-              <input type="text" id="char1-name" placeholder="Nom du personnage 1">
-              <input type="file" id="char1-file" accept="image/*" hidden>
-              <button type="button" class="btn-img" onclick="document.getElementById('char1-file').click()">📷</button>
-            </div>
-            <div class="char-row">
-              <input type="text" id="char2-name" placeholder="Nom du personnage 2">
-              <input type="file" id="char2-file" accept="image/*" hidden>
-              <button type="button" class="btn-img" onclick="document.getElementById('char2-file').click()">📷</button>
-            </div>
-            <div class="char-row">
-              <input type="text" id="char3-name" placeholder="Nom du personnage 3">
-              <input type="file" id="char3-file" accept="image/*" hidden>
-              <button type="button" class="btn-img" onclick="document.getElementById('char3-file').click()">📷</button>
-            </div>
-          </aside>
-
-          <div class="story-main">
-            <div class="actions">
-              <button id="add-story-scene" class="btn-gray">+ Nouveau prompt</button>
-            </div>
-            <div id="story-scenes" class="scenes"></div>
+    <main class="main">
+      
+      <!-- ONGLET CHAT -->
+      <section id="tab-chat" class="tab active">
+        <div class="chat-wrap">
+          <div class="chat-header">
+            <h2>Conversations</h2>
+            <button id="new-chat-btn" class="btn-new-chat">+ Nouvelle</button>
           </div>
+          <!-- Liste horizontale des discussions -->
+          <div id="chat-history-list" class="chat-history-list"></div>
+          
+          <div id="chat-messages" class="chat-messages"></div>
+          
+          <form id="chat-form" class="chat-form">
+            <input type="file" id="chat-file" accept="image/*" hidden>
+            <button type="button" id="chat-file-btn" class="btn-icon" title="Ajouter une image">📎</button>
+            <textarea id="chat-input" placeholder="Écris ton message..." rows="1"></textarea>
+            <button type="submit" class="btn-send" title="Envoyer">↑</button>
+          </form>
         </div>
+      </section>
 
-        <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
-        <div id="story-history" class="grid"></div>
-      </div>
-    </section>
+      <!-- ONGLET IMAGE -->
+      <section id="tab-image" class="tab">
+        <div class="container">
+          <h2>Générateur d'images</h2>
+          <div class="actions">
+            <button id="add-image-prompt" class="btn-gray">+ Nouveau prompt</button>
+          </div>
+          <div id="image-scenes" class="scenes"></div>
+          
+          <h2 style="margin-top: 30px;">Galerie</h2>
+          <div id="image-history" class="grid"></div>
+        </div>
+      </section>
 
-  </main>
+      <!-- ONGLET VIDÉO -->
+      <section id="tab-video" class="tab">
+        <div class="container">
+          <h2>Storyboard Vidéo</h2>
+          <div class="actions">
+            <button id="add-scene-video" class="btn-gray">+ Nouvelle scène</button>
+          </div>
+          <div id="video-scenes" class="scenes"></div>
+          
+          <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
+          <div id="video-history" class="grid"></div>
+        </div>
+      </section>
 
-  <nav class="mobile-nav">
-    <button class="mob-btn active" data-tab="chat">Chat</button>
-    <button class="mob-btn" data-tab="image">Image</button>
-    <button class="mob-btn" data-tab="video">Vidéo</button>
-    <button class="mob-btn" data-tab="story">Histoire</button>
-  </nav>
-</div>
+      <!-- ONGLET HISTOIRE -->
+      <section id="tab-story" class="tab">
+        <div class="container">
+          <h2>Mode Histoire</h2>
+          
+          <div class="story-layout">
+            <aside class="story-side">
+              <label class="label" style="margin-top:0;">Synopsis</label>
+              <textarea id="story-synopsis" placeholder="Résume l'histoire globale..." rows="3"></textarea>
+              
+              <p class="label">Personnages (Optionnel)</p>
+              
+              <div class="char-row">
+                <input type="text" id="char1-name" placeholder="Nom du perso 1">
+                <input type="file" id="char1-file" accept="image/*" hidden>
+                <button type="button" class="btn-img" id="char-btn-0" onclick="document.getElementById('char1-file').click()">📷</button>
+              </div>
+              
+              <div class="char-row">
+                <input type="text" id="char2-name" placeholder="Nom du perso 2">
+                <input type="file" id="char2-file" accept="image/*" hidden>
+                <button type="button" class="btn-img" id="char-btn-1" onclick="document.getElementById('char2-file').click()">📷</button>
+              </div>
+              
+              <div class="char-row">
+                <input type="text" id="char3-name" placeholder="Nom du perso 3">
+                <input type="file" id="char3-file" accept="image/*" hidden>
+                <button type="button" class="btn-img" id="char-btn-2" onclick="document.getElementById('char3-file').click()">📷</button>
+              </div>
+            </aside>
 
-<script src="/app.js"></script>
+            <div class="story-main">
+              <div class="actions">
+                <button id="add-story-scene" class="btn-gray">+ Nouveau prompt</button>
+              </div>
+              <div id="story-scenes" class="scenes"></div>
+            </div>
+          </div>
+
+          <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
+          <div id="story-history" class="grid"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Navigation Mobile -->
+    <nav class="mobile-nav">
+      <button class="mob-btn active" data-tab="chat">Chat</button>
+      <button class="mob-btn" data-tab="image">Image</button>
+      <button class="mob-btn" data-tab="video">Vidéo</button>
+      <button class="mob-btn" data-tab="story">Histoire</button>
+    </nav>
+    
+  </div>
+
+  <script src="/app.js"></script>
 </body>
 </html>
