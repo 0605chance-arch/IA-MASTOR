@@ -8,16 +8,14 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ✅ CRITIQUE POUR RENDER (Proxy)
 app.set('trust proxy', 1);
-
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100, // Augmenté pour les batchs
+  max: 100,
   message: { error: 'Trop de requêtes.' }
 });
 app.use('/api/', limiter);
@@ -28,7 +26,7 @@ const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 const MODELS = {
   chat: 'agnes-3.0-flash',
   image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash' // Uniquement le Flash (720P) pour éviter les bugs
+  videoFlash: 'agnes-video-2.5-flash' // ✅ Le seul modèle vidéo gratuit
 };
 
 function getApiKey(req) {
@@ -126,18 +124,27 @@ app.post('/api/image', async (req, res) => {
   }
 });
 
+// ============================================================
+// VIDÉO - CORRIGÉ POUR AGNES FLASH
+// ============================================================
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, seconds = '5', aspect_ratio = '16:9', first_frame } = req.body;
-    
-    // On force le modèle Flash 720P pour la vitesse et la stabilité
+    if (!prompt) return res.status(400).json({ error: 'prompt requis' });
+
+    // ✅ Règles Flash strictes :
+    // - seconds DOIT être une chaîne entre "4" et "12" 
+    // - size DOIT être "720P" [citation:2]
+    const secondsNum = parseInt(seconds) || 5;
+    const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
+
     const body = {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       mode: first_frame ? 'img2video' : 'text',
-      seconds: String(Math.min(12, Math.max(4, parseInt(seconds) || 5))),
-      size: '720P',
+      seconds: finalSeconds, // ✅ Chaîne "4" à "12"
+      size: '720P', // ✅ Forcé 720P
       aspect_ratio: aspect_ratio || '16:9'
     };
     if (first_frame) body.first_frame = first_frame;
@@ -146,8 +153,10 @@ app.post('/api/video', async (req, res) => {
     const videoId = createData.video_id || createData.id || createData.task_id;
     if (!videoId) throw new Error('Pas de video_id');
 
+    // ✅ On renvoie le model exact pour le polling
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
   } catch (err) {
+    console.error('Erreur création vidéo:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -156,23 +165,33 @@ app.get('/api/video/status', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { video_id, model = MODELS.videoFlash } = req.query;
+    if (!video_id) return res.status(400).json({ error: 'video_id requis' });
+
+    // ✅ model_name OBLIGATOIRE pour Flash [citation:3]
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-    
-    if (!pollRes.ok) return res.status(pollRes.status).json({ error: 'Polling error' });
-    
+
+    if (!pollRes.ok) {
+      const errText = await pollRes.text().catch(() => '');
+      console.error('Polling error:', errText);
+      return res.status(pollRes.status).json({ error: `Polling error: ${errText}` });
+    }
+
     const data = await pollRes.json();
     res.json({
       success: true,
       status: data.status || 'unknown',
-      video_url: data.url || data.video_url || data.output?.url || null
+      video_url: data.url || data.video_url || null,
+      progress: data.progress || 0
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ✅ LA ROUTE MAGIQUE POUR LE TÉLÉCHARGEMENT DIRECT
+// ============================================================
+// TÉLÉCHARGEMENT DIRECT
+// ============================================================
 app.get('/api/download', async (req, res) => {
   try {
     const { url } = req.query;
@@ -183,10 +202,10 @@ app.get('/api/download', async (req, res) => {
 
     const contentType = response.headers.get('content-type') || 'application/octet-stream';
     const extension = contentType.includes('video') ? 'mp4' : 'jpg';
-    
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="iamastor-${Date.now()}.${extension}"`);
-    
+
     response.body.pipe(res);
   } catch (err) {
     res.status(500).send('Erreur : ' + err.message);
