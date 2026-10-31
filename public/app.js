@@ -1,4 +1,4 @@
-((function () {
+(function () {
   'use strict';
 
   const state = {
@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v17', JSON.stringify({
+    try { localStorage.setItem('iamastor_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v17');
+      const s = localStorage.getItem('iamastor_final');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -34,9 +34,6 @@
 
   function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
 
-  // ==========================================
-  // RENDU DES SCÈNES
-  // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -82,38 +79,10 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // ==========================================
-  // GÉNÉRATION
-  // ==========================================
-  let generationQueue = [];
-  let isProcessing = false;
-
-  async function processQueue() {
-    if (isProcessing || generationQueue.length === 0) return;
-    isProcessing = true;
-    
-    while (generationQueue.length > 0) {
-      const { type, idx } = generationQueue.shift();
-      await executeGeneration(type, idx);
-      // Attente de 20 secondes entre chaque création (respecte les 5 RPM + marge de sécurité)
-      await new Promise(r => setTimeout(r, 20000)); 
-    }
-    
-    isProcessing = false;
-  }
-
-  function generate(type, idx) {
+  async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    
     s.status = 'loading'; s.videoUrl = null; renderScenes(type);
-    generationQueue.push({ type, idx });
-    processQueue();
-  }
-
-  async function executeGeneration(type, idx) {
-    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
-    const s = a[idx];
 
     try {
       if (type === 'image') {
@@ -132,7 +101,6 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
-        // Polling lent : 1 minute d'attente initiale, puis 2 minutes entre chaque vérification
         let attempts = 0, finished = false;
         await new Promise(r => setTimeout(r, 60000)); 
         
@@ -148,7 +116,7 @@
               throw new Error('Échec Agnes'); 
             }
           } catch (err) {
-            console.warn('Polling erreur:', err.message);
+            console.warn('Polling:', err.message);
           }
           
           if (!finished) await new Promise(r => setTimeout(r, 120000)); 
@@ -162,9 +130,6 @@
     save(); renderScenes(type); renderHistory();
   }
 
-  // ==========================================
-  // CHAT
-  // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -222,9 +187,6 @@
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
   }
 
-  // ==========================================
-  // HISTORIQUES
-  // ==========================================
   function renderHistory() {
     const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
@@ -233,9 +195,6 @@
 
   window.downloadFile = downloadFile;
 
-  // ==========================================
-  // INITIALISATION
-  // ==========================================
   document.addEventListener('DOMContentLoaded', () => {
     load();
     $('#login-form').onsubmit = async (e) => {
