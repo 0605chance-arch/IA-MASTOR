@@ -125,38 +125,30 @@ app.post('/api/image', async (req, res) => {
 });
 
 // ============================================================
-// VIDÉO - CORRIGÉ POUR AGNES FLASH
+// VIDÉO - CORRIGÉ (mode 'text' uniquement pour Flash)
 // ============================================================
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { prompt, seconds = '5', aspect_ratio = '16:9', imageUrl } = req.body;
+    const { prompt, seconds = '5', aspect_ratio = '16:9' } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
 
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
-    // ✅ Construction du body selon la doc officielle Agnes
+    // ✅ On force le mode 'text' car le mode reference n'est pas supporté sur Starter
     const body = {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
+      mode: 'text',
       seconds: finalSeconds,
       size: '720P',
-      aspect_ratio: aspect_ratio || '16:9',
-      n: 1
+      aspect_ratio: aspect_ratio || '16:9'
     };
 
-    // ✅ Si une image de référence est fournie (URL publique requise)
-    if (imageUrl) {
-      body.mode = 'reference';
-      body.images = [imageUrl]; // Tableau d'URLs, pas de base64
-    } else {
-      body.mode = 'text';
-    }
-
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const videoId = createData.video_id || createData.id;
-    if (!videoId) throw new Error('Pas de video_id reçu');
+    const videoId = createData.video_id || createData.id || createData.task_id;
+    if (!videoId) throw new Error('Pas de video_id');
 
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
   } catch (err) {
@@ -168,11 +160,9 @@ app.post('/api/video', async (req, res) => {
 app.get('/api/video/status', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { video_id } = req.query;
+    const { video_id, model = MODELS.videoFlash } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
 
-    // ✅ model_name OBLIGATOIRE pour le mode reference
-    const model = MODELS.videoFlash;
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
 
