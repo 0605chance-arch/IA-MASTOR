@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_clean_v1', JSON.stringify({
+    try { localStorage.setItem('iamastor_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_clean_v1');
+      const s = localStorage.getItem('iamastor_final');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -42,7 +42,7 @@
   }
 
   // ==========================================
-  // RENDU DES SCÈNES
+  // RENDU DES SCÈNES (Image, Vidéo, Histoire)
   // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
@@ -64,31 +64,36 @@
           
           <input type="file" accept="image/*" hidden id="${type}-ref-${i}">
           <label for="${type}-ref-${i}" class="btn-upload" style="display:block;padding:10px;background:var(--bg);border-radius:8px;text-align:center;font-size:12px;margin-bottom:12px;cursor:pointer;">
-            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image'}
+            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image (Optionnel)'}
           </label>
 
           <div class="row">
             <select data-type="${type}" data-idx="${i}" data-key="ratio">
               <option value="9:16" ${s.ratio === '9:16' ? 'selected' : ''}>9:16</option>
               <option value="16:9" ${s.ratio === '16:9' ? 'selected' : ''}>16:9</option>
+              ${isImg ? `<option value="1:1" ${s.ratio === '1:1' ? 'selected' : ''}>1:1</option>` : ''}
             </select>
             ${isImg ? `
             <select data-type="${type}" data-idx="${i}" data-key="size">
               <option value="1K" ${s.size === '1K' ? 'selected' : ''}>1K</option>
               <option value="2K" ${s.size === '2K' ? 'selected' : ''}>2K</option>
+              <option value="4K" ${s.size === '4K' ? 'selected' : ''}>4K</option>
             </select>` : `
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
-              ${[4,5,6,8,10].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
+              ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select data-type="${type}" data-idx="${i}" disabled><option>720P</option></select>`}
+            <select data-type="${type}" data-idx="${i}" disabled>
+              <option value="720P" selected>720P</option>
+            </select>`}
           </div>
 
-          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer</button>
+          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
           ${s.videoUrl ? `<video controls src="${s.videoUrl}"></video>` : ''}
         </div>
       `;
     }).join('');
 
+    // Événements
     c.querySelectorAll('textarea').forEach(el => el.oninput = e => {
       const t = e.target.dataset.type, idx = e.target.dataset.idx;
       const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes;
@@ -117,14 +122,16 @@
   }
 
   // ==========================================
-  // GÉNÉRATION
+  // LOGIQUE DE GÉNÉRATION (Anti-429 garanti)
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
     if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
+    s.status = 'loading'; 
+    s.videoUrl = null; 
+    renderScenes(type);
 
     try {
       if (type === 'image') {
@@ -132,34 +139,39 @@
         if (s.imageBase64) { body.mode = 'img2img'; body.referenceImages = [s.imageBase64]; }
         const res = await api('/image', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
-        if (data.images && data.images[0]) {
+        if (data.images?.[0]) {
           state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio });
           s.status = 'success';
-        }
+        } else { throw new Error("Erreur de génération"); }
       } else {
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: '720P', aspect_ratio: s.ratio };
         if (s.imageBase64) { body.mode = 'img2video'; body.first_frame = s.imageBase64; }
+        
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
-        if (!data.video_id) throw new Error('Erreur création');
-        
+        if (!data.video_id) throw new Error('Erreur ID');
+
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000));
-        
+        await new Promise(r => setTimeout(r, 15000)); // Pause initiale de 15s
+
         while (attempts < 30 && !finished) {
           attempts++; 
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
             const pData = await pRes.json();
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
-            if (pData.status === 'failed') throw new Error('Échec');
+            if (pData.status === 'failed') throw new Error('Échec de génération');
           } catch (err) {
-            if (err.message.includes('429')) await new Promise(r => setTimeout(r, 30000));
-            else throw err;
+            // Si on reçoit l'erreur 429, on attend 30 secondes de plus
+            if (err.message.includes('429') || err.message.includes('too many')) {
+              await new Promise(r => setTimeout(r, 30000));
+            } else {
+              throw err;
+            }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000));
+          if (!finished) await new Promise(r => setTimeout(r, 20000)); // Pause de 20s
         }
-        if (!finished) throw new Error('Timeout');
+        if (!finished) throw new Error('Délai dépassé');
       }
     } catch(e) { s.status = 'error'; alert(e.message); }
     
@@ -167,10 +179,10 @@
   }
 
   // ==========================================
-  // CHAT
+  // LOGIQUE CHAT
   // ==========================================
   function newChat(welcome = null) {
-    const c = { id: Date.now().toString(), title: 'Nouvelle discussion', messages: [] };
+    const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
     state.chatSessions.unshift(c); state.currentChatId = c.id;
     renderChatList(); renderChatMessages(); save();
@@ -187,6 +199,7 @@
     if (!box || !sess) return;
     box.innerHTML = sess.messages.map(m => {
       let content = typeof m.content === 'string' ? m.content : '';
+      if (Array.isArray(m.content)) m.content.forEach(c => { if (c.type === 'text') content += c.text; });
       return `<div class="msg ${m.role}">${content.replace(/\n/g, '<br>')}</div>`;
     }).join('');
     box.scrollTop = box.scrollHeight;
@@ -195,7 +208,7 @@
   async function sendChat(text) {
     const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
     sess.messages.push({ role: 'user', content: text });
-    if (sess.title === 'Nouvelle discussion') sess.title = text.substring(0, 20);
+    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
     renderChatList(); renderChatMessages();
     
     const box = $('#chat-messages'); const ph = document.createElement('div');
@@ -279,10 +292,35 @@
       const v = $('#chat-input').value.trim(); if (!v) return;
       $('#chat-input').value = ''; sendChat(v);
     };
+    $('#chat-file-btn').onclick = () => $('#chat-file').click();
+    $('#chat-file').onchange = (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; };
+      r.readAsDataURL(f);
+    };
 
     $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
     $('#add-scene-video').onclick = () => { state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }); renderScenes('video'); save(); };
     $('#add-story-scene').onclick = () => { state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }); renderScenes('story'); save(); };
+    
+    $('#story-synopsis').oninput = e => { save(); };
+    document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => {
+      el.oninput = e => { state.storyChars[i].name = e.target.value; save(); };
+    });
+    document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => {
+      el.onchange = e => {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => { 
+          state.storyChars[i].img = ev.target.result; 
+          const btn = document.querySelector(`#char-btn-${i}`);
+          if(btn) btn.innerHTML = '✅';
+          save(); 
+        };
+        r.readAsDataURL(f);
+      };
+    });
   });
 
 })();
