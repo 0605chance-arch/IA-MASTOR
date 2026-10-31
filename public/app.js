@@ -1,204 +1,289 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const fetch = require('node-fetch');
-const rateLimit = require('express-rate-limit');
-const path = require('path');
-const FormData = require('form-data');
+(function () {
+  'use strict';
 
-const app = express();
-const PORT = process.env.PORT || 10000;
+  const state = {
+    apiKey: null, chatSessions: [], currentChatId: null, imageHistory: [],
+    videoScenes: [], storyScenes: [], imageScenes: [], storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}]
+  };
 
-app.set('trust proxy', 1);
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+  const $ = s => document.querySelector(s);
 
-const limiter = rateLimit({ windowMs: 60 * 1000, max: 100 });
-app.use('/api/', limiter);
-
-const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
-const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
-
-const MODELS = {
-  chat: 'agnes-3.0-flash',
-  image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash'
-};
-
-function getApiKey(req) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) throw new Error('MISSING_API_KEY');
-  return auth.replace('Bearer ', '').trim();
-}
-
-async function agnesFetch(endpoint, apiKey, options = {}) {
-  const url = `${AGNES_BASE}${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
-  });
-  
-  if (!res.ok) {
-    const errText = await res.text().catch(() => 'Unknown error');
-    let errJson; 
-    try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
-    // ✅ On renvoie le message EXACT d'Agnes (pour détecter "queue is full")
-    const exactMessage = errJson.error?.message || errJson.message || errJson.raw || `Agnes error ${res.status}`;
-    const error = new Error(exactMessage);
-    error.status = res.status;
-    throw error;
+  function save() {
+    try { localStorage.setItem('iamastor_v12', JSON.stringify({
+      chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
+      videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
+    })); } catch(e){}
   }
-  return res.json();
-}
 
-// ✅ UPLOAD vers 0x0.st (URL publique directe pour keyframe)
-app.post('/api/upload', async (req, res) => {
-  try {
-    const { imageBase64 } = req.body;
-    if (!imageBase64) return res.status(400).json({ error: 'Image manquante' });
-    
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-    const buffer = Buffer.from(base64Data, 'base64');
-    
-    const form = new FormData();
-    form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
-    
-    const response = await fetch('https://0x0.st', {
-      method: 'POST',
-      body: form,
-      headers: { 'User-Agent': 'IA-MASTOR/1.0' }
-    });
-    
-    if (!response.ok) throw new Error('Erreur upload 0x0.st');
-    const url = (await response.text()).trim();
-    if (!url.startsWith('http')) throw new Error('URL invalide reçue');
-    
-    res.json({ url });
-  } catch (err) { 
-    console.error('Erreur upload:', err);
-    res.status(500).json({ error: err.message }); 
+  function load() {
+    try {
+      const s = localStorage.getItem('iamastor_v12');
+      if (s) { const p = JSON.parse(s); Object.assign(state, p); }
+      if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
+      if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
+      if (!state.storyScenes?.length) state.storyScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
+    } catch(e){}
   }
-});
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+  async function api(url, options = {}) {
+    if (!state.apiKey) throw new Error('Clé manquante');
+    const res = await fetch(`/api${url}`, { ...options, headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) } });
+    if (!res.ok) { const e = await res.json().catch(()=>({error:'Erreur API'})); throw new Error(e.error || 'Erreur API'); }
+    return res;
+  }
 
-app.post('/api/validate-key', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    await agnesFetch('/chat/completions', apiKey, {
-      method: 'POST', body: JSON.stringify({ model: MODELS.chat, messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 })
+  function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
+
+  // ==========================================
+  // RENDU DES SCÈNES
+  // ==========================================
+  function renderScenes(type) {
+    const isImg = type === 'image';
+    const c = $(`#${type}-scenes`); if (!c) return;
+    const arr = isImg ? state.imageScenes : (type === 'video' ? state.videoScenes : state.storyScenes);
+    if (!arr?.length) { c.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">Aucune scène.</p>'; return; }
+
+    c.innerHTML = arr.map((s, i) => {
+      const status = s.status === 'loading' ? '⏳ En cours...' : s.status === 'error' ? '❌ Erreur' : s.status === 'success' ? '✅ Prêt' : '⏸ En attente';
+      return `
+        <div class="scene">
+          <div class="scene-head"><span>SCÈNE ${i+1}</span><span>${status}</span></div>
+          <textarea placeholder="Décris cette scène..." data-type="${type}" data-idx="${i}">${s.prompt || ''}</textarea>
+          <input type="file" accept="image/*" hidden id="${type}-ref-${i}">
+          <label for="${type}-ref-${i}" class="btn-upload" style="display:block;padding:10px;background:var(--bg);border-radius:8px;text-align:center;font-size:12px;margin-bottom:12px;cursor:pointer;">
+            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image (Optionnel)'}
+          </label>
+          <div class="row">
+            <select data-type="${type}" data-idx="${i}" data-key="ratio">
+              <option value="9:16" ${s.ratio === '9:16' ? 'selected' : ''}>9:16</option>
+              <option value="16:9" ${s.ratio === '16:9' ? 'selected' : ''}>16:9</option>
+              ${isImg ? `<option value="1:1" ${s.ratio === '1:1' ? 'selected' : ''}>1:1</option>` : ''}
+            </select>
+            ${isImg ? `
+            <select data-type="${type}" data-idx="${i}" data-key="size">
+              <option value="1K" ${s.size === '1K' ? 'selected' : ''}>1K</option>
+              <option value="2K" ${s.size === '2K' ? 'selected' : ''}>2K</option>
+              <option value="4K" ${s.size === '4K' ? 'selected' : ''}>4K</option>
+            </select>` : `
+            <select data-type="${type}" data-idx="${i}" data-key="seconds">
+              ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
+            </select>
+            <select disabled><option>720P</option></select>`}
+          </div>
+          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
+          ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    c.querySelectorAll('textarea').forEach(el => el.oninput = e => { const t = e.target.dataset.type, idx = e.target.dataset.idx; const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes; a[idx].prompt = e.target.value; save(); });
+    c.querySelectorAll('select[data-key]').forEach(el => el.onchange = e => { const t = e.target.dataset.type, idx = e.target.dataset.idx, key = e.target.dataset.key; const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes; a[idx][key] = e.target.value; save(); });
+    c.querySelectorAll('.btn-upload').forEach((el, i) => { const input = c.querySelector(`#${type}-ref-${i}`); if (input) input.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes; a[i].imageBase64 = ev.target.result; renderScenes(type); save(); }; r.readAsDataURL(f); }; });
+    c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
+  }
+
+  // ==========================================
+  // GÉNÉRATION (avec retry intelligent pour file pleine)
+  // ==========================================
+  async function generate(type, idx) {
+    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+    const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
+    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
+
+    try {
+      if (type === 'image') {
+        const body = { prompt: s.prompt, size: s.size || '2K', ratio: s.ratio, n: 1 };
+        if (s.imageBase64) { body.mode = 'img2img'; body.referenceImages = [s.imageBase64]; }
+        const res = await api('/image', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
+        if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
+        else throw new Error("Erreur génération");
+      } else {
+        // 1. Upload image si présente
+        let imageUrl = null;
+        if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
+          try {
+            const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
+            const upData = await upRes.json(); 
+            if (upData.url) imageUrl = upData.url;
+          } catch (e) { console.warn('Upload image échoué, mode text utilisé', e); }
+        }
+
+        // 2. Création vidéo avec retry si file pleine
+        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
+        if (imageUrl) body.imageUrl = imageUrl;
+
+        let res, data;
+        let videoAttempts = 0;
+        while (videoAttempts < 20) { // 10 minutes d'attente max
+          videoAttempts++;
+          try {
+            res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
+            data = await res.json();
+            
+            if (data.video_id) break;
+            
+            const errMsg = (data.error || '').toLowerCase();
+            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
+              await new Promise(r => setTimeout(r, 30000));
+              continue;
+            }
+            throw new Error(data.error || 'Erreur création');
+          } catch (err) {
+            const errMsg = err.message.toLowerCase();
+            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
+              if (videoAttempts >= 20) throw new Error('File Agnes pleine. Réessaie plus tard.');
+              await new Promise(r => setTimeout(r, 30000));
+            } else {
+              throw err;
+            }
+          }
+        }
+        if (!data || !data.video_id) throw new Error('File Agnes saturée.');
+
+        // 3. Polling
+        let attempts = 0, finished = false;
+        await new Promise(r => setTimeout(r, 25000));
+        
+        while (attempts < 30 && !finished) {
+          attempts++;
+          try {
+            const pRes = await api(`/video/status?video_id=${data.video_id}`);
+            const pData = await pRes.json();
+            if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
+            else if (pData.status === 'failed') throw new Error('Échec Agnes');
+          } catch (err) {
+            const errMsg = err.message.toLowerCase();
+            if (errMsg.includes('404') && attempts < 3) { /* ignorer 404 temporaire */ }
+            else if (errMsg.includes('429')) { await new Promise(r => setTimeout(r, 30000)); }
+            else throw err;
+          }
+          if (!finished) await new Promise(r => setTimeout(r, 20000));
+        }
+        if (!finished) throw new Error('Délai dépassé');
+      }
+    } catch(e) { s.status = 'error'; console.error(e); }
+    save(); renderScenes(type); renderHistory();
+  }
+
+  // ==========================================
+  // CHAT (avec suppression de conversation)
+  // ==========================================
+  function newChat(welcome = null) {
+    const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
+    if (welcome) c.messages.push({ role: 'assistant', content: welcome });
+    state.chatSessions.unshift(c); state.currentChatId = c.id; renderChatList(); renderChatMessages(); save();
+  }
+
+  function deleteChat(id) {
+    state.chatSessions = state.chatSessions.filter(s => s.id !== id);
+    if (state.currentChatId === id) state.currentChatId = state.chatSessions[0]?.id || null;
+    renderChatList(); renderChatMessages(); save();
+  }
+
+  function renderChatList() {
+    const l = $('#chat-history-list'); if (!l) return;
+    l.innerHTML = state.chatSessions.map(s => `
+      <div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">
+        ${s.title}
+        <span class="delete-chat" data-id="${s.id}" style="margin-left:8px;color:#ef4444;cursor:pointer;">✕</span>
+      </div>
+    `).join('');
+    l.querySelectorAll('.history-chip').forEach(el => el.onclick = (e) => { 
+      if (e.target.classList.contains('delete-chat')) { deleteChat(e.target.dataset.id); return; }
+      state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); 
     });
-    res.json({ valid: true });
-  } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
-});
+  }
 
-app.post('/api/chat', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { messages, stream = true } = req.body;
-    const body = { model: MODELS.chat, messages: messages.slice(-20), stream, temperature: 0.8 };
-    const response = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    });
-    if (!response.ok) return res.status(response.status).json({ error: await response.text() });
-    if (!stream) return res.json(await response.json());
-    
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-    
-    response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
-    response.body.on('end', () => res.end());
-  } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
-});
+  function renderChatMessages() {
+    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId);
+    if (!box || !sess) { if(box) box.innerHTML = ''; return; }
+    box.innerHTML = sess.messages.map(m => `<div class="msg ${m.role}">${(typeof m.content === 'string' ? m.content : '').replace(/\n/g, '<br>')}</div>`).join('');
+    box.scrollTop = box.scrollHeight;
+  }
 
-app.post('/api/image', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { prompt, size = '2K', ratio = '16:9', n = 1 } = req.body;
-    const body = { model: MODELS.image, prompt: prompt.trim(), n: Math.min(n, 4), size: ['1K','2K','3K','4K'].includes(size) ? size : '2K', extra_body: { response_format: 'url', ratio: ratio || '16:9' } };
-    const data = await agnesFetch('/images/generations', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const images = (data.data || []).map(item => ({ url: item.url })).filter(i => i.url);
-    res.json({ success: true, images });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+  async function sendChat(text) {
+    const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
+    sess.messages.push({ role: 'user', content: text });
+    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
+    renderChatList(); renderChatMessages();
+    const box = $('#chat-messages'); const ph = document.createElement('div'); ph.className = 'msg assistant'; ph.textContent = '...'; box.appendChild(ph);
+    try {
+      const res = await api('/chat', { method: 'POST', body: JSON.stringify({ messages: sess.messages.slice(-15), stream: true }) });
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = '', buffer = '';
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim(); if (data === '[DONE]') continue;
+            try { const p = JSON.parse(data); const delta = p.choices?.[0]?.delta?.content || ''; if (delta) { full += delta; ph.innerHTML = full.replace(/\n/g, '<br>'); box.scrollTop = box.scrollHeight; } } catch(e) {}
+          }
+        }
+      }
+      sess.messages.push({ role: 'assistant', content: full }); save();
+    } catch(err) { ph.textContent = `❌ ${err.message}`; }
+  }
 
-// ✅ VIDÉO : keyframe si imageUrl, texte sinon
-app.post('/api/video', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { prompt, seconds = '5', aspect_ratio = '16:9', imageUrl } = req.body;
-    if (!prompt) return res.status(400).json({ error: 'prompt requis' });
-    
-    const secondsNum = parseInt(seconds) || 5;
-    const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
+  // ==========================================
+  // HISTORIQUES
+  // ==========================================
+  function renderHistory() {
+    const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
+    const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
+    const hs = $('#story-history'); if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
+  }
 
-    const body = {
-      model: MODELS.videoFlash,
-      prompt: prompt.trim(),
-      seconds: finalSeconds,
-      size: '720P',
-      aspect_ratio: aspect_ratio || '16:9'
+  window.downloadFile = downloadFile;
+
+  // ==========================================
+  // INITIALISATION
+  // ==========================================
+  document.addEventListener('DOMContentLoaded', () => {
+    load();
+    $('#login-form').onsubmit = async (e) => {
+      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = '...';
+      try {
+        const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
+        const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
+        state.apiKey = key; $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
+        
+        if (state.chatSessions.length === 0) {
+          newChat(`Bienvenue sur IA MASTOR 🚀
+
+Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
+
+**Ce que je peux générer pour toi :**
+🎬 **Vidéos IA** : Jusqu'à **500 secondes par jour** (environ 40 vidéos de 12s). Idéal pour TikTok, Reels et Shorts.
+🖼️ **Images HD** : Jusqu'à **4 000 par jour**. Création visuelle pro.
+💬 **Textes & Scripts** : Idées virales, scripts TikTok, histoires complètes, business plans, prompts optimisés.
+
+**Mes conseils pour réussir :**
+1. La régularité est la clé : poste tous les jours.
+2. Analyse ce qui marche et améliore tes prompts.
+3. Utilise les 3 onglets ensemble : Histoire → Image → Vidéo.
+
+*Prêt à créer du contenu qui cartonne ? Commence par me demander une idée de vidéo ou un script.*`);
+        } else { renderChatList(); renderChatMessages(); }
+        
+        renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
+      } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
     };
 
-    // ✅ Mode keyframe pour image vers vidéo (URL publique obligatoire)
-    if (imageUrl && imageUrl.startsWith('http')) {
-      body.mode = 'keyframe';
-      body.first_frame = imageUrl;
-    } else {
-      body.mode = 'text';
-    }
+    document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => b.onclick = () => { document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active')); document.querySelectorAll(`[data-tab="${b.dataset.tab}"]`).forEach(x => x.classList.add('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.querySelector(`#tab-${b.dataset.tab}`).classList.add('active'); });
 
-    const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const videoId = createData.video_id || createData.id;
-    if (!videoId) throw new Error('Pas de video_id');
-    res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
-  } catch (err) { 
-    console.error('Erreur vidéo (création):', err.message); 
-    res.status(500).json({ error: err.message }); 
-  }
-});
+    $('#new-chat-btn').onclick = () => newChat();
+    $('#chat-form').onsubmit = (e) => { e.preventDefault(); const v = $('#chat-input').value.trim(); if (!v) return; $('#chat-input').value = ''; sendChat(v); };
+    $('#chat-file-btn').onclick = () => $('#chat-file').click();
+    $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
 
-app.get('/api/video/status', async (req, res) => {
-  try {
-    const apiKey = getApiKey(req);
-    const { video_id } = req.query;
-    if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-    
-    const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${MODELS.videoFlash}`;
-    const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-    
-    if (!pollRes.ok) { 
-      const errText = await pollRes.text().catch(() => ''); 
-      return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); 
-    }
-    
-    const data = await pollRes.json();
-    res.json({ success: true, status: data.status || 'unknown', video_url: data.url || data.video_url || null });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
+    $('#add-scene-video').onclick = () => { state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }); renderScenes('video'); save(); };
+    $('#add-story-scene').onclick = () => { state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }); renderScenes('story'); save(); };
 
-app.get('/api/download', async (req, res) => {
-  try {
-    const { url } = req.query;
-    if (!url) return res.status(400).send('URL manquante');
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Erreur téléchargement');
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    const extension = contentType.includes('video') ? 'mp4' : 'jpg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="iamastor-${Date.now()}.${extension}"`);
-    response.body.pipe(res);
-  } catch (err) { res.status(500).send('Erreur : ' + err.message); }
-});
-
-// ✅ Fallback SPA (dossier "public" en minuscule)
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint inconnu' });
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.listen(PORT, () => console.log(`🚀 IA MASTOR démarré sur le port ${PORT}`));
+    $('#story-synopsis').oninput = () => save();
+    document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
+    document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => el.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.storyChars[i].img = ev.target.result; const btn = document.querySelector(`#char-btn-${i}`); if(btn) btn.innerHTML = '✅'; save(); }; r.readAsDataURL(f); });
+  });
+})();
