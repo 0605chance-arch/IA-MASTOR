@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v12', JSON.stringify({
+    try { localStorage.setItem('iamastor_v13', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v12');
+      const s = localStorage.getItem('iamastor_v13');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -139,7 +139,8 @@
         while (attempts < 30 && !finished) {
           attempts++;
           try {
-            const pRes = await api(`/video/status?video_id=${data.video_id}`);
+            // ✅ CORRECTION : On ajoute &model=agnes-video-2.5-flash dans l'URL de vérification
+            const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
             const pData = await pRes.json();
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
             else if (pData.status === 'failed') throw new Error('Échec Agnes');
