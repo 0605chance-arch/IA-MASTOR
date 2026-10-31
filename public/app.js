@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v14', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final');
+      const s = localStorage.getItem('iamastor_final_v14');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -68,7 +68,7 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select disabled><option>1080P</option></select>`}
+            <select disabled><option>720P</option></select>`}
           </div>
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
           ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
@@ -83,12 +83,41 @@
   }
 
   // ==========================================
-  // GÉNÉRATION (logique de l'ancien code qui marchait)
+  // GÉNÉRATION
   // ==========================================
-  async function generate(type, idx) {
+  let videoQueue = [];
+  let isProcessingVideo = false;
+
+  async function processVideoQueue() {
+    if (isProcessingVideo || videoQueue.length === 0) return;
+    isProcessingVideo = true;
+    
+    while (videoQueue.length > 0) {
+      const { type, idx } = videoQueue.shift();
+      await executeGeneration(type, idx);
+      // ✅ Pause de 2 secondes entre chaque vidéo (respecte les 5 RPM d'Agnes)
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    
+    isProcessingVideo = false;
+  }
+
+  function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
+    
+    // ✅ Mise en file d'attente pour éviter le blocage "RPM limit"
+    s.status = 'loading'; 
+    s.videoUrl = null; 
+    renderScenes(type);
+    
+    videoQueue.push({ type, idx });
+    processVideoQueue();
+  }
+
+  async function executeGeneration(type, idx) {
+    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+    const s = a[idx];
 
     try {
       if (type === 'image') {
@@ -99,12 +128,7 @@
         if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
         else throw new Error("Erreur génération");
       } else {
-        // ✅ On envoie le base64 DIRECT au serveur (comme l'ancien code qui marchait)
-        const body = { 
-          prompt: s.prompt, 
-          seconds: String(s.seconds || 8), 
-          aspect_ratio: s.ratio 
-        };
+        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
         if (s.imageBase64) body.imageBase64 = s.imageBase64;
 
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
@@ -112,11 +136,10 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
-        // Polling toutes les 3 secondes (comme l'ancien code)
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 5000));
         
-        while (attempts < 60 && !finished) {
+        while (attempts < 40 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
@@ -131,11 +154,14 @@
             console.warn('Polling erreur:', err.message);
           }
           
-          if (!finished) await new Promise(r => setTimeout(r, 3000));
+          if (!finished) await new Promise(r => setTimeout(r, 5000));
         }
         if (!finished) throw new Error('Délai dépassé');
       }
-    } catch(e) { s.status = 'error'; console.error(e); alert(e.message); }
+    } catch(e) { 
+      s.status = 'error'; 
+      console.error(e); 
+    }
     save(); renderScenes(type); renderHistory();
   }
 
