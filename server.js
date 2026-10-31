@@ -35,6 +35,20 @@ function getApiKey(req) {
   return auth.replace('Bearer ', '').trim();
 }
 
+// ✅ Système de retry (comme ton ancien code qui marchait)
+async function fetchWithRetry(url, options, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok && response.status >= 500) throw new Error("Erreur serveur");
+      return response;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(res => setTimeout(res, 1000 * (i + 1)));
+    }
+  }
+}
+
 async function agnesFetch(endpoint, apiKey, options = {}) {
   const url = `${AGNES_BASE}${endpoint}`;
   const res = await fetch(url, {
@@ -99,7 +113,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : 720P + base64 pur (sans le préfixe data:image)
+// ✅ VIDÉO : 720P obligatoire + base64 pur (sans le préfixe data:image)
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -113,13 +127,13 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P', // ✅ Flash = 720P uniquement
+      size: '720P',
       aspect_ratio: aspect_ratio || '16:9',
       seed: Math.floor(Math.random() * 1000000),
       mode: 'text'
     };
 
-    // ✅ LA CORRECTION EST ICI : on nettoie le préfixe base64
+    // ✅ LA CORRECTION DU BASE64 PUR EST ICI
     if (imageBase64) {
       body.mode = 'reference';
       const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
