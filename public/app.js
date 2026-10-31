@@ -34,9 +34,6 @@
 
   function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
 
-  // ==========================================
-  // RENDU DES SCÈNES
-  // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -82,9 +79,6 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // ==========================================
-  // GÉNÉRATION (avec retry intelligent pour file pleine)
-  // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
@@ -99,7 +93,6 @@
         if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
         else throw new Error("Erreur génération");
       } else {
-        // 1. Upload image si présente
         let imageUrl = null;
         if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
           try {
@@ -109,13 +102,12 @@
           } catch (e) { console.warn('Upload image échoué, mode text utilisé', e); }
         }
 
-        // 2. Création vidéo avec retry si file pleine
         const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
         if (imageUrl) body.imageUrl = imageUrl;
 
         let res, data;
         let videoAttempts = 0;
-        while (videoAttempts < 20) { // 10 minutes d'attente max
+        while (videoAttempts < 20) { 
           videoAttempts++;
           try {
             res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
@@ -141,7 +133,6 @@
         }
         if (!data || !data.video_id) throw new Error('File Agnes saturée.');
 
-        // 3. Polling
         let attempts = 0, finished = false;
         await new Promise(r => setTimeout(r, 25000));
         
@@ -166,9 +157,6 @@
     save(); renderScenes(type); renderHistory();
   }
 
-  // ==========================================
-  // CHAT (avec suppression de conversation)
-  // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -226,9 +214,6 @@
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
   }
 
-  // ==========================================
-  // HISTORIQUES
-  // ==========================================
   function renderHistory() {
     const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
@@ -237,9 +222,6 @@
 
   window.downloadFile = downloadFile;
 
-  // ==========================================
-  // INITIALISATION
-  // ==========================================
   document.addEventListener('DOMContentLoaded', () => {
     load();
     $('#login-form').onsubmit = async (e) => {
