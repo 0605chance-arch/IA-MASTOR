@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v15', JSON.stringify({
+    try { localStorage.setItem('iamastor_clean_v1', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes,
       storyChars: state.storyChars
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v15');
+      const s = localStorage.getItem('iamastor_clean_v1');
       if (s) {
         const p = JSON.parse(s);
         state.chatSessions = p.chatSessions || []; state.imageHistory = p.imageHistory || [];
@@ -35,7 +35,7 @@
       headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
     });
     if (!res.ok) { 
-      const e = await res.json().catch(()=>({error:'Erreur API'})); 
+      const e = await res.json().catch(()=>({error:'Erreur'})); 
       throw new Error(e.error || 'Erreur API'); 
     }
     return res;
@@ -45,13 +45,13 @@
   // RENDU DES SCÈNES
   // ==========================================
   function renderScenes(type) {
-    const isImg = type === 'image', isVid = type === 'video', isStory = type === 'story';
+    const isImg = type === 'image';
     const c = $(`#${type}-scenes`);
     if (!c) return;
-    const arr = isImg ? state.imageScenes : (isVid ? state.videoScenes : state.storyScenes);
+    const arr = isImg ? state.imageScenes : (type === 'video' ? state.videoScenes : state.storyScenes);
 
     if (!arr || arr.length === 0) {
-      c.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">Aucune scène. Clique sur +.</p>';
+      c.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">Aucune scène.</p>';
       return;
     }
 
@@ -62,53 +62,46 @@
           <div class="scene-head"><span>SCÈNE ${i+1}</span><span>${status}</span></div>
           <textarea placeholder="Décris cette scène..." data-type="${type}" data-idx="${i}">${s.prompt || ''}</textarea>
           
-          ${!isImg ? `
           <input type="file" accept="image/*" hidden id="${type}-ref-${i}">
           <label for="${type}-ref-${i}" class="btn-upload" style="display:block;padding:10px;background:var(--bg);border-radius:8px;text-align:center;font-size:12px;margin-bottom:12px;cursor:pointer;">
-            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image (Optionnel)'}
+            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image'}
           </label>
-          ` : ''}
 
           <div class="row">
             <select data-type="${type}" data-idx="${i}" data-key="ratio">
               <option value="9:16" ${s.ratio === '9:16' ? 'selected' : ''}>9:16</option>
               <option value="16:9" ${s.ratio === '16:9' ? 'selected' : ''}>16:9</option>
-              ${isImg ? `<option value="1:1" ${s.ratio === '1:1' ? 'selected' : ''}>1:1</option>` : ''}
             </select>
             ${isImg ? `
             <select data-type="${type}" data-idx="${i}" data-key="size">
               <option value="1K" ${s.size === '1K' ? 'selected' : ''}>1K</option>
               <option value="2K" ${s.size === '2K' ? 'selected' : ''}>2K</option>
-              <option value="4K" ${s.size === '4K' ? 'selected' : ''}>4K</option>
             </select>` : `
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
-              ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
+              ${[4,5,6,8,10].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <!-- 1080P SUPPRIMÉ -->
-            <select data-type="${type}" data-idx="${i}" data-key="size">
-              <option value="720P" ${s.size === '720P' ? 'selected' : ''}>720P (Starter Plan)</option>
-            </select>`}
+            <select data-type="${type}" data-idx="${i}" disabled><option>720P</option></select>`}
           </div>
 
-          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
+          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer</button>
           ${s.videoUrl ? `<video controls src="${s.videoUrl}"></video>` : ''}
         </div>
       `;
     }).join('');
 
-    c.querySelectorAll('textarea').forEach(el => el.addEventListener('input', e => {
+    c.querySelectorAll('textarea').forEach(el => el.oninput = e => {
       const t = e.target.dataset.type, idx = e.target.dataset.idx;
       const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes;
       a[idx].prompt = e.target.value; save();
-    }));
-    c.querySelectorAll('select').forEach(el => el.addEventListener('change', e => {
+    });
+    c.querySelectorAll('select[data-key]').forEach(el => el.onchange = e => {
       const t = e.target.dataset.type, idx = e.target.dataset.idx, key = e.target.dataset.key;
       const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes;
       a[idx][key] = e.target.value; save();
-    }));
+    });
     c.querySelectorAll('.btn-upload').forEach((el, i) => {
       const input = c.querySelector(`#${type}-ref-${i}`);
-      if (input) input.addEventListener('change', e => {
+      if (input) input.onchange = e => {
         const f = e.target.files[0]; if (!f) return;
         const r = new FileReader();
         r.onload = ev => { 
@@ -116,25 +109,22 @@
           a[i].imageBase64 = ev.target.result; renderScenes(type); save(); 
         };
         r.readAsDataURL(f);
-      });
+      };
     });
-    c.querySelectorAll('.btn-gen').forEach(el => el.addEventListener('click', e => {
-      const t = e.target.dataset.type, idx = e.target.dataset.idx;
-      generate(t, idx);
-    }));
+    c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => {
+      generate(e.target.dataset.type, e.target.dataset.idx);
+    });
   }
 
   // ==========================================
-  // LOGIQUE DE GÉNÉRATION (avec gestion 429)
+  // GÉNÉRATION
   // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
     if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; 
-    s.videoUrl = null; // On nettoie l'ancienne vidéo
-    renderScenes(type);
+    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
 
     try {
       if (type === 'image') {
@@ -142,64 +132,45 @@
         if (s.imageBase64) { body.mode = 'img2img'; body.referenceImages = [s.imageBase64]; }
         const res = await api('/image', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
-        if (data.images?.[0]) {
+        if (data.images && data.images[0]) {
           state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio });
           s.status = 'success';
-        } else { throw new Error("Aucune image générée"); }
-      } else {
-        // Préparation de la vidéo avec l'image si elle existe
-        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: '720P', aspect_ratio: s.ratio };
-        if (s.imageBase64) { 
-          body.mode = 'img2video'; 
-          body.first_frame = s.imageBase64; 
         }
-        
+      } else {
+        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), size: '720P', aspect_ratio: s.ratio };
+        if (s.imageBase64) { body.mode = 'img2video'; body.first_frame = s.imageBase64; }
         const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
-        if (!data.video_id) throw new Error('Erreur ID');
-
-        let attempts = 0;
-        let finished = false;
+        if (!data.video_id) throw new Error('Erreur création');
+        
+        let attempts = 0, finished = false;
+        await new Promise(r => setTimeout(r, 15000));
         
         while (attempts < 30 && !finished) {
           attempts++; 
-          await new Promise(r => setTimeout(r, 20000)); // Attente de 20s entre chaque requête
-          
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
             const pData = await pRes.json();
-            
-            if (pData.status === 'completed') { 
-              s.status = 'success'; 
-              s.videoUrl = pData.video_url; 
-              finished = true;
-            } else if (pData.status === 'failed') { 
-              throw new Error('Échec de la génération.'); 
-            }
-          } catch (pollError) {
-            if (pollError.message.includes('429') || pollError.message.includes('too many')) {
-              await new Promise(r => setTimeout(r, 30000)); // Si 429, pause de 30s en plus
-            } else {
-              throw pollError;
-            }
+            if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
+            if (pData.status === 'failed') throw new Error('Échec');
+          } catch (err) {
+            if (err.message.includes('429')) await new Promise(r => setTimeout(r, 30000));
+            else throw err;
           }
+          if (!finished) await new Promise(r => setTimeout(r, 20000));
         }
-        if (!finished) throw new Error('Délai maximum dépassé.');
+        if (!finished) throw new Error('Timeout');
       }
-    } catch(e) { 
-      s.status = 'error'; 
-      alert(e.message); 
-    }
+    } catch(e) { s.status = 'error'; alert(e.message); }
     
-    save(); renderScenes(type);
-    renderHistory();
+    save(); renderScenes(type); renderHistory();
   }
 
   // ==========================================
-  // LOGIQUE CHAT (avec message de bienvenue)
+  // CHAT
   // ==========================================
   function newChat(welcome = null) {
-    const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
+    const c = { id: Date.now().toString(), title: 'Nouvelle discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
     state.chatSessions.unshift(c); state.currentChatId = c.id;
     renderChatList(); renderChatMessages(); save();
@@ -207,12 +178,8 @@
 
   function renderChatList() {
     const l = $('#chat-history-list'); if (!l) return;
-    l.innerHTML = state.chatSessions.map(s => `
-      <div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">${s.title}</div>
-    `).join('');
-    l.querySelectorAll('.history-chip').forEach(el => {
-      el.onclick = () => { state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); };
-    });
+    l.innerHTML = state.chatSessions.map(s => `<div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">${s.title}</div>`).join('');
+    l.querySelectorAll('.history-chip').forEach(el => el.onclick = () => { state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); });
   }
 
   function renderChatMessages() {
@@ -220,7 +187,6 @@
     if (!box || !sess) return;
     box.innerHTML = sess.messages.map(m => {
       let content = typeof m.content === 'string' ? m.content : '';
-      if (Array.isArray(m.content)) m.content.forEach(c => { if (c.type === 'text') content += c.text; });
       return `<div class="msg ${m.role}">${content.replace(/\n/g, '<br>')}</div>`;
     }).join('');
     box.scrollTop = box.scrollHeight;
@@ -229,11 +195,11 @@
   async function sendChat(text) {
     const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
     sess.messages.push({ role: 'user', content: text });
-    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
+    if (sess.title === 'Nouvelle discussion') sess.title = text.substring(0, 20);
     renderChatList(); renderChatMessages();
     
-    const box = $('#chat-messages'); const placeholder = document.createElement('div');
-    placeholder.className = 'msg assistant'; placeholder.textContent = '...'; box.appendChild(placeholder);
+    const box = $('#chat-messages'); const ph = document.createElement('div');
+    ph.className = 'msg assistant'; ph.textContent = '...'; box.appendChild(ph);
 
     try {
       const res = await api('/chat', { method: 'POST', body: JSON.stringify({ messages: sess.messages.slice(-15), stream: true }) });
@@ -247,13 +213,13 @@
             const data = line.slice(6).trim(); if (data === '[DONE]') continue;
             try { 
               const p = JSON.parse(data); const delta = p.choices?.[0]?.delta?.content || '';
-              if (delta) { full += delta; placeholder.innerHTML = full.replace(/\n/g, '<br>'); box.scrollTop = box.scrollHeight; }
+              if (delta) { full += delta; ph.innerHTML = full.replace(/\n/g, '<br>'); box.scrollTop = box.scrollHeight; }
             } catch(e) {}
           }
         }
       }
       sess.messages.push({ role: 'assistant', content: full }); save();
-    } catch(err) { placeholder.textContent = `❌ ${err.message}`; }
+    } catch(err) { ph.textContent = `❌ ${err.message}`; }
   }
 
   // ==========================================
@@ -261,19 +227,13 @@
   // ==========================================
   function renderHistory() {
     const hi = $('#image-history');
-    if (hi) hi.innerHTML = state.imageHistory.map(img => `
-      <div class="item"><img src="${img.url}"><a href="${img.url}" download class="item-btn">⬇ Télécharger</a></div>
-    `).join('');
+    if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><a href="${img.url}" download class="item-btn">⬇ Télécharger</a></div>`).join('');
     
     const hv = $('#video-history');
-    if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `
-      <div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>
-    `).join('');
+    if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>`).join('');
 
     const hs = $('#story-history');
-    if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `
-      <div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>
-    `).join('');
+    if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><a href="${v.videoUrl}" download class="item-btn">⬇ Télécharger</a></div>`).join('');
   }
 
   // ==========================================
@@ -282,7 +242,6 @@
   document.addEventListener('DOMContentLoaded', () => {
     load();
     
-    // Login
     $('#login-form').onsubmit = async (e) => {
       e.preventDefault();
       const key = $('#api-key').value.trim();
@@ -294,7 +253,7 @@
         $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
         
         if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 **Chat** : Générer des idées, écrire des scripts.\n🖼️ **Image** : Créer des visuels (1K/2K/4K).\n🎬 **Vidéo** : Transformer tes textes en vidéos virales.\n📖 **Histoire** : Écrire des récits complets.\n\n*Conseil : La régularité est la clé sur TikTok/Insta. Commence par 1 vidéo par jour.*`);
+          newChat("Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor créatif. Voici ce que je peux faire :\n\n💬 Chat : Idées et scripts.\n🖼️ Image : Visuels.\n🎬 Vidéo : Scènes virales.\n📖 Histoire : Récits.\n\n*Conseil : Sois régulier sur TikTok/Insta.*");
         } else { renderChatList(); renderChatMessages(); }
 
         if (!state.imageScenes || state.imageScenes.length === 0) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
@@ -305,7 +264,6 @@
       } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
     };
 
-    // Navigation
     document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => {
       b.onclick = () => {
         document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active'));
@@ -315,53 +273,16 @@
       };
     });
 
-    // Chat
     $('#new-chat-btn').onclick = () => newChat();
     $('#chat-form').onsubmit = (e) => {
       e.preventDefault();
       const v = $('#chat-input').value.trim(); if (!v) return;
       $('#chat-input').value = ''; sendChat(v);
     };
-    $('#chat-file-btn').onclick = () => $('#chat-file').click();
-    $('#chat-file').onchange = (e) => {
-      const f = e.target.files[0]; if (!f) return;
-      const r = new FileReader();
-      r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; };
-      r.readAsDataURL(f);
-    };
 
-    // Ajouter des prompts
-    $('#add-image-prompt').onclick = () => {
-      state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' });
-      renderScenes('image'); save();
-    };
-    $('#add-scene-video').onclick = () => {
-      state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' });
-      renderScenes('video'); save();
-    };
-    $('#add-story-scene').onclick = () => {
-      state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' });
-      renderScenes('story'); save();
-    };
-    
-    // Champs du mode Histoire
-    $('#story-synopsis').oninput = e => { save(); };
-    document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => {
-      el.oninput = e => { state.storyChars[i].name = e.target.value; save(); };
-    });
-    document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => {
-      el.onchange = e => {
-        const f = e.target.files[0]; if (!f) return;
-        const r = new FileReader();
-        r.onload = (ev) => { 
-          state.storyChars[i].img = ev.target.result; 
-          const btn = document.querySelector(`#char-btn-${i}`);
-          if(btn) btn.innerHTML = '✅';
-          save(); 
-        };
-        r.readAsDataURL(f);
-      };
-    });
+    $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
+    $('#add-scene-video').onclick = () => { state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }); renderScenes('video'); save(); };
+    $('#add-story-scene').onclick = () => { state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', size: '720P', status: 'pending' }); renderScenes('story'); save(); };
   });
 
 })();
