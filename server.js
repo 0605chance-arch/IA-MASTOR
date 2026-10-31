@@ -26,7 +26,7 @@ const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 const MODELS = {
   chat: 'agnes-3.0-flash',
   image: 'agnes-image-2.5-flash',
-  videoFlash: 'agnes-video-2.5-flash' // ✅ Le seul modèle vidéo gratuit
+  videoFlash: 'agnes-video-2.5-flash'
 };
 
 function getApiKey(req) {
@@ -130,30 +130,34 @@ app.post('/api/image', async (req, res) => {
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { prompt, seconds = '5', aspect_ratio = '16:9', first_frame } = req.body;
+    const { prompt, seconds = '5', aspect_ratio = '16:9', imageUrl } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
 
-    // ✅ Règles Flash strictes :
-    // - seconds DOIT être une chaîne entre "4" et "12" 
-    // - size DOIT être "720P" [citation:2]
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
+    // ✅ Construction du body selon la doc officielle Agnes
     const body = {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
-      mode: first_frame ? 'img2video' : 'text',
-      seconds: finalSeconds, // ✅ Chaîne "4" à "12"
-      size: '720P', // ✅ Forcé 720P
-      aspect_ratio: aspect_ratio || '16:9'
+      seconds: finalSeconds,
+      size: '720P',
+      aspect_ratio: aspect_ratio || '16:9',
+      n: 1
     };
-    if (first_frame) body.first_frame = first_frame;
+
+    // ✅ Si une image de référence est fournie (URL publique requise)
+    if (imageUrl) {
+      body.mode = 'reference';
+      body.images = [imageUrl]; // Tableau d'URLs, pas de base64
+    } else {
+      body.mode = 'text';
+    }
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const videoId = createData.video_id || createData.id || createData.task_id;
-    if (!videoId) throw new Error('Pas de video_id');
+    const videoId = createData.video_id || createData.id;
+    if (!videoId) throw new Error('Pas de video_id reçu');
 
-    // ✅ On renvoie le model exact pour le polling
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
   } catch (err) {
     console.error('Erreur création vidéo:', err.message);
@@ -164,10 +168,11 @@ app.post('/api/video', async (req, res) => {
 app.get('/api/video/status', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { video_id, model = MODELS.videoFlash } = req.query;
+    const { video_id } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
 
-    // ✅ model_name OBLIGATOIRE pour Flash [citation:3]
+    // ✅ model_name OBLIGATOIRE pour le mode reference
+    const model = MODELS.videoFlash;
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
 
