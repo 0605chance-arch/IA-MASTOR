@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_fix2', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_fix3', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_fix2');
+      const s = localStorage.getItem('iamastor_final_fix3');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -105,9 +105,10 @@
         const data = await res.json(); if (!data.video_id) throw new Error('Erreur ID');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 20000));  // ✅ Attente initiale 20s
+        // ✅ Attente initiale de 25s (laisse Agnes enregistrer la tâche) [citation:9]
+        await new Promise(r => setTimeout(r, 25000));
 
-        while (attempts < 20 && !finished) {
+        while (attempts < 25 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}`);
@@ -115,10 +116,16 @@
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
             else if (pData.status === 'failed') throw new Error('Échec Agnes');
           } catch (err) {
-            if (err.message.includes('429')) await new Promise(r => setTimeout(r, 30000));  // ✅ Pause si 429
-            else throw err;
+            // ✅ IGNORER les 404 pendant les 30 premières secondes (tâche pas encore enregistrée) [citation:9]
+            if (err.message.includes('404') && attempts < 3) {
+              console.log('404 temporaire, on continue...');
+            } else if (err.message.includes('429')) {
+              await new Promise(r => setTimeout(r, 30000)); // Pause si 429 [citation:1]
+            } else {
+              throw err;
+            }
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000));  // ✅ 20s entre chaque vérif
+          if (!finished) await new Promise(r => setTimeout(r, 20000)); // 20s entre chaque vérif [citation:3]
         }
         if (!finished) throw new Error('Délai dépassé');
       }
