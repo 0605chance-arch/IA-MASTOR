@@ -1,4 +1,287 @@
-// ==========================================
+(function () {
+  'use strict';
+
+  const state = {
+    apiKey: null,
+    chatSessions: [],
+    currentChatId: null,
+    imageHistory: [],
+    imageScenes: [],
+    videoScenes: [],
+    videoHistory: [],
+    storyScenes: [],
+    storyHistory: [],
+    chatImageBase64: null,
+    storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}]
+  };
+
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
+
+  function save() {
+    try {
+      localStorage.setItem('iamastor_final_v3', JSON.stringify({
+        chatSessions: state.chatSessions,
+        imageHistory: state.imageHistory.slice(0, 30),
+        imageScenes: state.imageScenes,
+        videoScenes: state.videoScenes,
+        videoHistory: state.videoHistory.slice(0, 30),
+        storyScenes: state.storyScenes,
+        storyHistory: state.storyHistory.slice(0, 30),
+        storyChars: state.storyChars
+      }));
+    } catch(e) {}
+  }
+
+  function load() {
+    try {
+      const s = localStorage.getItem('iamastor_final_v3');
+      if (s) {
+        const p = JSON.parse(s);
+        Object.assign(state, p);
+      }
+    } catch(e) {}
+  }
+
+  async function api(url, options = {}) {
+    if (!state.apiKey) throw new Error('Clé manquante');
+    const res = await fetch(`/api${url}`, {
+      ...options,
+      headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
+    });
+    if (!res.ok) { 
+      const e = await res.json().catch(()=>({error:'Erreur API'})); 
+      throw new Error(e.error || 'Erreur API'); 
+    }
+    return res;
+  }
+
+  // ==========================================
+  // LOGIQUE DE GÉNÉRATION VIDÉO (Générique)
+  // ==========================================
+  async function generateVideoScene(arr, idx, renderFunc, containerId, type) {
+    const scene = arr[idx];
+    if(!scene.prompt) return alert('Écris un prompt.');
+    
+    scene.status = 'loading';
+    renderFunc(containerId, arr, type);
+    
+    try {
+      const body = { prompt: scene.prompt, seconds: String(scene.seconds), size: scene.size || '720P', aspect_ratio: scene.ratio };
+      if (scene.imageBase64) { body.mode = 'img2video'; body.first_frame = scene.imageBase64; }
+      
+      const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!data.video_id) throw new Error('Erreur création ID');
+      
+      let attempts = 0;
+      while (attempts < 90) {
+        attempts++;
+        await new Promise(r => setTimeout(r, 3000));
+        const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
+        const pData = await pRes.json();
+        
+        if (pData.status === 'completed' && pData.video_url) { 
+          scene.status = 'success'; 
+          scene.videoUrl = pData.video_url; 
+          break; 
+        }
+        if (pData.status === 'failed') throw new Error('Échec génération');
+      }
+      if (attempts >= 90) throw new Error('Timeout');
+    } catch (e) { 
+      scene.status = 'error'; 
+      console.error(e);
+    }
+    
+    save();
+    renderFunc(containerId, arr, type);
+  }
+
+  // ==========================================
+  // ONGLET IMAGE
+  // ==========================================
+  function renderImages(containerId, scenes, type) {
+    const c = $('#image-scenes');
+    if (!c) return;
+    c.innerHTML = scenes.map((scene, index) => `
+      <div class="scene">
+        <div class="scene-head">
+          <span>IMAGE ${index + 1}</span>
+          <span>${scene.status === 'loading' ? '⏳' : (scene.status === 'error' ? '❌' : (scene.status === 'success' ? '✅' : '⏸'))}</span>
+        </div>
+        
+        <textarea placeholder="Décris l'image..." data-idx="${index}" class="img-prompt">${scene.prompt || ''}</textarea>
+        
+        <input type="file" accept="image/*" hidden id="img-ref-${index}">
+        <label for="img-ref-${index}" class="btn-upload" style="display:block; padding:10px; background:var(--bg); border-radius:8px; text-align:center; font-size:12px; margin-bottom:12px; cursor:pointer;">
+          ${scene.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image (Optionnel)'}
+        </label>
+
+        <div class="row">
+          <select data-idx="${index}" class="img-size">
+            <option value="1K" ${scene.size==='1K'?'selected':''}>1K</option>
+            <option value="2K" ${scene.size==='2K'?'selected':''}>2K</option>
+            <option value="4K" ${scene.size==='4K'?'selected':''}>4K</option>
+          </select>
+          <select data-idx="${index}" class="img-ratio">
+            <option value="16:9" ${scene.ratio==='16:9'?'selected':''}>16:9</option>
+            <option value="9:16" ${scene.ratio==='9:16'?'selected':''}>9:16</option>
+            <option value="1:1" ${scene.ratio==='1:1'?'selected':''}>1:1</option>
+          </select>
+        </div>
+        
+        <button class="btn-gen" data-idx="${index}">Générer cette image</button>
+      </div>
+    `).join('');
+
+    c.querySelectorAll('.img-prompt').forEach(el => el.oninput = e => { scenes[e.target.dataset.idx].prompt = e.target.value; save(); });
+    c.querySelectorAll('.img-size').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].size = e.target.value; save(); });
+    c.querySelectorAll('.img-ratio').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].ratio = e.target.value; save(); });
+    
+    c.querySelectorAll('.btn-upload').forEach((el, i) => {
+      const input = c.querySelector(`#img-ref-${i}`);
+      if(input) input.onchange = (e) => {
+        const f = e.target.files[0]; if(!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => { scenes[i].imageBase64 = ev.target.result; renderImages(containerId, scenes, type); save(); };
+        r.readAsDataURL(f);
+      };
+    });
+
+    c.querySelectorAll('.btn-gen').forEach(el => el.onclick = async e => {
+      const btn = e.target; const idx = btn.dataset.idx; const s = scenes[idx];
+      btn.textContent = 'Génération...'; btn.disabled = true;
+      try {
+        const body = { prompt: s.prompt, size: s.size, ratio: s.ratio, n: 1 };
+        if (s.imageBase64) { body.mode = 'img2img'; body.referenceImages = [s.imageBase64]; }
+        
+        const res = await api('/image', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
+        if (data.images?.[0]) {
+          state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio });
+          renderImages(containerId, scenes, type); save();
+        }
+      } catch(err) { alert(err.message); }
+      btn.textContent = 'Générer cette image'; btn.disabled = false;
+    });
+
+    const hist = $('#image-history');
+    if (hist) {
+      hist.innerHTML = state.imageHistory.map(img => `
+        <div class="item">
+          <img src="${img.url}" onclick="window.open('${img.url}','_blank')">
+          <a href="${img.url}" download class="item-btn">⬇ Télécharger</a>
+        </div>
+      `).join('');
+    }
+  }
+
+  // ==========================================
+  // ONGLET VIDÉO
+  // ==========================================
+  function renderVideos(containerId, scenes, type) {
+    const c = $('#video-scenes');
+    if (!c) return;
+    c.innerHTML = scenes.map((scene, index) => `
+      <div class="scene">
+        <div class="scene-head">
+          <span>SCÈNE ${index + 1}</span>
+          <span>${scene.status === 'loading' ? '⏳' : (scene.status === 'error' ? '❌' : (scene.status === 'success' ? '✅' : '⏸'))}</span>
+        </div>
+        
+        <textarea placeholder="Décris cette scène..." data-idx="${index}" class="vid-prompt">${scene.prompt || ''}</textarea>
+        
+        <div class="row">
+          <select data-idx="${index}" class="vid-ratio">
+            <option value="9:16" ${scene.ratio==='9:16'?'selected':''}>9:16</option>
+            <option value="16:9" ${scene.ratio==='16:9'?'selected':''}>16:9</option>
+          </select>
+          <select data-idx="${index}" class="vid-sec">
+            ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${scene.seconds==n?'selected':''}>${n}s</option>`).join('')}
+          </select>
+          <select data-idx="${index}" class="vid-size">
+            <option value="720P" ${scene.size==='720P'?'selected':''}>720P</option>
+            <option value="1080P" ${scene.size==='1080P'?'selected':''}>1080P</option>
+          </select>
+        </div>
+        
+        <button class="btn-gen" data-idx="${index}">Générer cette scène</button>
+      </div>
+    `).join('');
+
+    c.querySelectorAll('.vid-prompt').forEach(el => el.oninput = e => { scenes[e.target.dataset.idx].prompt = e.target.value; save(); });
+    c.querySelectorAll('.vid-ratio').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].ratio = e.target.value; save(); });
+    c.querySelectorAll('.vid-sec').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].seconds = e.target.value; save(); });
+    c.querySelectorAll('.vid-size').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].size = e.target.value; save(); });
+    
+    c.querySelectorAll('.btn-gen').forEach(el => el.onclick = (e) => {
+      generateVideoScene(scenes, e.target.dataset.idx, renderVideos, containerId, type);
+    });
+
+    const hist = $('#video-history');
+    if (hist) {
+      hist.innerHTML = state.videoHistory.map(v => `
+        <div class="item">
+          <video controls src="${v.url}"></video>
+          <a href="${v.url}" download class="item-btn">⬇ Télécharger</a>
+        </div>
+      `).join('');
+    }
+  }
+
+  // ==========================================
+  // ONGLET HISTOIRE
+  // ==========================================
+  function renderStory(containerId, scenes, type) {
+    state.storyChars.forEach((c, i) => {
+      const btn = $(`#char-btn-${i}`);
+      if (btn) btn.innerHTML = c.img ? '✅' : '📷';
+    });
+
+    const c = $('#story-scenes');
+    if (!c) return;
+    c.innerHTML = scenes.map((scene, index) => `
+      <div class="scene">
+        <div class="scene-head">
+          <span>PROMPT ${index + 1}</span>
+          <span>${scene.status === 'loading' ? '⏳' : (scene.status === 'error' ? '❌' : (scene.status === 'success' ? '✅' : '⏸'))}</span>
+        </div>
+        
+        <textarea placeholder="Décris cette scène (l'IA connaît le synopsis)..." data-idx="${index}" class="story-prompt">${scene.prompt || ''}</textarea>
+        
+        <div class="row">
+          <select data-idx="${index}" class="story-ratio">
+            <option value="9:16" ${scene.ratio==='9:16'?'selected':''}>9:16</option>
+            <option value="16:9" ${scene.ratio==='16:9'?'selected':''}>16:9</option>
+          </select>
+          <select data-idx="${index}" class="story-sec">
+            ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${scene.seconds==n?'selected':''}>${n}s</option>`).join('')}
+          </select>
+        </div>
+        
+        <button class="btn-gen" data-idx="${index}">Générer cette scène</button>
+      </div>
+    `).join('');
+
+    c.querySelectorAll('.story-prompt').forEach(el => el.oninput = e => { scenes[e.target.dataset.idx].prompt = e.target.value; save(); });
+    c.querySelectorAll('.story-ratio').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].ratio = e.target.value; save(); });
+    c.querySelectorAll('.story-sec').forEach(el => el.onchange = e => { scenes[e.target.dataset.idx].seconds = e.target.value; save(); });
+    
+    c.querySelectorAll('.btn-gen').forEach(el => el.onclick = (e) => {
+      generateVideoScene(scenes, e.target.dataset.idx, renderStory, containerId, type);
+    });
+
+    const hist = $('#story-history');
+    if (hist) {
+      hist.innerHTML = state.storyHistory.map(v => `
+        <div class="item">
+          <video controls src="${v.url}"></video>
+          <a href="${v.url}" download class="item-btn">⬇ Télécharger</a>
+        </div>
+      `).join('');
+    }
+  }// ==========================================
   // ONGLET CHAT (Historique + Message de bienvenue)
   // ==========================================
   function createNewChat(initialMessage = null) {
