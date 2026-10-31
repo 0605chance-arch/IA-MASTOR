@@ -149,20 +149,24 @@
         if (!data.video_id) throw new Error('Erreur ID');
         
         let attempts = 0;
-        while (attempts < 90) {
-          attempts++; await new Promise(r => setTimeout(r, 3000));
+        // CORRECTION 429 : Attente de 15 secondes (au lieu de 3) pour respecter les 5 req/min d'Agnes
+        while (attempts < 40) {
+          attempts++; 
+          await new Promise(r => setTimeout(r, 15000)); 
           const pRes = await api(`/video/status?video_id=${data.video_id}&model=${data.model}`);
           const pData = await pRes.json();
           if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; break; }
           if (pData.status === 'failed') throw new Error('Échec');
         }
-        if (attempts >= 90) throw new Error('Timeout');
+        if (attempts >= 40) throw new Error('Timeout');
       }
     } catch(e) { s.status = 'error'; alert(e.message); }
     
     save(); renderScenes(type);
     renderHistory();
-  }// ==========================================
+  }
+
+  // ==========================================
   // LOGIQUE CHAT
   // ==========================================
   function newChat(welcome = null) {
