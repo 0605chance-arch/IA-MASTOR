@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v13', JSON.stringify({
+    try { localStorage.setItem('iamastor_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v13');
+      const s = localStorage.getItem('iamastor_final');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
@@ -34,6 +34,9 @@
 
   function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
 
+  // ==========================================
+  // RENDU DES SCÈNES
+  // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -65,7 +68,7 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select disabled><option>720P</option></select>`}
+            <select disabled><option>1080P</option></select>`}
           </div>
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
           ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
@@ -79,6 +82,9 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
+  // ==========================================
+  // GÉNÉRATION (logique de l'ancien code qui marchait)
+  // ==========================================
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
@@ -93,71 +99,49 @@
         if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
         else throw new Error("Erreur génération");
       } else {
-        let imageUrl = null;
-        if (s.imageBase64 && s.imageBase64.startsWith('data:image')) {
-          try {
-            const upRes = await api('/upload', { method: 'POST', body: JSON.stringify({ imageBase64: s.imageBase64 }) });
-            const upData = await upRes.json(); 
-            if (upData.url) imageUrl = upData.url;
-          } catch (e) { console.warn('Upload image échoué, mode text utilisé', e); }
-        }
+        // ✅ On envoie le base64 DIRECT au serveur (comme l'ancien code qui marchait)
+        const body = { 
+          prompt: s.prompt, 
+          seconds: String(s.seconds || 8), 
+          aspect_ratio: s.ratio 
+        };
+        if (s.imageBase64) body.imageBase64 = s.imageBase64;
 
-        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
-        if (imageUrl) body.imageUrl = imageUrl;
-
-        let res, data;
-        let videoAttempts = 0;
-        while (videoAttempts < 20) { 
-          videoAttempts++;
-          try {
-            res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
-            data = await res.json();
-            
-            if (data.video_id) break;
-            
-            const errMsg = (data.error || '').toLowerCase();
-            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
-              await new Promise(r => setTimeout(r, 30000));
-              continue;
-            }
-            throw new Error(data.error || 'Erreur création');
-          } catch (err) {
-            const errMsg = err.message.toLowerCase();
-            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
-              if (videoAttempts >= 20) throw new Error('File Agnes pleine. Réessaie plus tard.');
-              await new Promise(r => setTimeout(r, 30000));
-            } else {
-              throw err;
-            }
-          }
-        }
-        if (!data || !data.video_id) throw new Error('File Agnes saturée.');
-
-        let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 25000));
+        const res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
         
-        while (attempts < 30 && !finished) {
+        if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
+
+        // Polling toutes les 3 secondes (comme l'ancien code)
+        let attempts = 0, finished = false;
+        await new Promise(r => setTimeout(r, 3000));
+        
+        while (attempts < 60 && !finished) {
           attempts++;
           try {
-            // ✅ CORRECTION : On ajoute &model=agnes-video-2.5-flash dans l'URL de vérification
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
             const pData = await pRes.json();
-            if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
-            else if (pData.status === 'failed') throw new Error('Échec Agnes');
+            
+            if (pData.status === 'completed') { 
+              s.status = 'success'; s.videoUrl = pData.video_url; finished = true; 
+            } else if (pData.status === 'failed') { 
+              throw new Error('Échec Agnes'); 
+            }
           } catch (err) {
-            const errMsg = err.message.toLowerCase();
-            if (errMsg.includes('404') && attempts < 3) { /* ignorer 404 temporaire */ }
-            else if (errMsg.includes('429')) { await new Promise(r => setTimeout(r, 30000)); }
-            else throw err;
+            console.warn('Polling erreur:', err.message);
           }
-          if (!finished) await new Promise(r => setTimeout(r, 20000));
+          
+          if (!finished) await new Promise(r => setTimeout(r, 3000));
         }
         if (!finished) throw new Error('Délai dépassé');
       }
-    } catch(e) { s.status = 'error'; console.error(e); }
+    } catch(e) { s.status = 'error'; console.error(e); alert(e.message); }
     save(); renderScenes(type); renderHistory();
   }
 
+  // ==========================================
+  // CHAT
+  // ==========================================
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -215,6 +199,9 @@
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
   }
 
+  // ==========================================
+  // HISTORIQUES
+  // ==========================================
   function renderHistory() {
     const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
@@ -223,6 +210,9 @@
 
   window.downloadFile = downloadFile;
 
+  // ==========================================
+  // INITIALISATION
+  // ==========================================
   document.addEventListener('DOMContentLoaded', () => {
     load();
     $('#login-form').onsubmit = async (e) => {
