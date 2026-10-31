@@ -99,7 +99,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : 720P OBLIGATOIRE (règle stricte d'Agnes Flash) [citation:1][citation:8]
+// ✅ VIDÉO : 720P + base64 pur (sans le préfixe data:image)
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -109,21 +109,21 @@ app.post('/api/video', async (req, res) => {
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
-    // ✅ On force 720P car Flash n'accepte QUE ça
     const body = {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',
+      size: '720P', // ✅ Flash = 720P uniquement
       aspect_ratio: aspect_ratio || '16:9',
       seed: Math.floor(Math.random() * 1000000),
       mode: 'text'
     };
 
-    // ✅ Base64 direct dans body.images (ton ancien code marchait comme ça)
+    // ✅ LA CORRECTION EST ICI : on nettoie le préfixe base64
     if (imageBase64) {
       body.mode = 'reference';
-      body.images = [`data:image/jpeg;base64,${imageBase64}`];
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      body.images = [cleanBase64];
     }
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
@@ -142,7 +142,6 @@ app.get('/api/video/status', async (req, res) => {
     const { video_id, model = MODELS.videoFlash } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
     
-    // ✅ model_name OBLIGATOIRE pour le polling [citation:3][citation:6]
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     
