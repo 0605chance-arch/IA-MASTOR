@@ -35,19 +35,6 @@ function getApiKey(req) {
   return auth.replace('Bearer ', '').trim();
 }
 
-async function fetchWithRetry(url, options, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (!response.ok && response.status >= 500) throw new Error("Erreur serveur");
-      return response;
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      await new Promise(res => setTimeout(res, 1000 * (i + 1)));
-    }
-  }
-}
-
 async function agnesFetch(endpoint, apiKey, options = {}) {
   const url = `${AGNES_BASE}${endpoint}`;
   const res = await fetch(url, {
@@ -112,7 +99,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : Mode 1080P + base64 direct (comme l'ancien code qui marchait)
+// ✅ VIDÉO : 720P OBLIGATOIRE (règle stricte d'Agnes Flash) [citation:1][citation:8]
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -122,18 +109,18 @@ app.post('/api/video', async (req, res) => {
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
-    // ✅ On utilise 1080P comme l'ancien code
+    // ✅ On force 720P car Flash n'accepte QUE ça
     const body = {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '1080P',
+      size: '720P',
       aspect_ratio: aspect_ratio || '16:9',
       seed: Math.floor(Math.random() * 1000000),
       mode: 'text'
     };
 
-    // ✅ On envoie le base64 direct dans body.images comme l'ancien code
+    // ✅ Base64 direct dans body.images (ton ancien code marchait comme ça)
     if (imageBase64) {
       body.mode = 'reference';
       body.images = [`data:image/jpeg;base64,${imageBase64}`];
@@ -155,6 +142,7 @@ app.get('/api/video/status', async (req, res) => {
     const { video_id, model = MODELS.videoFlash } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
     
+    // ✅ model_name OBLIGATOIRE pour le polling [citation:3][citation:6]
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     
