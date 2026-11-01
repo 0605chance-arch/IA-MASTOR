@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v18', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v19', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,11 +17,11 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v18');
+      const s = localStorage.getItem('iamastor_final_v19');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
-      if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
-      if (!state.storyScenes?.length) state.storyScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }];
+      if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }];
+      if (!state.storyScenes?.length) state.storyScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }];
     } catch(e){}
   }
 
@@ -35,7 +35,7 @@
   function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
 
   // ==========================================
-  // RENDU DES SCÈNES
+  // RENDU DES SCÈNES (avec pourcentage)
   // ==========================================
   function renderScenes(type) {
     const isImg = type === 'image';
@@ -44,7 +44,17 @@
     if (!arr?.length) { c.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">Aucune scène.</p>'; return; }
 
     c.innerHTML = arr.map((s, i) => {
-      const status = s.status === 'loading' ? '⏳ En cours...' : s.status === 'error' ? '❌ Erreur' : s.status === 'success' ? '✅ Prêt' : '⏸ En attente';
+      let status = '';
+      if (s.status === 'loading') {
+        status = `⏳ ${s.progress || 0}%`;
+      } else if (s.status === 'error') {
+        status = '❌ Erreur';
+      } else if (s.status === 'success') {
+        status = '✅ Prêt';
+      } else {
+        status = '⏸ En attente';
+      }
+
       return `
         <div class="scene">
           <div class="scene-head"><span>SCÈNE ${i+1}</span><span>${status}</span></div>
@@ -83,7 +93,7 @@
   }
 
   // ==========================================
-  // FILE D'ATTENTE STRICTE (respecte les 5 RPM)
+  // FILE D'ATTENTE + GÉNÉRATION
   // ==========================================
   let generationQueue = [];
   let isProcessing = false;
@@ -95,7 +105,7 @@
     while (generationQueue.length > 0) {
       const { type, idx } = generationQueue.shift();
       await executeGeneration(type, idx);
-      // ✅ 15 secondes entre chaque création = max 4 requêtes par minute (sous la limite de 5)
+      // 15 secondes entre chaque création pour respecter le RPM
       await new Promise(r => setTimeout(r, 15000));
     }
     
@@ -106,7 +116,7 @@
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; s.videoUrl = null; renderScenes(type);
+    s.status = 'loading'; s.progress = 0; s.videoUrl = null; renderScenes(type);
     generationQueue.push({ type, idx });
     processQueue();
   }
@@ -132,26 +142,48 @@
         
         if (!data.video_id) throw new Error(data.error || 'Erreur création vidéo');
 
-        // ✅ Polling toutes les 2 minutes (très lent pour ne pas consommer le RPM)
+        // ✅ POLLING AVEC POURCENTAGE ET RELANCE AUTO
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 60000)); 
+        let stuckCounter = 0;
+        await new Promise(r => setTimeout(r, 15000)); // Attente initiale 15s
         
-        while (attempts < 15 && !finished) {
+        while (attempts < 40 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
             const pData = await pRes.json();
             
+            // Mise à jour du pourcentage
+            s.progress = pData.progress || 0;
+            renderScenes(type);
+
             if (pData.status === 'completed') { 
-              s.status = 'success'; s.videoUrl = pData.video_url; finished = true; 
+              s.status = 'success'; s.videoUrl = pData.video_url; s.progress = 100; finished = true; 
             } else if (pData.status === 'failed') { 
               throw new Error('Échec Agnes'); 
+            } else {
+              // ✅ Détection de blocage à 0%
+              if (s.progress === 0) {
+                stuckCounter++;
+                if (stuckCounter >= 8) { // 8 x 15s = 2 minutes bloqué
+                  console.log('Vidéo bloquée à 0%, relance...');
+                  const retryRes = await api('/video', { method: 'POST', body: JSON.stringify(body) });
+                  const retryData = await retryRes.json();
+                  if (retryData.video_id) {
+                    data.video_id = retryData.video_id;
+                    stuckCounter = 0;
+                    attempts = 0;
+                  }
+                }
+              } else {
+                stuckCounter = 0;
+              }
             }
           } catch (err) {
             console.warn('Polling:', err.message);
           }
           
-          if (!finished) await new Promise(r => setTimeout(r, 120000)); 
+          if (!finished) await new Promise(r => setTimeout(r, 15000)); // 15s entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
@@ -269,8 +301,8 @@ Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
     $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
 
     $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
-    $('#add-scene-video').onclick = () => { state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }); renderScenes('video'); save(); };
-    $('#add-story-scene').onclick = () => { state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }); renderScenes('story'); save(); };
+    $('#add-scene-video').onclick = () => { state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }); renderScenes('video'); save(); };
+    $('#add-story-scene').onclick = () => { state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }); renderScenes('story'); save(); };
 
     $('#story-synopsis').oninput = () => save();
     document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
