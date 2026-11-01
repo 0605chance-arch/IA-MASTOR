@@ -15,10 +15,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
-// File d'attente par clé API (pour respecter les 5 RPM)
+// File d'attente pour respecter les 5 RPM
 const queueMap = new Map();
 const MAX_CONCURRENT = 5;
-const MIN_INTERVAL = 12000; // 12 secondes entre chaque requête (5 RPM = 12s d'écart)
+const MIN_INTERVAL = 12000; // 12 secondes
 
 function getQueue(apiKey) {
   if (!queueMap.has(apiKey)) {
@@ -134,7 +134,6 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// VIDÉO AVEC FILE D'ATTENTE
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -169,31 +168,22 @@ app.post('/api/generate-video', async (req, res) => {
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
-    // Utiliser la file d'attente
     const result = await processQueue(apiKey, async () => {
-      // Retry automatique sur 503
       for (let attempt = 1; attempt <= 5; attempt++) {
         console.log(`🎬 Tentative ${attempt}/5...`);
-        
         const response = await fetch(`${AGNES_BASE}/videos`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
-
         const data = await response.json();
 
         if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
           console.log(`⏳ File pleine. Attente 30s...`);
-          if (attempt < 5) {
-            await new Promise(r => setTimeout(r, 30000));
-            continue;
-          }
+          if (attempt < 5) { await new Promise(r => setTimeout(r, 30000)); continue; }
         }
 
         if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
-        
         const videoId = data.video_id || data.id;
         if (!videoId) throw new Error('Pas de video_id');
-        
         console.log(`✅ Accepté: ${videoId}`);
         return videoId;
       }
@@ -207,14 +197,12 @@ app.post('/api/generate-video', async (req, res) => {
   }
 });
 
-// STATUT avec délai initial (évite les 404)
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const videoId = req.params.id;
     const submittedAt = parseInt(req.query.t || '0');
     
-    // Attendre 25s après la soumission avant de poller (évite les 404)
     const elapsed = Date.now() - submittedAt;
     if (elapsed < 25000) {
       return res.json({ status: 'processing', url: null });
@@ -224,25 +212,15 @@ app.get('/api/status/:id', async (req, res) => {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
     
-    // 429 = rate limit du polling, on ignore
-    if (response.status === 429) {
+    if (response.status === 429 || response.status === 404) {
       return res.json({ status: 'processing', url: null });
     }
     
     const data = await response.json();
-    
-    // 404 task not found = la vidéo n'existe pas encore, on continue
-    if (response.status === 404) {
-      return res.json({ status: 'processing', url: null });
-    }
-    
     const videoUrl = data.url || data.video_url || data.metadata?.url;
     const isDone = videoUrl || data.status === 'completed';
 
-    res.json({ 
-      status: isDone ? 'completed' : (data.status || 'processing'), 
-      url: videoUrl 
-    });
+    res.json({ status: isDone ? 'completed' : (data.status || 'processing'), url: videoUrl });
   } catch (err) { res.status(500).json({ error: 'Erreur statut' }); }
 });
 
