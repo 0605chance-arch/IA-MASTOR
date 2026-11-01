@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <!-- ÉCRAN DE CONNEXION -->
   <div id="welcome" class="welcome">
     <div class="welcome-box">
       <div class="logo">🚀</div>
@@ -27,6 +28,7 @@
     <p class="footer-note">Après achat, cette application est interdite à la vente.</p>
   </div>
 
+  <!-- APPLICATION PRINCIPALE -->
   <div id="app" class="app hidden">
     <header class="header">
       <div class="brand">🚀 IA MASTOR</div>
@@ -39,6 +41,7 @@
     </header>
 
     <main class="main">
+      <!-- ONGLET CHAT -->
       <section id="tab-chat" class="tab active">
         <div class="chat-wrap">
           <div class="chat-header">
@@ -56,6 +59,7 @@
         </div>
       </section>
 
+      <!-- ONGLET IMAGE -->
       <section id="tab-image" class="tab">
         <div class="container">
           <h2>Générateur d'images</h2>
@@ -66,16 +70,17 @@
         </div>
       </section>
 
+      <!-- ONGLET VIDÉO (10 prompts fixes) -->
       <section id="tab-video" class="tab">
         <div class="container">
           <h2>Storyboard Vidéo</h2>
-          <div class="actions"><button id="add-scene-video" class="btn-gray">+ Nouvelle scène</button></div>
           <div id="video-scenes" class="scenes"></div>
           <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
           <div id="video-history" class="grid"></div>
         </div>
       </section>
 
+      <!-- ONGLET HISTOIRE (10 prompts fixes) -->
       <section id="tab-story" class="tab">
         <div class="container">
           <h2>Mode Histoire</h2>
@@ -101,7 +106,6 @@
               </div>
             </aside>
             <div class="story-main">
-              <div class="actions"><button id="add-story-scene" class="btn-gray">+ Nouveau prompt</button></div>
               <div id="story-scenes" class="scenes"></div>
             </div>
           </div>
@@ -111,6 +115,7 @@
       </section>
     </main>
 
+    <!-- NAVIGATION MOBILE -->
     <nav class="mobile-nav">
       <button class="mob-btn active" data-tab="chat">Chat</button>
       <button class="mob-btn" data-tab="image">Image</button>
