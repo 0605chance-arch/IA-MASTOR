@@ -4,13 +4,13 @@
   const state = {
     apiKey: null, chatSessions: [], currentChatId: null, imageHistory: [],
     videoScenes: [], storyScenes: [], imageScenes: [], storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}],
-    chatImageBase64: null // Ajout pour stocker l'image du chat
+    chatImageBase64: null 
   };
 
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v23', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v24', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -18,7 +18,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v23');
+      const s = localStorage.getItem('iamastor_final_v24');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -38,7 +38,7 @@
     window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
   }
 
-  // --- SCENES ---
+  // --- SCENES RENDERING ---
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -114,9 +114,12 @@
         const data = await res.json();
         if (!data.id) throw new Error('Erreur ID');
 
+        const submittedAt = Date.now();
+        
+        // POLLING INTELLIGENT (délai initial de 25s géré côté serveur)
         const poll = setInterval(async () => {
           try {
-            const pRes = await api(`/status/${data.id}`);
+            const pRes = await api(`/status/${data.id}?t=${submittedAt}`);
             const pData = await pRes.json();
             
             if (pData.status === 'completed' && pData.url) {
@@ -127,11 +130,16 @@
               clearInterval(poll);
               s.status = 'error'; renderScenes(type); save();
             }
-          } catch (err) { console.warn('Polling:', err); }
+          } catch (err) { 
+            console.warn('Polling erreur:', err.message); 
+          }
         }, 3000);
         return;
       }
-    } catch (e) { s.status = 'error'; console.error(e); }
+    } catch (e) { 
+      s.status = 'error'; 
+      console.error("Erreur generation:", e); 
+    }
     save(); renderScenes(type); renderHistory();
   }
 
@@ -196,7 +204,6 @@
       sess.messages.push({ role: 'assistant', content: full }); save();
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
     
-    // Reset image après envoi
     state.chatImageBase64 = null;
     $('#chat-input').placeholder = 'Écris ton message...';
   }
