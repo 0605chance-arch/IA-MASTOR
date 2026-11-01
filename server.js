@@ -12,7 +12,6 @@ app.set('trust proxy', 1);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 
-// ✅ ANTI-CACHE : Force le navigateur à recharger les fichiers
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -111,7 +110,7 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P', // ✅ Flash = 720P UNIQUEMENT
+      size: '720P',
       aspect_ratio: aspect_ratio || '16:9',
       mode: 'text'
     };
@@ -124,9 +123,9 @@ app.post('/api/video', async (req, res) => {
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
     
-    // ✅ FORCE video_id, pas task_id
+    // ✅ LA CORRECTION VITALE EST ICI
     const videoId = createData.video_id;
-    if (!videoId) throw new Error('Agnes n\'a pas renvoyé de video_id (task_id reçu à la place)');
+    if (!videoId) throw new Error('Agnes a renvoyé un task_id au lieu de video_id');
     
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
   } catch (err) { console.error('Erreur vidéo:', err.message); res.status(500).json({ error: err.message }); }
@@ -141,7 +140,7 @@ app.get('/api/video/status', async (req, res) => {
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
     if (!pollRes.ok) { const errText = await pollRes.text().catch(() => ''); return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); }
     const data = await pollRes.json();
-    res.json({ success: true, status: data.status || 'unknown', video_url: data.url || data.video_url || null, progress: data.progress || 0 });
+    res.json({ success: true, status: data.status || 'unknown', video_url: data.url || data.video_url || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
