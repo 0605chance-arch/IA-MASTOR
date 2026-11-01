@@ -15,49 +15,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
-// ⚠️ FILE D'ATTENTE POUR RESPECTER LE RPM (5 req/min = 1 req toutes les 12s)
-const queueMap = new Map();
-const MIN_INTERVAL = 12000; // 12 secondes
-
-function getQueue(apiKey) {
-  if (!queueMap.has(apiKey)) {
-    queueMap.set(apiKey, { lastRequest: 0, queue: [] });
-  }
-  return queueMap.get(apiKey);
-}
-
-async function processQueue(apiKey, taskFn) {
-  const q = getQueue(apiKey);
-  return new Promise((resolve, reject) => {
-    q.queue.push({ taskFn, resolve, reject });
-    processNext(apiKey);
-  });
-}
-
-async function processNext(apiKey) {
-  const q = getQueue(apiKey);
-  if (q.queue.length === 0) return;
-  
-  const now = Date.now();
-  const timeSinceLast = now - q.lastRequest;
-  if (timeSinceLast < MIN_INTERVAL) {
-    setTimeout(() => processNext(apiKey), MIN_INTERVAL - timeSinceLast);
-    return;
-  }
-  
-  const task = q.queue.shift();
-  q.lastRequest = Date.now();
-  
-  try {
-    const result = await task.taskFn();
-    task.resolve(result);
-  } catch (err) {
-    task.reject(err);
-  } finally {
-    processNext(apiKey);
-  }
-}
-
 function getApiKey(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) throw new Error('Clé API manquante.');
@@ -131,6 +88,7 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ⚠️ LE RETOUR DE LA METHODE QUI MARCHAIT : Envoi direct + Retry intelligent
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -165,38 +123,39 @@ app.post('/api/generate-video', async (req, res) => {
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
-    const result = await processQueue(apiKey, async () => {
-      console.log(`🎬 Envoi à Agnes (respect du RPM)...`);
+    // On envoie directement. Si Agnes dit "Trop de requêtes" (429), on attend et on réessaie.
+    let lastError = null;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      console.log(`🎬 Tentative ${attempt}/5...`);
+      
       const response = await fetch(`${AGNES_BASE}/videos`, {
         method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
       });
+      
       const data = await response.json();
 
-      // ⚠️ Si c'est un 429 (Too many requests), on ne réessaie pas, on laisse l'utilisateur réessayer plus tard
+      // Si c'est un 429 (Too many requests), on attend 20 secondes et on réessaie
       if (response.status === 429) {
-        throw new Error('Trop de requêtes. Attends 1 minute et réessaie.');
+        console.log(`⏳ Trop de requêtes. Attente 20s...`);
+        if (attempt < 5) { await new Promise(r => setTimeout(r, 20000)); continue; }
       }
 
-      // Si la file est pleine (503), on attend 30s et on réessaie (max 3 fois)
+      // Si la file est pleine (503), on attend 30 secondes et on réessaie
       if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
-        console.log(`⏳ File pleine. Attente 30s...`);
-        await new Promise(r => setTimeout(r, 30000));
-        const retryResponse = await fetch(`${AGNES_BASE}/videos`, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-        });
-        const retryData = await retryResponse.json();
-        if (!retryResponse.ok) throw new Error(retryData.error?.message || 'Erreur Vidéo');
-        return retryData.video_id || retryData.id;
+        console.log(`⏳ File Agnes pleine. Attente 30s...`);
+        if (attempt < 5) { await new Promise(r => setTimeout(r, 30000)); continue; }
       }
 
       if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
+      
       const videoId = data.video_id || data.id;
       if (!videoId) throw new Error('Pas de video_id');
-      console.log(`✅ Accepté: ${videoId}`);
-      return videoId;
-    });
-
-    res.json({ id: result });
+      
+      console.log(`✅ Vidéo acceptée: ${videoId}`);
+      return res.json({ id: videoId }); // On renvoie l'ID au frontend
+    }
+    
+    throw new Error(`Agnes saturé après 5 tentatives (${lastError}).`);
   } catch (err) { 
     console.error('❌ Erreur:', err.message);
     res.status(500).json({ error: err.message }); 
