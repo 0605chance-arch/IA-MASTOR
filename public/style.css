@@ -193,7 +193,7 @@ button { cursor: pointer; }
 .btn-send { width: 44px; height: 44px; border-radius: 50%; background: #fff; color: #000; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px; font-weight: 700; }
 
 /* ============================================================
-   SCÈNES (IMAGE, VIDÉO, HISTOIRE)
+   SCÈNES
    ============================================================ */
 .scenes { display: flex; flex-direction: column; gap: 16px; }
 .scene { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
