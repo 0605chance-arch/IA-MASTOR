@@ -36,39 +36,43 @@ app.post('/api/validate-key', async (req, res) => {
   } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
 });
 
+app.post('/api/chat', async (req, res) => {
+  try {
+    const apiKey = getApiKey(req);
+    const { messages, stream = true } = req.body;
+    const body = { model: 'agnes-3.0-flash', messages: messages.slice(-20), stream, temperature: 0.8 };
+    const response = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (!response.ok) return res.status(response.status).json({ error: await response.text() });
+    if (!stream) return res.json(await response.json());
+    res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
+    response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
+    response.body.on('end', () => res.end());
+  } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/generate-image', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, format, imageBase64 } = req.body;
-    if (!prompt) return res.status(400).json({ error: 'Prompt manquant' });
-
     const body = { model: 'agnes-image-2.5-flash', prompt: prompt, size: '4K', ratio: format, extra_body: { response_format: 'url' } };
-    if (imageBase64) {
-      body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
-    }
-
+    if (imageBase64) body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
     const response = await fetch(`${AGNES_BASE}/images/generations`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
-
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || 'Erreur Image');
-
-    let finalUrl = data.data?.[0]?.url || data.url;
-    if (!finalUrl) throw new Error('Aucune image');
-    res.json({ id: 'img_' + Date.now(), url: finalUrl });
+    res.json({ id: 'img_' + Date.now(), url: data.data?.[0]?.url || data.url });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : Gère le 720P si image, 1080P si texte
+// ✅ VIDÉO : 720P, base64 pur, video_id
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, format, duration, imageBase64, storyCharacters } = req.body;
-    if (!prompt) return res.status(400).json({ error: 'Prompt manquant' });
-
+    
     let seconds = String(duration);
     if (parseInt(seconds) < 4) seconds = '4';
     if (parseInt(seconds) > 12) seconds = '12';
@@ -77,50 +81,39 @@ app.post('/api/generate-video', async (req, res) => {
       model: 'agnes-video-2.5-flash',
       prompt: prompt,
       seconds: seconds,
-      size: '1080P',
+      size: '720P',
       aspect_ratio: format,
       mode: 'text'
     };
 
-    // ✅ Si image en référence -> 720P obligatoire + base64 pur
-    if (imageBase64 || (storyCharacters && storyCharacters.length > 0)) {
+    if (storyCharacters && storyCharacters.length > 0) {
       body.mode = 'reference';
-      body.size = '720P'; // ✅ Correction vitale
       let validImages = [];
-      
-      if (storyCharacters) {
-        storyCharacters.forEach(char => {
-          if (char.name && prompt.toLowerCase().includes(char.name.toLowerCase()) && char.base64) {
-            validImages.push(char.base64.replace(/^data:image\/\w+;base64,/, ''));
-          }
-        });
-      }
+      storyCharacters.forEach(char => {
+        if (char.name && prompt.toLowerCase().includes(char.name.toLowerCase()) && char.img) {
+          validImages.push(char.img.replace(/^data:image\/\w+;base64,/, ''));
+        }
+      });
       if (imageBase64) validImages.push(imageBase64.replace(/^data:image\/\w+;base64,/, ''));
-      
       body.images = validImages.slice(0, 5);
       if (body.images.length === 0) {
         body.mode = 'text';
-        body.size = '1080P';
       }
+    } else if (imageBase64) {
+      body.mode = 'reference'; 
+      body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
     const response = await fetch(`${AGNES_BASE}/videos`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || 'Erreur Création Vidéo');
-
+    if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
     const videoId = data.video_id || data.id;
     if (!videoId) throw new Error('Pas de video_id');
-
     res.json({ id: videoId });
-  } catch (err) { 
-    console.error('Erreur Vidéo:', err.message); 
-    res.status(500).json({ error: err.message }); 
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/status/:id', async (req, res) => {
@@ -147,8 +140,7 @@ app.get('/api/download/:id', async (req, res) => {
       fileUrl = d.url || d.metadata?.url;
     }
 
-    if (!fileUrl) return res.status(404).send('Fichier introuvable');
-
+    if (!fileUrl) return res.status(404).send('Introuvable');
     const fileRes = await fetch(fileUrl);
     const buffer = await fileRes.arrayBuffer();
     const ext = id.startsWith('img_') ? 'jpg' : 'mp4';
@@ -159,4 +151,4 @@ app.get('/api/download/:id', async (req, res) => {
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-app.listen(PORT, () => console.log(`🚀 IA MASTOR démarré sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 IA MASTOR prêt sur le port ${PORT}`));
