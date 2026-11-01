@@ -36,12 +36,28 @@ app.post('/api/validate-key', async (req, res) => {
   } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
 });
 
-// CHAT EN STREAMING (Rapide)
+// CHAT (Corrigé pour accepter les images)
 app.post('/api/chat', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { messages, stream = true } = req.body;
-    const body = { model: 'agnes-3.0-flash', messages: messages.slice(-20), stream, temperature: 0.8 };
+    const { messages, stream = true, imageBase64 } = req.body;
+    
+    let finalMessages = [...messages];
+    if (imageBase64) {
+      const lastMsg = finalMessages[finalMessages.length - 1];
+      lastMsg.content = [
+        { type: "text", text: lastMsg.content },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+      ];
+    }
+
+    const body = { 
+      model: 'agnes-3.0-flash', 
+      messages: finalMessages.slice(-20), 
+      stream, 
+      temperature: 0.8 
+    };
+    
     const response = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
@@ -127,7 +143,7 @@ app.post('/api/generate-video', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// STATUT : CORRECTION DE L'URL
+// STATUT (Correction de l'URL)
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
