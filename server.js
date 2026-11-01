@@ -17,7 +17,7 @@ const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
 function getApiKey(req) {
   const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) throw new Error('MISSING_API_KEY');
+  if (!auth || !auth.startsWith('Bearer ')) throw new Error('Clé API manquante.');
   return auth.replace('Bearer ', '').trim();
 }
 
@@ -36,6 +36,7 @@ app.post('/api/validate-key', async (req, res) => {
   } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
 });
 
+// CHAT EN STREAMING (Rapide)
 app.post('/api/chat', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -46,28 +47,39 @@ app.post('/api/chat', async (req, res) => {
     });
     if (!response.ok) return res.status(response.status).json({ error: await response.text() });
     if (!stream) return res.json(await response.json());
-    res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
+    
+    res.setHeader('Content-Type', 'text/event-stream'); 
+    res.setHeader('Cache-Control', 'no-cache'); 
+    res.setHeader('Connection', 'keep-alive'); 
+    res.setHeader('X-Accel-Buffering', 'no'); 
+    res.flushHeaders();
+    
     response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
     response.body.on('end', () => res.end());
   } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
 });
 
+// IMAGE
 app.post('/api/generate-image', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, format, imageBase64 } = req.body;
     const body = { model: 'agnes-image-2.5-flash', prompt: prompt, size: '4K', ratio: format, extra_body: { response_format: 'url' } };
     if (imageBase64) body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
+    
     const response = await fetch(`${AGNES_BASE}/images/generations`, {
       method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || 'Erreur Image');
-    res.json({ id: 'img_' + Date.now(), url: data.data?.[0]?.url || data.url });
+    
+    let finalUrl = data.data?.[0]?.url || data.url;
+    if (!finalUrl) throw new Error('Pas d\'URL image');
+    res.json({ id: 'img_' + Date.now(), url: finalUrl });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : 720P, base64 pur, video_id
+// VIDÉO
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -96,9 +108,7 @@ app.post('/api/generate-video', async (req, res) => {
       });
       if (imageBase64) validImages.push(imageBase64.replace(/^data:image\/\w+;base64,/, ''));
       body.images = validImages.slice(0, 5);
-      if (body.images.length === 0) {
-        body.mode = 'text';
-      }
+      if (body.images.length === 0) body.mode = 'text';
     } else if (imageBase64) {
       body.mode = 'reference'; 
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
@@ -110,12 +120,14 @@ app.post('/api/generate-video', async (req, res) => {
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
+    
     const videoId = data.video_id || data.id;
     if (!videoId) throw new Error('Pas de video_id');
     res.json({ id: videoId });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// STATUT : CORRECTION DE L'URL
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -123,10 +135,18 @@ app.get('/api/status/:id', async (req, res) => {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
     const data = await response.json();
-    res.json({ status: data.status || 'processing', url: data.url || data.metadata?.url });
+    
+    const videoUrl = data.url || data.video_url || data.metadata?.url;
+    const isDone = videoUrl || data.status === 'completed';
+
+    res.json({ 
+      status: isDone ? 'completed' : (data.status || 'processing'), 
+      url: videoUrl 
+    });
   } catch (err) { res.status(500).json({ error: 'Erreur statut' }); }
 });
 
+// DOWNLOAD
 app.get('/api/download/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
