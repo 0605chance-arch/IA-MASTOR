@@ -222,7 +222,6 @@ button { cursor: pointer; }
   appearance: none; 
 }
 
-/* ✅ Correction : Le bouton Générer et Télécharger bien alignés */
 .scene .btn-gen, .scene .btn-dl { 
   width: 100%; 
   padding: 12px; 
@@ -243,7 +242,7 @@ button { cursor: pointer; }
 .scene video { width: 100%; border-radius: 8px; margin-top: 12px; border: 1px solid var(--border); }
 
 /* ============================================================
-   GRILLES HISTORIQUE (Images & Vidéos)
+   GRILLES HISTORIQUE
    ============================================================ */
 .grid { 
   display: grid; 
@@ -291,7 +290,7 @@ button { cursor: pointer; }
 }
 
 /* ============================================================
-   HISTOIRE (Synopsis + Personnages)
+   HISTOIRE
    ============================================================ */
 .story-layout { display: flex; flex-direction: column; gap: 20px; margin-bottom: 20px; }
 .story-side { 
