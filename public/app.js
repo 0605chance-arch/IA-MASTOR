@@ -11,7 +11,7 @@
 
   function save() {
     try { 
-      localStorage.setItem('iamastor_final_v30', JSON.stringify({
+      localStorage.setItem('iamastor_final_v31', JSON.stringify({
         apiKey: state.apiKey, chatSessions: state.chatSessions, 
         imageHistory: state.imageHistory.slice(0, 30), videoScenes: state.videoScenes, 
         storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
@@ -21,7 +21,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v30');
+      const s = localStorage.getItem('iamastor_final_v31');
       if (s) { Object.assign(state, JSON.parse(s)); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -99,8 +99,6 @@
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    
-    // Si déjà en cours, on ne relance pas
     if (s.status === 'loading') return;
 
     s.status = 'loading'; s.videoUrl = null; s.mediaId = null;
@@ -120,7 +118,7 @@
         if (s.imageBase64) body.imageBase64 = s.imageBase64;
         if (type === 'story') body.storyCharacters = state.storyChars;
 
-        // On lance la requête (le serveur va gérer l'attente si Agnes est occupé)
+        // 1. Envoi au serveur (qui met en file d'attente)
         const res = await api('/generate-video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
         
@@ -130,21 +128,18 @@
         s.timestamp = Date.now();
         save();
         
-        // On lance le polling de groupe pour cette catégorie
+        // 2. Lancement de la vérification groupée
         startGroupedPolling(type);
-        
-        // On ne change pas le statut ici, il reste "loading" jusqu'au polling
         return;
       }
     } catch (e) { 
-      // Si le serveur a échoué APRÈS les 10 retry, on affiche l'erreur
       s.status = 'error'; 
       alert(e.message);
     }
     renderScenes(type); save();
   }
 
-  // ⚠️ LE SECRET : Vérifier TOUTES les vidéos en cours en UNE SEULE requête
+  // Vérification groupée de toutes les vidéos en cours
   function startGroupedPolling(type) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const loadingScenes = a.filter(s => s.status === 'loading' && s.mediaId);
@@ -152,19 +147,17 @@
     if (loadingScenes.length === 0) return;
     
     const ids = loadingScenes.map(s => s.mediaId);
-    const submittedAt = loadingScenes[0].timestamp;
     
-    // On attend 30 secondes avant la première vérification
     setTimeout(async () => {
       let pollCount = 0;
       const poll = setInterval(async () => {
         pollCount++;
-        let delay = 10000; // 10 secondes
+        let delay = 10000; 
         if (pollCount > 10) delay = 15000; 
         if (pollCount > 20) delay = 20000;
 
         try {
-          const pRes = await api(`/status-batch?ids=${ids.join(',')}&t=${submittedAt}`);
+          const pRes = await api(`/status-batch?ids=${ids.join(',')}`);
           const pData = await pRes.json();
           
           pData.statuses.forEach(statusInfo => {
@@ -190,7 +183,7 @@
           }
         }
       }, delay);
-    }, 30000); // 30 secondes d'attente initiale
+    }, 25000); 
   }
 
   function newChat(welcome = null) {
