@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_ultimate', JSON.stringify({
+    try { localStorage.setItem('iamastor_v_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_ultimate');
+      const s = localStorage.getItem('iamastor_v_final');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -34,8 +34,7 @@
 
   function downloadFile(url, id) { 
     if (!url && !id) return; 
-    const downloadUrl = url ? `/api/download/${id || 'media'}?url=${encodeURIComponent(url)}` : `/api/download/${id}`;
-    window.location.href = downloadUrl;
+    window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url)}`;
   }
 
   function renderScenes(type) {
@@ -97,8 +96,7 @@
     
     try {
       if (type === 'image') {
-        const body = { prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64 };
-        const res = await api('/generate-image', { method: 'POST', body: JSON.stringify(body) });
+        const res = await api('/generate-image', { method: 'POST', body: JSON.stringify({ prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64?.replace(/^data:image\/\w+;base64,/, '') }) });
         const data = await res.json();
         if (data.url) {
           state.imageHistory.unshift({ url: data.url, size: '4K', ratio: s.ratio, id: data.id });
@@ -106,14 +104,14 @@
         } else throw new Error('Erreur image');
       } else {
         const body = { prompt: s.prompt, format: s.ratio, duration: s.seconds };
-        if (s.imageBase64) body.imageBase64 = s.imageBase64.replace(/^data:image\/\w+;base64,/, ''); // L'ancien code envoyait sans préfixe
-        if (type === 'story' && state.storyChars.length > 0) body.storyCharacters = state.storyChars;
+        if (s.imageBase64) body.imageBase64 = s.imageBase64;
+        if (type === 'story') body.storyCharacters = state.storyChars;
 
         const res = await api('/generate-video', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
         if (!data.id) throw new Error('Erreur ID');
 
-        // ✅ LE POLLING DE TON ANCIENNE APP (toutes les 3 secondes)
+        // ✅ Polling rapide (toutes les 3s) comme ton ancienne app
         const poll = setInterval(async () => {
           try {
             const pRes = await api(`/status/${data.id}`);
