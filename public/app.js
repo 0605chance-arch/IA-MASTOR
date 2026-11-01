@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_final_v20', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,9 +17,10 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final');
+      const s = localStorage.getItem('iamastor_final_v20');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
+      // ✅ 10 PROMPTS FIXES
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }));
       if (!state.storyScenes?.length) state.storyScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }));
     } catch(e){}
@@ -42,7 +43,7 @@
 
     c.innerHTML = arr.map((s, i) => {
       let status = '';
-      if (s.status === 'loading') status = s.waitingQueue ? `⏳ File Agnes pleine... (essai ${s.queueAttempt || 1})` : `⏳ ${s.progress || 0}%`;
+      if (s.status === 'loading') status = s.waitingQueue ? `⏳ File Agnes... (essai ${s.queueAttempt || 1})` : `⏳ ${s.progress || 0}%`;
       else if (s.status === 'error') status = '❌ Erreur';
       else if (s.status === 'success') status = '✅ Prêt';
       else status = '⏸ En attente';
@@ -93,7 +94,7 @@
     while (generationQueue.length > 0) {
       const { type, idx } = generationQueue.shift();
       await executeGeneration(type, idx);
-      await new Promise(r => setTimeout(r, 15000)); 
+      await new Promise(r => setTimeout(r, 15000)); // 15s entre chaque création
     }
     isProcessing = false;
   }
@@ -124,28 +125,25 @@
         if (s.imageBase64) body.imageBase64 = s.imageBase64;
 
         let res, data, videoAttempts = 0;
-        while (videoAttempts < 60) {
+        while (videoAttempts < 30) {
           videoAttempts++;
           s.queueAttempt = videoAttempts;
           try {
             res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
             data = await res.json();
             if (data.video_id) { s.waitingQueue = false; break; }
-            
             const errMsg = (data.error || '').toLowerCase();
-            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
-              s.waitingQueue = true;
-              renderScenes(type);
+            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
+              s.waitingQueue = true; renderScenes(type);
               await new Promise(r => setTimeout(r, 45000));
               continue;
             }
             throw new Error(data.error || 'Erreur création');
           } catch (err) {
             const errMsg = (err.message || '').toLowerCase();
-            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
-              s.waitingQueue = true;
-              renderScenes(type);
-              if (videoAttempts >= 60) throw new Error('File Agnes saturée après 45 minutes.');
+            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
+              s.waitingQueue = true; renderScenes(type);
+              if (videoAttempts >= 30) throw new Error('File Agnes saturée.');
               await new Promise(r => setTimeout(r, 45000));
             } else { throw err; }
           }
@@ -153,9 +151,9 @@
         if (!data || !data.video_id) throw new Error('File Agnes saturée.');
 
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 30000));
+        await new Promise(r => setTimeout(r, 60000)); // 1 min attente initiale
         
-        while (attempts < 20 && !finished) {
+        while (attempts < 30 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
@@ -164,7 +162,7 @@
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; s.progress = 100; finished = true; }
             else if (pData.status === 'failed') throw new Error('Échec Agnes');
           } catch (err) { console.warn('Polling:', err.message); }
-          if (!finished) await new Promise(r => setTimeout(r, 15000));
+          if (!finished) await new Promise(r => setTimeout(r, 30000)); // 30s entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
