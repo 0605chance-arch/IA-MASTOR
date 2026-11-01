@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_boosted_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_ultimate', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,9 +17,9 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_boosted_final');
+      const s = localStorage.getItem('iamastor_ultimate');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
-      if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
+      if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
       if (!state.storyScenes?.length) state.storyScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
     } catch(e){}
@@ -32,7 +32,11 @@
     return res;
   }
 
-  function downloadFile(url) { if (!url) return; window.location.href = `/api/download?url=${encodeURIComponent(url)}`; }
+  function downloadFile(url, id) { 
+    if (!url && !id) return; 
+    const downloadUrl = url ? `/api/download/${id || 'media'}?url=${encodeURIComponent(url)}` : `/api/download/${id}`;
+    window.location.href = downloadUrl;
+  }
 
   function renderScenes(type) {
     const isImg = type === 'image';
@@ -42,7 +46,7 @@
 
     c.innerHTML = arr.map((s, i) => {
       let status = '';
-      if (s.status === 'loading') status = s.waitingQueue ? '⏳ File Agnes...' : '⏳ En cours...';
+      if (s.status === 'loading') status = '⏳ En cours...';
       else if (s.status === 'error') status = '❌ Erreur';
       else if (s.status === 'success') status = '✅ Prêt';
       else status = '⏸ En attente';
@@ -70,10 +74,10 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select disabled><option>720P</option></select>`}
+            <select disabled><option>1080P</option></select>`}
           </div>
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
-          ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
+          ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}', '${s.mediaId}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
         </div>
       `;
     }).join('');
@@ -84,83 +88,54 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // ✅ GÉNÉRATION EN PARALLÈLE (pas de file d'attente bloquante)
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; s.videoUrl = null; s.waitingQueue = false;
+    s.status = 'loading'; s.videoUrl = null;
     renderScenes(type);
     
-    // Lance la génération immédiatement sans bloquer les autres
-    executeGeneration(type, idx);
-  }
-
-  async function executeGeneration(type, idx) {
-    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
-    const s = a[idx];
-
     try {
       if (type === 'image') {
-        const body = { prompt: s.prompt, size: s.size || '2K', ratio: s.ratio, n: 1 };
-        if (s.imageBase64) { body.mode = 'img2img'; body.referenceImages = [s.imageBase64]; }
-        const res = await api('/image', { method: 'POST', body: JSON.stringify(body) });
+        const body = { prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64 };
+        const res = await api('/generate-image', { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json();
-        if (data.images?.[0]) { state.imageHistory.unshift({ url: data.images[0].url, size: s.size, ratio: s.ratio }); s.status = 'success'; }
-        else throw new Error("Erreur génération");
+        if (data.url) {
+          state.imageHistory.unshift({ url: data.url, size: '4K', ratio: s.ratio, id: data.id });
+          s.status = 'success'; s.videoUrl = data.url; s.mediaId = data.id;
+        } else throw new Error('Erreur image');
       } else {
-        const body = { prompt: s.prompt, seconds: String(s.seconds || 8), aspect_ratio: s.ratio };
-        if (s.imageBase64) body.imageBase64 = s.imageBase64;
+        const body = { prompt: s.prompt, format: s.ratio, duration: s.seconds };
+        if (s.imageBase64) body.imageBase64 = s.imageBase64.replace(/^data:image\/\w+;base64,/, ''); // L'ancien code envoyait sans préfixe
+        if (type === 'story' && state.storyChars.length > 0) body.storyCharacters = state.storyChars;
 
-        let res, data, videoAttempts = 0;
-        // ✅ On réessaie si file pleine
-        while (videoAttempts < 30) {
-          videoAttempts++;
-          try {
-            res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
-            data = await res.json();
-            if (data.video_id) { s.waitingQueue = false; break; }
-            
-            const errMsg = (data.error || '').toLowerCase();
-            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
-              s.waitingQueue = true; renderScenes(type);
-              await new Promise(r => setTimeout(r, 45000)); // Attente 45s
-              continue;
-            }
-            throw new Error(data.error || 'Erreur création');
-          } catch (err) {
-            const errMsg = (err.message || '').toLowerCase();
-            if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
-              s.waitingQueue = true; renderScenes(type);
-              if (videoAttempts >= 30) throw new Error('File Agnes saturée.');
-              await new Promise(r => setTimeout(r, 45000));
-            } else { throw err; }
-          }
-        }
-        if (!data || !data.video_id) throw new Error('File Agnes saturée.');
+        const res = await api('/generate-video', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!data.id) throw new Error('Erreur ID');
 
-        // ✅ Polling lent (30s) pour respecter les 5 RPM, avec 5 vidéos en parallèle
-        let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 30000)); // Attente initiale 30s
-        
-        while (attempts < 20 && !finished) {
-          attempts++;
+        // ✅ LE POLLING DE TON ANCIENNE APP (toutes les 3 secondes)
+        const poll = setInterval(async () => {
           try {
-            const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
+            const pRes = await api(`/status/${data.id}`);
             const pData = await pRes.json();
             
-            if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
-            else if (pData.status === 'failed') throw new Error('Échec Agnes');
-          } catch (err) { console.warn('Polling:', err.message); }
-          
-          if (!finished) await new Promise(r => setTimeout(r, 30000)); // 30s entre chaque vérif
-        }
-        if (!finished) throw new Error('Délai dépassé');
+            if (pData.status === 'completed') {
+              clearInterval(poll);
+              s.status = 'success'; s.videoUrl = pData.url; s.mediaId = data.id;
+              renderScenes(type); renderHistory(); save();
+            } else if (pData.status === 'failed') {
+              clearInterval(poll);
+              s.status = 'error'; renderScenes(type);
+            }
+          } catch (err) { console.warn('Polling:', err); }
+        }, 3000);
+        return;
       }
-    } catch(e) { s.status = 'error'; console.error(e); }
+    } catch (e) { s.status = 'error'; console.error(e); }
     save(); renderScenes(type); renderHistory();
   }
 
+  // CHAT
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -219,9 +194,9 @@
   }
 
   function renderHistory() {
-    const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
-    const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
-    const hs = $('#story-history'); if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
+    const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}', '${img.id}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
+    const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
+    const hs = $('#story-history'); if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
   }
 
   window.downloadFile = downloadFile;
@@ -236,21 +211,7 @@
         state.apiKey = key; $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
         
         if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀
-
-Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
-
-**Ce que je peux générer pour toi :**
-🎬 **Vidéos IA** : Jusqu'à **500 secondes par jour** (environ 40 vidéos de 12s). Idéal pour TikTok, Reels et Shorts.
-🖼️ **Images HD** : Jusqu'à **4 000 par jour**. Création visuelle pro.
-💬 **Textes & Scripts** : Idées virales, scripts TikTok, histoires complètes, business plans, prompts optimisés.
-
-**Mes conseils pour réussir :**
-1. La régularité est la clé : poste tous les jours.
-2. Analyse ce qui marche et améliore tes prompts.
-3. Utilise les 3 onglets ensemble : Histoire → Image → Vidéo.
-
-*Prêt à créer du contenu qui cartonne ? Commence par me demander une idée de vidéo ou un script.*`);
+          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA. Voici ce que je peux générer :\n\n🎬 Vidéos IA : 500 sec/jour.\n🖼️ Images HD : 4000/jour.\n💬 Textes & Scripts.\n\n*Conseil : Sois régulier sur TikTok/Insta.*`);
         } else { renderChatList(); renderChatMessages(); }
         
         renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
@@ -264,7 +225,7 @@ Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
     $('#chat-file-btn').onclick = () => $('#chat-file').click();
     $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
 
-    $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
+    $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
 
     $('#story-synopsis').oninput = () => save();
     document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
