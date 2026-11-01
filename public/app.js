@@ -3,23 +3,22 @@
 
   const state = {
     apiKey: null, chatSessions: [], currentChatId: null, imageHistory: [],
-    videoScenes: [], storyScenes: [], imageScenes: [], storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}]
+    videoScenes: [], storyScenes: [], imageScenes: [], storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}],
+    chatImageBase64: null // Ajout pour stocker l'image du chat
   };
 
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { 
-      localStorage.setItem('iamastor_final_v22', JSON.stringify({
-        chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
-        videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
-      })); 
-    } catch(e){}
+    try { localStorage.setItem('iamastor_final_v23', JSON.stringify({
+      chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
+      videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
+    })); } catch(e){}
   }
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v22');
+      const s = localStorage.getItem('iamastor_final_v23');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -39,7 +38,7 @@
     window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
   }
 
-  // --- SCENES RENDERING ---
+  // --- SCENES ---
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -115,7 +114,6 @@
         const data = await res.json();
         if (!data.id) throw new Error('Erreur ID');
 
-        // POLLING INTELLIGENT
         const poll = setInterval(async () => {
           try {
             const pRes = await api(`/status/${data.id}`);
@@ -177,8 +175,12 @@
     if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
     renderChatList(); renderChatMessages();
     const box = $('#chat-messages'); const ph = document.createElement('div'); ph.className = 'msg assistant'; ph.textContent = '...'; box.appendChild(ph);
+    
     try {
-      const res = await api('/chat', { method: 'POST', body: JSON.stringify({ messages: sess.messages.slice(-15), stream: true }) });
+      const body = { messages: sess.messages.slice(-15), stream: true };
+      if (state.chatImageBase64) body.imageBase64 = state.chatImageBase64;
+
+      const res = await api('/chat', { method: 'POST', body: JSON.stringify(body) });
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = '', buffer = '';
       while (true) {
         const { done, value } = await reader.read(); if (done) break;
@@ -193,6 +195,10 @@
       }
       sess.messages.push({ role: 'assistant', content: full }); save();
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
+    
+    // Reset image après envoi
+    state.chatImageBase64 = null;
+    $('#chat-input').placeholder = 'Écris ton message...';
   }
 
   function renderHistory() {
