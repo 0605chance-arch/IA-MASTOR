@@ -99,6 +99,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ✅ VIDÉO : 720P, Base64 pur, renvoie le progress
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -149,7 +150,6 @@ app.get('/api/video/status', async (req, res) => {
     }
     
     const data = await pollRes.json();
-    // ✅ On renvoie le progress à l'app
     res.json({ 
       success: true, 
       status: data.status || 'unknown', 
