@@ -41,15 +41,11 @@ async function agnesFetch(endpoint, apiKey, options = {}) {
     ...options,
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
   });
-  
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
-    let errJson; 
-    try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
+    let errJson; try { errJson = JSON.parse(errText); } catch { errJson = { raw: errText }; }
     const exactMessage = errJson.error?.message || errJson.message || errJson.raw || `Agnes error ${res.status}`;
-    const error = new Error(exactMessage);
-    error.status = res.status;
-    throw error;
+    const error = new Error(exactMessage); error.status = res.status; throw error;
   }
   return res.json();
 }
@@ -76,13 +72,7 @@ app.post('/api/chat', async (req, res) => {
     });
     if (!response.ok) return res.status(response.status).json({ error: await response.text() });
     if (!stream) return res.json(await response.json());
-    
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-    
+    res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Connection', 'keep-alive'); res.setHeader('X-Accel-Buffering', 'no'); res.flushHeaders();
     response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
     response.body.on('end', () => res.end());
   } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
@@ -99,13 +89,12 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : 720P, Base64 pur, renvoie le progress
+// ✅ VIDÉO : 720P + base64 pur + progress
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, seconds = '5', aspect_ratio = '16:9', imageBase64 } = req.body;
     if (!prompt) return res.status(400).json({ error: 'prompt requis' });
-    
     const secondsNum = parseInt(seconds) || 5;
     const finalSeconds = String(Math.min(12, Math.max(4, secondsNum)));
 
@@ -129,10 +118,7 @@ app.post('/api/video', async (req, res) => {
     const videoId = createData.video_id || createData.id;
     if (!videoId) throw new Error('Pas de video_id');
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
-  } catch (err) { 
-    console.error('Erreur vidéo (création):', err.message); 
-    res.status(500).json({ error: err.message }); 
-  }
+  } catch (err) { console.error('Erreur vidéo (création):', err.message); res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/video/status', async (req, res) => {
@@ -140,22 +126,11 @@ app.get('/api/video/status', async (req, res) => {
     const apiKey = getApiKey(req);
     const { video_id, model = MODELS.videoFlash } = req.query;
     if (!video_id) return res.status(400).json({ error: 'video_id requis' });
-    
     const url = `${AGNES_POLL_BASE}?video_id=${encodeURIComponent(video_id)}&model_name=${encodeURIComponent(model)}`;
     const pollRes = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-    
-    if (!pollRes.ok) { 
-      const errText = await pollRes.text().catch(() => ''); 
-      return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); 
-    }
-    
+    if (!pollRes.ok) { const errText = await pollRes.text().catch(() => ''); return res.status(pollRes.status).json({ error: `Polling error: ${errText}` }); }
     const data = await pollRes.json();
-    res.json({ 
-      success: true, 
-      status: data.status || 'unknown', 
-      video_url: data.url || data.video_url || null,
-      progress: data.progress || 0
-    });
+    res.json({ success: true, status: data.status || 'unknown', video_url: data.url || data.video_url || null, progress: data.progress || 0 });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
