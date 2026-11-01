@@ -36,7 +36,6 @@ app.post('/api/validate-key', async (req, res) => {
   } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
 });
 
-// CHAT (Corrigé pour accepter les images)
 app.post('/api/chat', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -51,12 +50,7 @@ app.post('/api/chat', async (req, res) => {
       ];
     }
 
-    const body = { 
-      model: 'agnes-3.0-flash', 
-      messages: finalMessages.slice(-20), 
-      stream, 
-      temperature: 0.8 
-    };
+    const body = { model: 'agnes-3.0-flash', messages: finalMessages.slice(-20), stream, temperature: 0.8 };
     
     const response = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -75,7 +69,6 @@ app.post('/api/chat', async (req, res) => {
   } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
 });
 
-// IMAGE
 app.post('/api/generate-image', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -95,7 +88,7 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// VIDÉO
+// ⚠️ VIDÉO CORRIGÉE AVEC RETRY SUR 503
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -130,20 +123,37 @@ app.post('/api/generate-video', async (req, res) => {
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
-    const response = await fetch(`${AGNES_BASE}/videos`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    });
+    // 🔄 RETRY AUTOMATIQUE SUR 503 video_queue_full
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const response = await fetch(`${AGNES_BASE}/videos`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
+      const data = await response.json();
+
+      // Si la file est pleine (503), on attend et on réessaie
+      if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
+        console.log(`⏳ File Agnes pleine (tentative ${attempt}/3). Attente 45s...`);
+        lastError = data.error?.message || 'Queue full';
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 45000)); // Attendre 45 secondes
+          continue;
+        }
+      }
+
+      if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
+      
+      const videoId = data.video_id || data.id;
+      if (!videoId) throw new Error('Pas de video_id');
+      
+      return res.json({ id: videoId });
+    }
     
-    const videoId = data.video_id || data.id;
-    if (!videoId) throw new Error('Pas de video_id');
-    res.json({ id: videoId });
+    throw new Error(`Agnes saturé après 3 tentatives: ${lastError}`);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// STATUT (Correction de l'URL)
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -162,7 +172,6 @@ app.get('/api/status/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Erreur statut' }); }
 });
 
-// DOWNLOAD
 app.get('/api/download/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
