@@ -11,6 +11,15 @@ const PORT = process.env.PORT || 10000;
 app.set('trust proxy', 1);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
+
+// ✅ ANTI-CACHE : Force le navigateur à recharger les fichiers
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const apiLimiter = rateLimit({
@@ -89,7 +98,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : 720P + base64 pur + progress
+// ✅ VIDÉO : Force video_id (pas task_id) pour un polling correct
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -102,9 +111,8 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',
+      size: '720P', // ✅ Flash = 720P UNIQUEMENT
       aspect_ratio: aspect_ratio || '16:9',
-      seed: Math.floor(Math.random() * 1000000),
       mode: 'text'
     };
 
@@ -115,10 +123,13 @@ app.post('/api/video', async (req, res) => {
     }
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
-    const videoId = createData.video_id || createData.id;
-    if (!videoId) throw new Error('Pas de video_id');
+    
+    // ✅ FORCE video_id, pas task_id
+    const videoId = createData.video_id;
+    if (!videoId) throw new Error('Agnes n\'a pas renvoyé de video_id (task_id reçu à la place)');
+    
     res.json({ success: true, video_id: videoId, model: MODELS.videoFlash });
-  } catch (err) { console.error('Erreur vidéo (création):', err.message); res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('Erreur vidéo:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/video/status', async (req, res) => {
