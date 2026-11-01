@@ -88,7 +88,7 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ⚠️ ENVOI IMMÉDIAT : Plus de file d'attente
+// ⚠️ LE CODE ULTIME : Envoi direct + Retry acharné côté serveur
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -123,68 +123,91 @@ app.post('/api/generate-video', async (req, res) => {
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
-    console.log(`🎬 Envoi création vidéo instantané...`);
-    let response = await fetch(`${AGNES_BASE}/videos`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    });
-    let data = await response.json();
+    // Boucle de retry acharnée : jusqu'à 10 tentatives
+    let videoId = null;
+    let attempt = 0;
+    
+    while (attempt < 10 && !videoId) {
+      attempt++;
+      try {
+        console.log(`🎬 Tentative ${attempt}/10 (${prompt.substring(0, 20)}...)`);
+        const response = await fetch(`${AGNES_BASE}/videos`, {
+          method: 'POST', 
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(body)
+        });
+        
+        const data = await response.json();
 
-    // Si Agnes dit "trop de requêtes", on attend 30s et on réessaie
-    if (response.status === 429) {
-      console.log(`⏳ Trop de requêtes (429). Attente 30s...`);
-      await new Promise(r => setTimeout(r, 30000));
-      response = await fetch(`${AGNES_BASE}/videos`, {
-        method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-      });
-      data = await response.json();
+        if (response.ok && (data.video_id || data.id)) {
+          videoId = data.video_id || data.id;
+          console.log(`✅ Accepté ! ID: ${videoId}`);
+          break;
+        }
+
+        // Si erreur 429 (Trop de requêtes) ou 503 (File pleine)
+        if (response.status === 429 || response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
+          console.log(`⏳ Agnes occupé (${response.status}). Attente 20s...`);
+          await new Promise(r => setTimeout(r, 20000)); // Attendre 20 secondes
+        } else {
+          // Autre erreur (ex: prompt invalide)
+          throw new Error(data.error?.message || 'Erreur inconnue');
+        }
+      } catch (e) {
+        console.log(`⚠️ Erreur tentative ${attempt}: ${e.message}`);
+        if (attempt >= 10) throw e;
+        await new Promise(r => setTimeout(r, 20000));
+      }
     }
 
-    if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
-      console.log(`⏳ File Agnes pleine (503). Attente 60s...`);
-      await new Promise(r => setTimeout(r, 60000));
-      response = await fetch(`${AGNES_BASE}/videos`, {
-        method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-      });
-      data = await response.json();
-    }
-
-    if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
-    const videoId = data.video_id || data.id;
-    if (!videoId) throw new Error('Pas de video_id');
-    console.log(`✅ Accepté: ${videoId}`);
+    if (!videoId) throw new Error('Agnes est saturé après 10 tentatives. Réessaie plus tard.');
+    
     res.json({ id: videoId });
 
   } catch (err) { 
-    console.error('❌ Erreur:', err.message);
+    console.error('❌ Erreur finale:', err.message);
     res.status(500).json({ error: err.message }); 
   }
 });
 
-app.get('/api/status/:id', async (req, res) => {
+// VÉRIFICATION GROUPÉE (Le secret pour ne pas se faire bloquer par le RPM)
+app.get('/api/status-batch', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const videoId = req.params.id;
+    const ids = (req.query.ids || '').split(',').filter(id => id.trim() !== '');
     const submittedAt = parseInt(req.query.t || '0');
     
-    const elapsed = Date.now() - submittedAt;
-    if (elapsed < 25000) {
-      return res.json({ status: 'processing', url: null });
+    // Attendre 30s minimum avant de vérifier
+    if (Date.now() - submittedAt < 30000) {
+      return res.json({ statuses: ids.map(id => ({ id, status: 'processing', url: null })) });
     }
-    
-    const response = await fetch(`${AGNES_POLL_BASE}?video_id=${videoId}&model_name=agnes-video-2.5-flash`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    
-    if (response.status === 429 || response.status === 404) {
-      return res.json({ status: 'processing', url: null });
-    }
-    
-    const data = await response.json();
-    const videoUrl = data.url || data.video_url || data.metadata?.url;
-    const isDone = videoUrl || data.status === 'completed';
 
-    res.json({ status: isDone ? 'completed' : (data.status || 'processing'), url: videoUrl });
-  } catch (err) { res.status(500).json({ error: 'Erreur statut' }); }
+    const results = [];
+    for (const id of ids) {
+      try {
+        const response = await fetch(`${AGNES_POLL_BASE}?video_id=${id}&model_name=agnes-video-2.5-flash`, {
+          headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        
+        if (response.status === 429 || response.status === 404) {
+          results.push({ id, status: 'processing', url: null });
+          continue;
+        }
+
+        const data = await response.json();
+        const videoUrl = data.url || data.video_url || data.metadata?.url;
+        const isDone = videoUrl || data.status === 'completed';
+        
+        results.push({ id, status: isDone ? 'completed' : 'processing', url: videoUrl });
+        
+        await new Promise(r => setTimeout(r, 500)); // Espacer les vérifs de 0.5s
+      } catch (err) {
+        results.push({ id, status: 'processing', url: null });
+      }
+    }
+    
+    res.json({ statuses: results });
+  } catch (err) { res.status(500).json({ error: 'Erreur statut groupé' }); }
 });
 
 app.get('/api/download/:id', async (req, res) => {
