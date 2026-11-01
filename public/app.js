@@ -10,16 +10,26 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v24', JSON.stringify({
-      chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
-      videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
-    })); } catch(e){}
+    try { 
+      localStorage.setItem('iamastor_final_v25', JSON.stringify({
+        apiKey: state.apiKey,
+        chatSessions: state.chatSessions, 
+        imageHistory: state.imageHistory.slice(0, 30),
+        videoScenes: state.videoScenes, 
+        storyScenes: state.storyScenes, 
+        imageScenes: state.imageScenes, 
+        storyChars: state.storyChars
+      })); 
+    } catch(e){}
   }
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v24');
-      if (s) { const p = JSON.parse(s); Object.assign(state, p); }
+      const s = localStorage.getItem('iamastor_final_v25');
+      if (s) { 
+        const p = JSON.parse(s); 
+        Object.assign(state, p); 
+      }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
       if (!state.storyScenes?.length) state.storyScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -35,10 +45,14 @@
 
   function downloadFile(url, id) { 
     if (!url && !id) return; 
-    window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
+    const link = document.createElement('a');
+    link.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
+    link.download = 'ia-mastor.mp4';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
-  // --- SCENES RENDERING ---
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -89,12 +103,15 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // --- GENERATION ---
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
     
-    s.status = 'loading'; s.videoUrl = null;
+    if (s.status === 'loading' && s.mediaId) {
+      return startPolling(type, idx, s.mediaId, s.timestamp);
+    }
+
+    s.status = 'loading'; s.videoUrl = null; s.mediaId = null;
     renderScenes(type);
     
     try {
@@ -114,26 +131,11 @@
         const data = await res.json();
         if (!data.id) throw new Error('Erreur ID');
 
-        const submittedAt = Date.now();
+        s.mediaId = data.id;
+        s.timestamp = Date.now();
+        save();
         
-        // POLLING INTELLIGENT (délai initial de 25s géré côté serveur)
-        const poll = setInterval(async () => {
-          try {
-            const pRes = await api(`/status/${data.id}?t=${submittedAt}`);
-            const pData = await pRes.json();
-            
-            if (pData.status === 'completed' && pData.url) {
-              clearInterval(poll);
-              s.status = 'success'; s.videoUrl = pData.url; s.mediaId = data.id;
-              renderScenes(type); renderHistory(); save();
-            } else if (pData.status === 'failed') {
-              clearInterval(poll);
-              s.status = 'error'; renderScenes(type); save();
-            }
-          } catch (err) { 
-            console.warn('Polling erreur:', err.message); 
-          }
-        }, 3000);
+        startPolling(type, idx, data.id, s.timestamp);
         return;
       }
     } catch (e) { 
@@ -143,7 +145,29 @@
     save(); renderScenes(type); renderHistory();
   }
 
-  // --- CHAT ---
+  function startPolling(type, idx, videoId, submittedAt) {
+    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+    const s = a[idx];
+    
+    const poll = setInterval(async () => {
+      try {
+        const pRes = await api(`/status/${videoId}?t=${submittedAt}`);
+        const pData = await pRes.json();
+        
+        if (pData.status === 'completed' && pData.url) {
+          clearInterval(poll);
+          s.status = 'success'; s.videoUrl = pData.url;
+          renderScenes(type); renderHistory(); save();
+        } else if (pData.status === 'failed') {
+          clearInterval(poll);
+          s.status = 'error'; renderScenes(type); save();
+        }
+      } catch (err) { 
+        console.warn('Polling erreur:', err.message); 
+      }
+    }, 3000);
+  }
+
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -216,35 +240,8 @@
 
   window.downloadFile = downloadFile;
 
-  // --- INITIALISATION ---
   document.addEventListener('DOMContentLoaded', () => {
     load();
-    $('#login-form').onsubmit = async (e) => {
-      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = '...';
-      try {
-        const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
-        const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
-        state.apiKey = key; $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
-        
-        if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA. Voici ce que je peux générer :\n\n🎬 Vidéos IA : 500 sec/jour.\n🖼️ Images HD : 4000/jour.\n💬 Textes & Scripts.\n\n*Conseil : Sois régulier sur TikTok/Insta.*`);
-        } else { renderChatList(); renderChatMessages(); }
-        
-        renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
-      } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
-    };
 
-    document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => b.onclick = () => { document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active')); document.querySelectorAll(`[data-tab="${b.dataset.tab}"]`).forEach(x => x.classList.add('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.querySelector(`#tab-${b.dataset.tab}`).classList.add('active'); });
-
-    $('#new-chat-btn').onclick = () => newChat();
-    $('#chat-form').onsubmit = (e) => { e.preventDefault(); const v = $('#chat-input').value.trim(); if (!v) return; $('#chat-input').value = ''; sendChat(v); };
-    $('#chat-file-btn').onclick = () => $('#chat-file').click();
-    $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
-
-    $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
-
-    $('#story-synopsis').oninput = () => save();
-    document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
-    document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => el.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.storyChars[i].img = ev.target.result; const btn = document.querySelector(`#char-btn-${i}`); if(btn) btn.innerHTML = '✅'; save(); }; r.readAsDataURL(f); });
-  });
-})();
+    if (state.apiKey) {
+      $('#w
