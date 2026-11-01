@@ -1,14 +1,8 @@
 {
   "name": "ia-mastor",
   "version": "1.0.0",
-  "description": "IA MASTOR - Suite créative IA haute performance propulsée par Agnes AI",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "express": "^4.21.2",
     "cors": "^2.8.5",
@@ -16,13 +10,5 @@
     "node-fetch": "^2.7.0",
     "express-rate-limit": "^7.5.0"
   },
-  "keywords": [
-    "video",
-    "ai",
-    "agnes",
-    "generator",
-    "4k"
-  ],
-  "author": "",
-  "license": "MIT"
+  "engines": { "node": ">=18.0.0" }
 }
