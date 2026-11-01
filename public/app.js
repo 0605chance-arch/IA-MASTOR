@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_final_v21', JSON.stringify({
+    try { localStorage.setItem('iamastor_boosted_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v21');
+      const s = localStorage.getItem('iamastor_boosted_final');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -42,7 +42,7 @@
 
     c.innerHTML = arr.map((s, i) => {
       let status = '';
-      if (s.status === 'loading') status = '⏳ En cours...';
+      if (s.status === 'loading') status = s.waitingQueue ? '⏳ File Agnes...' : '⏳ En cours...';
       else if (s.status === 'error') status = '❌ Erreur';
       else if (s.status === 'success') status = '✅ Prêt';
       else status = '⏸ En attente';
@@ -84,27 +84,16 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  let generationQueue = [];
-  let isProcessing = false;
-
-  async function processQueue() {
-    if (isProcessing || generationQueue.length === 0) return;
-    isProcessing = true;
-    while (generationQueue.length > 0) {
-      const { type, idx } = generationQueue.shift();
-      await executeGeneration(type, idx);
-      await new Promise(r => setTimeout(r, 15000)); 
-    }
-    isProcessing = false;
-  }
-
-  function generate(type, idx) {
+  // ✅ GÉNÉRATION EN PARALLÈLE (pas de file d'attente bloquante)
+  async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    s.status = 'loading'; s.videoUrl = null;
+    
+    s.status = 'loading'; s.videoUrl = null; s.waitingQueue = false;
     renderScenes(type);
-    generationQueue.push({ type, idx });
-    processQueue();
+    
+    // Lance la génération immédiatement sans bloquer les autres
+    executeGeneration(type, idx);
   }
 
   async function executeGeneration(type, idx) {
@@ -124,21 +113,25 @@
         if (s.imageBase64) body.imageBase64 = s.imageBase64;
 
         let res, data, videoAttempts = 0;
+        // ✅ On réessaie si file pleine
         while (videoAttempts < 30) {
           videoAttempts++;
           try {
             res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
             data = await res.json();
-            if (data.video_id) break;
+            if (data.video_id) { s.waitingQueue = false; break; }
+            
             const errMsg = (data.error || '').toLowerCase();
             if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
-              await new Promise(r => setTimeout(r, 45000));
+              s.waitingQueue = true; renderScenes(type);
+              await new Promise(r => setTimeout(r, 45000)); // Attente 45s
               continue;
             }
             throw new Error(data.error || 'Erreur création');
           } catch (err) {
             const errMsg = (err.message || '').toLowerCase();
             if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full')) {
+              s.waitingQueue = true; renderScenes(type);
               if (videoAttempts >= 30) throw new Error('File Agnes saturée.');
               await new Promise(r => setTimeout(r, 45000));
             } else { throw err; }
@@ -146,18 +139,21 @@
         }
         if (!data || !data.video_id) throw new Error('File Agnes saturée.');
 
+        // ✅ Polling lent (30s) pour respecter les 5 RPM, avec 5 vidéos en parallèle
         let attempts = 0, finished = false;
-        await new Promise(r => setTimeout(r, 15000)); // Attente initiale 15s
+        await new Promise(r => setTimeout(r, 30000)); // Attente initiale 30s
         
-        while (attempts < 40 && !finished) {
+        while (attempts < 20 && !finished) {
           attempts++;
           try {
             const pRes = await api(`/video/status?video_id=${data.video_id}&model=agnes-video-2.5-flash`);
             const pData = await pRes.json();
+            
             if (pData.status === 'completed') { s.status = 'success'; s.videoUrl = pData.video_url; finished = true; }
             else if (pData.status === 'failed') throw new Error('Échec Agnes');
           } catch (err) { console.warn('Polling:', err.message); }
-          if (!finished) await new Promise(r => setTimeout(r, 15000)); // 15s entre vérifs
+          
+          if (!finished) await new Promise(r => setTimeout(r, 30000)); // 30s entre chaque vérif
         }
         if (!finished) throw new Error('Délai dépassé');
       }
