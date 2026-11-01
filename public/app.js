@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_ultime', JSON.stringify({
+    try { localStorage.setItem('iamastor_final', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,11 +17,11 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_ultime');
+      const s = localStorage.getItem('iamastor_final');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }];
-      if (!state.videoScenes?.length) state.videoScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }];
-      if (!state.storyScenes?.length) state.storyScenes = [{ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }];
+      if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }));
+      if (!state.storyScenes?.length) state.storyScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }));
     } catch(e){}
   }
 
@@ -42,7 +42,7 @@
 
     c.innerHTML = arr.map((s, i) => {
       let status = '';
-      if (s.status === 'loading') status = `⏳ ${s.progress || 0}%`;
+      if (s.status === 'loading') status = s.waitingQueue ? `⏳ File Agnes pleine... (essai ${s.queueAttempt || 1})` : `⏳ ${s.progress || 0}%`;
       else if (s.status === 'error') status = '❌ Erreur';
       else if (s.status === 'success') status = '✅ Prêt';
       else status = '⏸ En attente';
@@ -101,7 +101,8 @@
   function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    s.status = 'loading'; s.progress = 0; s.videoUrl = null; renderScenes(type);
+    s.status = 'loading'; s.progress = 0; s.videoUrl = null; s.waitingQueue = false; s.queueAttempt = 0;
+    renderScenes(type);
     generationQueue.push({ type, idx });
     processQueue();
   }
@@ -123,17 +124,18 @@
         if (s.imageBase64) body.imageBase64 = s.imageBase64;
 
         let res, data, videoAttempts = 0;
-        // ✅ RÉSISTANCE MAXIMALE : 30 tentatives (30 minutes d'attente)
-        while (videoAttempts < 30) {
+        while (videoAttempts < 60) {
           videoAttempts++;
+          s.queueAttempt = videoAttempts;
           try {
             res = await api('/video', { method: 'POST', body: JSON.stringify(body) });
             data = await res.json();
-            if (data.video_id) break;
+            if (data.video_id) { s.waitingQueue = false; break; }
             
             const errMsg = (data.error || '').toLowerCase();
             if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
-              console.log(`File pleine (essai ${videoAttempts}/30). Attente 45s...`);
+              s.waitingQueue = true;
+              renderScenes(type);
               await new Promise(r => setTimeout(r, 45000));
               continue;
             }
@@ -141,7 +143,9 @@
           } catch (err) {
             const errMsg = (err.message || '').toLowerCase();
             if (errMsg.includes('queue') || errMsg.includes('503') || errMsg.includes('full') || errMsg.includes('busy')) {
-              if (videoAttempts >= 30) throw new Error('File Agnes saturée après 30 tentatives.');
+              s.waitingQueue = true;
+              renderScenes(type);
+              if (videoAttempts >= 60) throw new Error('File Agnes saturée après 45 minutes.');
               await new Promise(r => setTimeout(r, 45000));
             } else { throw err; }
           }
@@ -272,8 +276,6 @@ Je suis ton mentor IA, prêt à t'aider à percer sur les réseaux sociaux.
     $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
 
     $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '2K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
-    $('#add-scene-video').onclick = () => { state.videoScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }); renderScenes('video'); save(); };
-    $('#add-story-scene').onclick = () => { state.storyScenes.push({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending', progress: 0 }); renderScenes('story'); save(); };
 
     $('#story-synopsis').oninput = () => save();
     document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
