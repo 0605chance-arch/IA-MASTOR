@@ -9,7 +9,7 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v_final', JSON.stringify({
+    try { localStorage.setItem('iamastor_v_final2', JSON.stringify({
       chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
       videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
     })); } catch(e){}
@@ -17,7 +17,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v_final');
+      const s = localStorage.getItem('iamastor_v_final2');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -34,7 +34,7 @@
 
   function downloadFile(url, id) { 
     if (!url && !id) return; 
-    window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url)}`;
+    window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
   }
 
   function renderScenes(type) {
@@ -73,7 +73,7 @@
             <select data-type="${type}" data-idx="${i}" data-key="seconds">
               ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
             </select>
-            <select disabled><option>1080P</option></select>`}
+            <select disabled><option>720P</option></select>`}
           </div>
           <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
           ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}', '${s.mediaId}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
@@ -96,7 +96,7 @@
     
     try {
       if (type === 'image') {
-        const res = await api('/generate-image', { method: 'POST', body: JSON.stringify({ prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64?.replace(/^data:image\/\w+;base64,/, '') }) });
+        const res = await api('/generate-image', { method: 'POST', body: JSON.stringify({ prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64 }) });
         const data = await res.json();
         if (data.url) {
           state.imageHistory.unshift({ url: data.url, size: '4K', ratio: s.ratio, id: data.id });
@@ -111,7 +111,6 @@
         const data = await res.json();
         if (!data.id) throw new Error('Erreur ID');
 
-        // ✅ Polling rapide (toutes les 3s) comme ton ancienne app
         const poll = setInterval(async () => {
           try {
             const pRes = await api(`/status/${data.id}`);
@@ -133,7 +132,6 @@
     save(); renderScenes(type); renderHistory();
   }
 
-  // CHAT
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
