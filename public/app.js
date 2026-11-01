@@ -9,15 +9,17 @@
   const $ = s => document.querySelector(s);
 
   function save() {
-    try { localStorage.setItem('iamastor_v_final2', JSON.stringify({
-      chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
-      videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
-    })); } catch(e){}
+    try { 
+      localStorage.setItem('iamastor_final_v22', JSON.stringify({
+        chatSessions: state.chatSessions, imageHistory: state.imageHistory.slice(0, 30),
+        videoScenes: state.videoScenes, storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
+      })); 
+    } catch(e){}
   }
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_v_final2');
+      const s = localStorage.getItem('iamastor_final_v22');
       if (s) { const p = JSON.parse(s); Object.assign(state, p); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -37,6 +39,7 @@
     window.location.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
   }
 
+  // --- SCENES RENDERING ---
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -87,6 +90,7 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
+  // --- GENERATION ---
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
@@ -111,18 +115,19 @@
         const data = await res.json();
         if (!data.id) throw new Error('Erreur ID');
 
+        // POLLING INTELLIGENT
         const poll = setInterval(async () => {
           try {
             const pRes = await api(`/status/${data.id}`);
             const pData = await pRes.json();
             
-            if (pData.status === 'completed') {
+            if (pData.status === 'completed' && pData.url) {
               clearInterval(poll);
               s.status = 'success'; s.videoUrl = pData.url; s.mediaId = data.id;
               renderScenes(type); renderHistory(); save();
             } else if (pData.status === 'failed') {
               clearInterval(poll);
-              s.status = 'error'; renderScenes(type);
+              s.status = 'error'; renderScenes(type); save();
             }
           } catch (err) { console.warn('Polling:', err); }
         }, 3000);
@@ -132,6 +137,7 @@
     save(); renderScenes(type); renderHistory();
   }
 
+  // --- CHAT ---
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -197,6 +203,7 @@
 
   window.downloadFile = downloadFile;
 
+  // --- INITIALISATION ---
   document.addEventListener('DOMContentLoaded', () => {
     load();
     $('#login-form').onsubmit = async (e) => {
