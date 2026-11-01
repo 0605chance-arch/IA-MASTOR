@@ -11,7 +11,7 @@
 
   function save() {
     try { 
-      localStorage.setItem('iamastor_final_v25', JSON.stringify({
+      localStorage.setItem('iamastor_final_v26', JSON.stringify({
         apiKey: state.apiKey,
         chatSessions: state.chatSessions, 
         imageHistory: state.imageHistory.slice(0, 30),
@@ -25,7 +25,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v25');
+      const s = localStorage.getItem('iamastor_final_v26');
       if (s) { 
         const p = JSON.parse(s); 
         Object.assign(state, p); 
@@ -53,7 +53,6 @@
     document.body.removeChild(link);
   }
 
-  // --- SCENES RENDERING ---
   function renderScenes(type) {
     const isImg = type === 'image';
     const c = $(`#${type}-scenes`); if (!c) return;
@@ -104,7 +103,6 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // --- GENERATION ---
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
@@ -150,27 +148,36 @@
   function startPolling(type, idx, videoId, submittedAt) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
+    let pollCount = 0;
     
-    const poll = setInterval(async () => {
-      try {
-        const pRes = await api(`/status/${videoId}?t=${submittedAt}`);
-        const pData = await pRes.json();
-        
-        if (pData.status === 'completed' && pData.url) {
-          clearInterval(poll);
-          s.status = 'success'; s.videoUrl = pData.url;
-          renderScenes(type); renderHistory(); save();
-        } else if (pData.status === 'failed') {
-          clearInterval(poll);
-          s.status = 'error'; renderScenes(type); save();
+    const initialDelay = setTimeout(() => {
+      const poll = setInterval(async () => {
+        pollCount++;
+        let delay = 10000; 
+        if (pollCount > 10) delay = 15000; 
+        if (pollCount > 20) delay = 20000;
+
+        try {
+          const pRes = await api(`/status/${videoId}?t=${submittedAt}`);
+          const pData = await pRes.json();
+          
+          if (pData.status === 'completed' && pData.url) {
+            clearInterval(poll);
+            s.status = 'success'; s.videoUrl = pData.url;
+            renderScenes(type); renderHistory(); save();
+          } else if (pData.status === 'failed') {
+            clearInterval(poll);
+            s.status = 'error'; renderScenes(type); save();
+          }
+        } catch (err) { 
+          if (err.message.includes('429') || err.message.includes('trop')) {
+            await new Promise(r => setTimeout(r, 30000));
+          }
         }
-      } catch (err) { 
-        console.warn('Polling erreur:', err.message); 
-      }
-    }, 3000);
+      }, delay);
+    }, 25000);
   }
 
-  // --- CHAT ---
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
@@ -243,7 +250,6 @@
 
   window.downloadFile = downloadFile;
 
-  // --- INITIALISATION ---
   document.addEventListener('DOMContentLoaded', () => {
     load();
 
