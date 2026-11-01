@@ -15,6 +15,52 @@ app.use(express.static(path.join(__dirname, 'public')));
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
+// File d'attente par clé API (pour respecter les 5 RPM)
+const queueMap = new Map();
+const MAX_CONCURRENT = 5;
+const MIN_INTERVAL = 12000; // 12 secondes entre chaque requête (5 RPM = 12s d'écart)
+
+function getQueue(apiKey) {
+  if (!queueMap.has(apiKey)) {
+    queueMap.set(apiKey, { running: 0, lastRequest: 0, queue: [] });
+  }
+  return queueMap.get(apiKey);
+}
+
+async function processQueue(apiKey, taskFn) {
+  const q = getQueue(apiKey);
+  return new Promise((resolve, reject) => {
+    q.queue.push({ taskFn, resolve, reject });
+    processNext(apiKey);
+  });
+}
+
+async function processNext(apiKey) {
+  const q = getQueue(apiKey);
+  if (q.running >= MAX_CONCURRENT || q.queue.length === 0) return;
+  
+  const now = Date.now();
+  const timeSinceLast = now - q.lastRequest;
+  if (timeSinceLast < MIN_INTERVAL) {
+    setTimeout(() => processNext(apiKey), MIN_INTERVAL - timeSinceLast);
+    return;
+  }
+  
+  const task = q.queue.shift();
+  q.running++;
+  q.lastRequest = Date.now();
+  
+  try {
+    const result = await task.taskFn();
+    task.resolve(result);
+  } catch (err) {
+    task.reject(err);
+  } finally {
+    q.running--;
+    processNext(apiKey);
+  }
+}
+
 function getApiKey(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) throw new Error('Clé API manquante.');
@@ -88,7 +134,7 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ⚠️ VIDÉO CORRIGÉE AVEC RETRY SUR 503
+// VIDÉO AVEC FILE D'ATTENTE
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -123,44 +169,72 @@ app.post('/api/generate-video', async (req, res) => {
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
-    // 🔄 RETRY AUTOMATIQUE SUR 503 video_queue_full
-    let lastError = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const response = await fetch(`${AGNES_BASE}/videos`, {
-        method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-      });
+    // Utiliser la file d'attente
+    const result = await processQueue(apiKey, async () => {
+      // Retry automatique sur 503
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        console.log(`🎬 Tentative ${attempt}/5...`);
+        
+        const response = await fetch(`${AGNES_BASE}/videos`, {
+          method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      // Si la file est pleine (503), on attend et on réessaie
-      if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
-        console.log(`⏳ File Agnes pleine (tentative ${attempt}/3). Attente 45s...`);
-        lastError = data.error?.message || 'Queue full';
-        if (attempt < 3) {
-          await new Promise(r => setTimeout(r, 45000)); // Attendre 45 secondes
-          continue;
+        if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
+          console.log(`⏳ File pleine. Attente 30s...`);
+          if (attempt < 5) {
+            await new Promise(r => setTimeout(r, 30000));
+            continue;
+          }
         }
-      }
 
-      if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
-      
-      const videoId = data.video_id || data.id;
-      if (!videoId) throw new Error('Pas de video_id');
-      
-      return res.json({ id: videoId });
-    }
-    
-    throw new Error(`Agnes saturé après 3 tentatives: ${lastError}`);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+        if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
+        
+        const videoId = data.video_id || data.id;
+        if (!videoId) throw new Error('Pas de video_id');
+        
+        console.log(`✅ Accepté: ${videoId}`);
+        return videoId;
+      }
+      throw new Error('Agnes saturé après 5 tentatives.');
+    });
+
+    res.json({ id: result });
+  } catch (err) { 
+    console.error('❌ Erreur:', err.message);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
+// STATUT avec délai initial (évite les 404)
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const response = await fetch(`${AGNES_POLL_BASE}?video_id=${req.params.id}&model_name=agnes-video-2.5-flash`, {
+    const videoId = req.params.id;
+    const submittedAt = parseInt(req.query.t || '0');
+    
+    // Attendre 25s après la soumission avant de poller (évite les 404)
+    const elapsed = Date.now() - submittedAt;
+    if (elapsed < 25000) {
+      return res.json({ status: 'processing', url: null });
+    }
+    
+    const response = await fetch(`${AGNES_POLL_BASE}?video_id=${videoId}&model_name=agnes-video-2.5-flash`, {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
+    
+    // 429 = rate limit du polling, on ignore
+    if (response.status === 429) {
+      return res.json({ status: 'processing', url: null });
+    }
+    
     const data = await response.json();
+    
+    // 404 task not found = la vidéo n'existe pas encore, on continue
+    if (response.status === 404) {
+      return res.json({ status: 'processing', url: null });
+    }
     
     const videoUrl = data.url || data.video_url || data.metadata?.url;
     const isDone = videoUrl || data.status === 'completed';
