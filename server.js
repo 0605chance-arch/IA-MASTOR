@@ -15,7 +15,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
-// File d'attente pour les créations (1 requête toutes les 15s max)
+// ⚠️ FILE D'ATTENTE POUR RESPECTER LE RPM (5 req/min = 1 req toutes les 12s)
+// On met 15 secondes pour avoir une marge de sécurité
 const queueMap = new Map();
 const MIN_INTERVAL = 15000; 
 
@@ -131,7 +132,7 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// VIDÉO : File d'attente + Gestion des 503 (file pleine)
+// ⚠️ CRÉATION VIDÉO : File d'attente stricte pour éviter le 429
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -173,22 +174,20 @@ app.post('/api/generate-video', async (req, res) => {
       });
       let data = await response.json();
 
-      // Gestion de la file pleine (503) : On attend 60s et on réessaie (max 5 fois)
-      let retries = 0;
-      while ((response.status === 503 || (data.error && data.error.code === 'video_queue_full')) && retries < 5) {
-        retries++;
-        console.log(`⏳ File Agnes pleine (503). Attente 60s... (Essai ${retries}/5)`);
-        await new Promise(r => setTimeout(r, 60000));
+      // Gestion du 429 (Trop de requêtes) sur la création
+      if (response.status === 429) {
+        console.log(`⏳ Trop de requêtes (429). Attente 30s...`);
+        await new Promise(r => setTimeout(r, 30000));
         response = await fetch(`${AGNES_BASE}/videos`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
         data = await response.json();
       }
 
-      // Gestion du 429 (Trop de requêtes) sur la création : On attend 30s et on réessaie
-      if (response.status === 429) {
-        console.log(`⏳ Trop de requêtes (429). Attente 30s...`);
-        await new Promise(r => setTimeout(r, 30000));
+      // Gestion de la file pleine (503)
+      if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
+        console.log(`⏳ File Agnes pleine (503). Attente 60s...`);
+        await new Promise(r => setTimeout(r, 60000));
         response = await fetch(`${AGNES_BASE}/videos`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
@@ -209,7 +208,7 @@ app.post('/api/generate-video', async (req, res) => {
   }
 });
 
-// STATUT : Gestion des 429 (Polling trop fréquent)
+// ⚠️ STATUT : Gestion des 429 (Polling trop fréquent)
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
