@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <!-- ÉCRAN DE CONNEXION -->
   <div id="welcome" class="welcome">
     <div class="welcome-box">
       <div class="logo">🚀</div>
@@ -30,6 +31,7 @@
     <p class="footer-note">Après achat, cette application est interdite à la vente.</p>
   </div>
 
+  <!-- APPLICATION PRINCIPALE -->
   <div id="app" class="app hidden">
     <header class="header">
       <div class="brand">🚀 IA MASTOR</div>
@@ -42,6 +44,7 @@
     </header>
 
     <main class="main">
+      <!-- ONGLET CHAT -->
       <section id="tab-chat" class="tab active">
         <div class="chat-wrap">
           <div class="chat-header">
@@ -59,6 +62,7 @@
         </div>
       </section>
 
+      <!-- ONGLET IMAGE -->
       <section id="tab-image" class="tab">
         <div class="container">
           <h2>Générateur d'images</h2>
@@ -66,8 +70,10 @@
           <div id="image-scenes" class="scenes"></div>
           <h2 style="margin-top: 30px;">Galerie</h2>
           <div id="image-history" class="grid"></div>
-        </div></section>
+        </div>
+      </section>
 
+      <!-- ONGLET VIDÉO -->
       <section id="tab-video" class="tab">
         <div class="container">
           <h2>Storyboard Vidéo</h2>
@@ -77,6 +83,7 @@
         </div>
       </section>
 
+      <!-- ONGLET HISTOIRE -->
       <section id="tab-story" class="tab">
         <div class="container">
           <h2>Mode Histoire</h2>
@@ -111,6 +118,7 @@
       </section>
     </main>
 
+    <!-- NAVIGATION MOBILE -->
     <nav class="mobile-nav">
       <button class="mob-btn active" data-tab="chat">Chat</button>
       <button class="mob-btn" data-tab="image">Image</button>
