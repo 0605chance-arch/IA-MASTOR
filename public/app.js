@@ -11,7 +11,7 @@
 
   function save() {
     try { 
-      localStorage.setItem('iamastor_final_v26', JSON.stringify({
+      localStorage.setItem('iamastor_final_v27', JSON.stringify({
         apiKey: state.apiKey,
         chatSessions: state.chatSessions, 
         imageHistory: state.imageHistory.slice(0, 30),
@@ -25,7 +25,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v26');
+      const s = localStorage.getItem('iamastor_final_v27');
       if (s) { 
         const p = JSON.parse(s); 
         Object.assign(state, p); 
@@ -150,12 +150,15 @@
     const s = a[idx];
     let pollCount = 0;
     
+    // Délai initial de 25 secondes avant la première vérification
     const initialDelay = setTimeout(() => {
       const poll = setInterval(async () => {
         pollCount++;
-        let delay = 10000; 
-        if (pollCount > 10) delay = 15000; 
-        if (pollCount > 20) delay = 20000;
+        
+        // Espacement progressif des vérifications pour éviter le 429
+        let delay = 10000; // 10 secondes par défaut
+        if (pollCount > 10) delay = 15000; // Après 10 vérifications, on passe à 15s
+        if (pollCount > 20) delay = 20000; // Après 20 vérifications, on passe à 20s
 
         try {
           const pRes = await api(`/status/${videoId}?t=${submittedAt}`);
@@ -170,6 +173,7 @@
             s.status = 'error'; renderScenes(type); save();
           }
         } catch (err) { 
+          // En cas d'erreur 429 (trop de requêtes de statut), on attend 30s
           if (err.message.includes('429') || err.message.includes('trop')) {
             await new Promise(r => setTimeout(r, 30000));
           }
