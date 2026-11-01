@@ -12,6 +12,7 @@ app.set('trust proxy', 1);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 
+// ✅ ANTI-CACHE STRICT
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -23,7 +24,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 150, // Augmenté pour les requêtes parallèles
   message: { error: "Trop de requêtes, veuillez patienter." }
 });
 app.use("/api/", apiLimiter);
@@ -97,7 +98,7 @@ app.post('/api/image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ VIDÉO : Force video_id (pas task_id) pour un polling correct
+// ✅ VIDÉO : Force video_id, pas task_id
 app.post('/api/video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -110,7 +111,7 @@ app.post('/api/video', async (req, res) => {
       model: MODELS.videoFlash,
       prompt: prompt.trim(),
       seconds: finalSeconds,
-      size: '720P',
+      size: '720P', // ✅ Flash accepte uniquement le 720P
       aspect_ratio: aspect_ratio || '16:9',
       mode: 'text'
     };
@@ -123,7 +124,7 @@ app.post('/api/video', async (req, res) => {
 
     const createData = await agnesFetch('/videos', apiKey, { method: 'POST', body: JSON.stringify(body) });
     
-    // ✅ LA CORRECTION VITALE EST ICI
+    // ✅ LA CORRECTION VITALE : Seul video_id fonctionne
     const videoId = createData.video_id;
     if (!videoId) throw new Error('Agnes a renvoyé un task_id au lieu de video_id');
     
