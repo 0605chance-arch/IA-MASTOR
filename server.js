@@ -15,10 +15,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
-// ⚠️ FILE D'ATTENTE POUR RESPECTER LE RPM (5 req/min = 1 req toutes les 12s)
-// On met 15 secondes pour avoir une marge de sécurité
+// File d'attente : 1 requête de création toutes les 13s max (pour respecter 5 RPM)
 const queueMap = new Map();
-const MIN_INTERVAL = 15000; 
+const MIN_INTERVAL = 13000; 
 
 function getQueue(apiKey) {
   if (!queueMap.has(apiKey)) {
@@ -132,7 +131,6 @@ app.post('/api/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ⚠️ CRÉATION VIDÉO : File d'attente stricte pour éviter le 429
 app.post('/api/generate-video', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -174,7 +172,6 @@ app.post('/api/generate-video', async (req, res) => {
       });
       let data = await response.json();
 
-      // Gestion du 429 (Trop de requêtes) sur la création
       if (response.status === 429) {
         console.log(`⏳ Trop de requêtes (429). Attente 30s...`);
         await new Promise(r => setTimeout(r, 30000));
@@ -184,7 +181,6 @@ app.post('/api/generate-video', async (req, res) => {
         data = await response.json();
       }
 
-      // Gestion de la file pleine (503)
       if (response.status === 503 || (data.error && data.error.code === 'video_queue_full')) {
         console.log(`⏳ File Agnes pleine (503). Attente 60s...`);
         await new Promise(r => setTimeout(r, 60000));
@@ -208,14 +204,12 @@ app.post('/api/generate-video', async (req, res) => {
   }
 });
 
-// ⚠️ STATUT : Gestion des 429 (Polling trop fréquent)
 app.get('/api/status/:id', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const videoId = req.params.id;
     const submittedAt = parseInt(req.query.t || '0');
     
-    // On attend 25 secondes avant de commencer à vérifier
     const elapsed = Date.now() - submittedAt;
     if (elapsed < 25000) {
       return res.json({ status: 'processing', url: null });
@@ -225,7 +219,6 @@ app.get('/api/status/:id', async (req, res) => {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
     
-    // Si Agnes dit "Trop de requêtes de statut" (429) ou "Pas trouvé" (404), on patiente
     if (response.status === 429 || response.status === 404) {
       return res.json({ status: 'processing', url: null });
     }
