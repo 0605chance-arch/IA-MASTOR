@@ -11,7 +11,7 @@
 
   function save() {
     try { 
-      localStorage.setItem('iamastor_final_v33', JSON.stringify({
+      localStorage.setItem('iamastor_final_v34', JSON.stringify({
         apiKey: state.apiKey, chatSessions: state.chatSessions, 
         imageHistory: state.imageHistory.slice(0, 30), videoScenes: state.videoScenes, 
         storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
@@ -21,7 +21,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v33');
+      const s = localStorage.getItem('iamastor_final_v34');
       if (s) { Object.assign(state, JSON.parse(s)); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -49,6 +49,34 @@
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  // ⚠️ FONCTION MAGIQUE : Compresser l'image pour éviter les crashs Agnes
+  function compressImage(file, maxWidth = 1024, maxHeight = 1024) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = event => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
+          } else {
+            if (height > maxHeight) { width *= maxHeight / height; height = maxHeight; }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          // On renvoie l'image compressée en base64 (qualité 80%)
+          resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]); 
+        };
+      };
+    });
   }
 
   function renderScenes(type) {
@@ -102,28 +130,37 @@
 
     c.querySelectorAll('textarea').forEach(el => el.oninput = e => { const t = e.target.dataset.type, idx = e.target.dataset.idx; const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes; a[idx].prompt = e.target.value; save(); });
     c.querySelectorAll('select[data-key]').forEach(el => el.onchange = e => { const t = e.target.dataset.type, idx = e.target.dataset.idx, key = e.target.dataset.key; const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes; a[idx][key] = e.target.value; save(); });
-    c.querySelectorAll('.btn-upload').forEach((el, i) => { const input = c.querySelector(`#${type}-ref-${i}`); if (input) input.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes; a[i].imageBase64 = ev.target.result; renderScenes(type); save(); }; r.readAsDataURL(f); }; });
+    
+    // Upload avec compression
+    c.querySelectorAll('.btn-upload').forEach((el, i) => { 
+      const input = c.querySelector(`#${type}-ref-${i}`); 
+      if (input) input.onchange = async e => { 
+        const f = e.target.files[0]; 
+        if (!f) return; 
+        // Compression de l'image
+        const compressedBase64 = await compressImage(f);
+        const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes; 
+        a[i].imageBase64 = compressedBase64; 
+        renderScenes(type); save(); 
+      }; 
+    });
+    
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // --- LE SECRET EST ICI : Auto-Retry avec compte à rebours ---
   function startAutoRetry(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
-    
-    s.status = 'retry';
-    s.retryCount = 65;
+    s.status = 'retry'; s.retryCount = 65;
     renderScenes(type);
 
     if (s.retryInterval) clearInterval(s.retryInterval);
-
     s.retryInterval = setInterval(() => {
       s.retryCount--;
       if (s.retryCount <= 0) {
         clearInterval(s.retryInterval);
-        s.status = 'pending';
-        save();
-        generate(type, idx); // Relance automatique !
+        s.status = 'pending'; save();
+        generate(type, idx);
       } else {
         renderScenes(type);
       }
@@ -161,8 +198,6 @@
         return;
       }
     } catch (e) { 
-      // Peu importe l'erreur (429, 503, quota), on lance le retry au lieu de bloquer
-      console.warn("Lancement du retry auto suite à:", e.message);
       startAutoRetry(type, idx);
     }
     renderScenes(type); save();
@@ -171,8 +206,17 @@
   function startPolling(type, idx, videoId) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
+    let pollCount = 0;
     
     const poll = setInterval(async () => {
+      pollCount++;
+      // Si ça fait plus de 40 vérifications (environ 3-4 min), on abandonne et on retente
+      if (pollCount > 40) {
+        clearInterval(poll);
+        startAutoRetry(type, idx);
+        return;
+      }
+
       try {
         const { data } = await api(`/status/${videoId}`);
         if (data.status === 'completed' && data.url) {
@@ -181,15 +225,16 @@
           renderScenes(type); renderHistory(); save();
         } else if (data.status === 'failed') {
           clearInterval(poll);
-          s.status = 'error'; renderScenes(type); save();
+          startAutoRetry(type, idx);
         }
       } catch (err) { 
-        console.warn('Erreur polling, on continue...'); 
+        // Si erreur 404, la vidéo n'est pas encore enregistrée côté Agnes, on continue.
+        // Si erreur 429, on attend un peu.
+        console.warn('Polling...', err.message); 
       }
     }, 5000);
   }
 
-  // --- CHAT ---
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
