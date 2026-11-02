@@ -50,6 +50,7 @@
     html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>").replace(/`([^`]+)`/g, "<code>$1</code>");
     html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>");
     html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>");
+    
     let lines = html.split('\n'), inTable = false, tableHtml = "", output = [];
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i].trim();
@@ -74,6 +75,40 @@
     tabs.forEach(b => b.classList.remove("active")); sections.forEach(s => s.classList.remove("active"));
     t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
   }));
+
+  // --- SYSTÈME DE FILE D'ATTENTE (POUR LES 5 CLICS) ---
+  const generationQueue = [];
+  let isProcessingQueue = false;
+
+  async function processQueue() {
+    if (isProcessingQueue || generationQueue.length === 0) return;
+    isProcessingQueue = true;
+    
+    const task = generationQueue[0]; // On regarde la première tâche
+    
+    try {
+      await task.execute(); // On tente de la lancer
+      generationQueue.shift(); // Si succès, on la retire de la file
+    } catch (err) {
+      // Si erreur 429 (Agnes occupé), on attend 15s et on réessaie la même tâche
+      if (err.message.includes("Trop") || err.code === "rate_limit" || err.message.includes("quota")) {
+        console.log("File d'attente : Agnes occupé, attente 15s...");
+        await new Promise(r => setTimeout(r, 15000));
+        // On ne fait pas de shift(), donc la boucle va réessayer
+      } else {
+        // Autre erreur, on annule la tâche
+        generationQueue.shift(); 
+      }
+    }
+    
+    isProcessingQueue = false;
+    processQueue(); // On passe à la suivante
+  }
+
+  function addToQueue(executeFn) {
+    generationQueue.push({ execute: executeFn });
+    processQueue();
+  }
 
   // CHAT
   const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
@@ -129,18 +164,21 @@
     let base64 = null, id = null;
     refBtn.addEventListener("click", () => refInput.click());
     refInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { base64 = r.result.split(",")[1]; refPrev.innerHTML = `<img src="${r.result}">`; }; r.readAsDataURL(f); });
-    genBtn.addEventListener("click", async () => {
+    
+    genBtn.addEventListener("click", () => {
       if (!prompt.value.trim()) return;
-      genBtn.disabled = true; genBtn.textContent = "Génération..."; resArea.hidden = true;
-      try {
+      genBtn.disabled = true; genBtn.textContent = "En attente..."; resArea.hidden = true;
+      
+      addToQueue(async () => {
+        genBtn.textContent = "Génération...";
         const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt.value, format: format.value, imageBase64: base64 }) });
         if (data.url) {
           resImg.src = data.url; resArea.hidden = false; dlBtn.disabled = false; id = data.id;
           dlBtn.onclick = () => { window.location.href = `/api/download/${id}?url=${encodeURIComponent(data.url)}&apiKey=${window.userApiKey}`; };
           const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); h.unshift({ prompt: prompt.value, url: data.url, id: data.id }); localStorage.setItem("iamastor_image_history", JSON.stringify(h)); renderImageHistory();
         }
-      } catch (e) { alert(e.message); }
-      genBtn.disabled = false; genBtn.textContent = "Générer l'image";
+        genBtn.disabled = false; genBtn.textContent = "Générer l'image";
+      });
     });
   }
   function renderImageHistory() {
@@ -149,41 +187,24 @@
   }
   renderImageHistory();
 
-  // VIDÉO & HISTOIRE
+  // VIDÉO & HISTOIRE (Avec File d'attente)
   function setupVideoSlot(node, isStory = false) {
     const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
-    const state = { base64: null, id: null, poll: null, retryInterval: null };
+    const state = { base64: null, id: null, poll: null };
 
-    function startAutoRetry() {
-      if (state.retryInterval) clearInterval(state.retryInterval);
-      status.dataset.state = "loading";
-      let count = 65;
-      status.innerHTML = `<span class="dot"></span> ⏱ Retry dans ${count}s`;
-      state.retryInterval = setInterval(() => {
-        count--;
-        if (count <= 0) {
-          clearInterval(state.retryInterval);
-          state.retryInterval = null;
-          genBtn.click();
-        } else {
-          status.innerHTML = `<span class="dot"></span> ⏱ Retry dans ${count}s`;
-        }
-      }, 1000);
-    }
-    
     if (uploadBtn) {
       uploadBtn.addEventListener("click", () => imgInput.click());
       imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
     }
 
-    genBtn.addEventListener("click", async () => {
+    genBtn.addEventListener("click", () => {
       if (!prompt.value.trim()) return; 
-      if (state.poll) clearInterval(state.poll);
-      if (state.retryInterval) clearInterval(state.retryInterval);
       
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Envoi...`;
+      // On ajoute la requête à la file d'attente
+      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> En attente...`;
       
-      try {
+      addToQueue(async () => {
+        status.innerHTML = `<span class="dot"></span> Envoi...`;
         const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
         if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
 
@@ -192,29 +213,34 @@
         
         state.id = data.id; status.innerHTML = `<span class="dot"></span> En cours...`;
         
+        if (state.poll) clearInterval(state.poll);
         state.poll = setInterval(async () => {
           try {
             const info = await apiFetch(`/api/status/${state.id}`);
             if (info.status === "completed" && info.url) {
-              clearInterval(state.poll); video.src = info.url; player.hidden = false; dlBtn.disabled = false; status.dataset.state = "ready"; status.innerHTML = `<span class="dot"></span> Prête`; genBtn.disabled = false;
+              clearInterval(state.poll); 
+              video.src = info.url; 
+              player.hidden = false; 
+              dlBtn.disabled = false; 
+              status.dataset.state = "ready"; 
+              status.innerHTML = `<span class="dot"></span> Prête`; 
+              genBtn.disabled = false;
+              genBtn.textContent = "Générer";
+              
               const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
               const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
               if(isStory) renderStoryHistory(); else renderVideoHistory();
             } else if (info.status === "failed") {
-              clearInterval(state.poll); startAutoRetry(); 
+              clearInterval(state.poll); 
+              status.dataset.state = "error"; 
+              status.innerHTML = `<span class="dot"></span> Échec`;
+              genBtn.disabled = false;
             }
           } catch (err) { console.warn("Poll error", err); }
         }, 3000);
-
-      } catch (e) { 
-        console.error(e);
-        if (e.message.includes("quota") || e.message.includes("Trop") || e.code === "rate_limit") {
-          startAutoRetry();
-        } else {
-          status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false;
-        }
-      }
+      });
     });
+    
     dlBtn.addEventListener("click", () => { if (state.id) window.location.href = `/api/download/${state.id}?apiKey=${window.userApiKey}`; });
   }
 
