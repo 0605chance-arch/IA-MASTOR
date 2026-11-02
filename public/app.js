@@ -39,6 +39,7 @@
     if (!response.ok) {
       const err = new Error(data.error || "Erreur serveur");
       err.code = data.code;
+      err.status = response.status; // On garde le status HTTP
       throw err;
     }
     return data;
@@ -75,6 +76,43 @@
     tabs.forEach(b => b.classList.remove("active")); sections.forEach(s => s.classList.remove("active"));
     t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
   }));
+
+  // --- FILE D'ATTENTE INTELLIGENTE (LE SECRET) ---
+  const videoQueue = [];
+  let isVideoProcessing = false;
+
+  function addVideoToQueue(taskFn, updateUiFn) {
+    videoQueue.push({ execute: taskFn, updateUi: updateUiFn });
+    processVideoQueue();
+  }
+
+  async function processVideoQueue() {
+    if (isVideoProcessing || videoQueue.length === 0) return;
+    
+    isVideoProcessing = true;
+    const task = videoQueue[0];
+
+    try {
+      await task.execute();
+      videoQueue.shift(); // Succès, on retire de la file
+    } catch (e) {
+      if (e.status === 429) {
+        // Backoff exponentiel : on attend plus longtemps à chaque échec
+        let waitTime = 15000; // Commence à 15s
+        task.updateUi(`File d'attente (429). Attente ${waitTime/1000}s...`);
+        console.warn(`429 reçu. Attente de ${waitTime}ms avant de réessayer.`);
+        await new Promise(r => setTimeout(r, waitTime));
+        // On ne fait pas de shift(), donc la boucle va réessayer la même tâche
+      } else {
+        console.error("Erreur irrécupérable dans la queue:", e);
+        task.updateUi(`Erreur: ${e.message}`);
+        videoQueue.shift(); // Erreur autre, on abandonne cette tâche
+      }
+    } finally {
+      isVideoProcessing = false;
+      processVideoQueue(); // On passe à la suivante
+    }
+  }
 
   // CHAT
   const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
@@ -151,7 +189,7 @@
   }
   renderImageHistory();
 
-  // VIDÉO & HISTOIRE (Envoi Instantané + Retry auto)
+  // VIDÉO & HISTOIRE
   function setupVideoSlot(node, isStory = false) {
     const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
     const state = { base64: null, id: null, poll: null };
@@ -161,64 +199,55 @@
       imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
     }
 
-    genBtn.addEventListener("click", async () => {
+    genBtn.addEventListener("click", () => {
       if (!prompt.value.trim()) return; 
       if (state.poll) clearInterval(state.poll);
       
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Envoi...`;
+      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> En file d'attente...`;
       
-      const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
-      if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
+      addVideoToQueue(async () => {
+        // Cette fonction sera exécutée une par une par la file d'attente
+        status.innerHTML = `<span class="dot"></span> Envoi...`;
+        
+        const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
+        if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
 
-      let attempts = 0;
-      const sendRequest = async () => {
-        try {
-          const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
-          if (!data.id) throw new Error(data.error);
-          
-          state.id = data.id; 
-          status.innerHTML = `<span class="dot"></span> En cours...`;
-          
-          state.poll = setInterval(async () => {
-            try {
-              const info = await apiFetch(`/api/status/${state.id}`);
-              if (info.status === "completed" && info.url) {
-                clearInterval(state.poll); 
-                video.src = info.url; 
-                player.hidden = false; 
-                dlBtn.disabled = false; 
-                status.dataset.state = "ready"; 
-                status.innerHTML = `<span class="dot"></span> Prête`; 
-                genBtn.disabled = false;
-                genBtn.textContent = "Générer";
-                
-                const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
-                const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
-                if(isStory) renderStoryHistory(); else renderVideoHistory();
-              } else if (info.status === "failed") {
-                clearInterval(state.poll); 
-                status.dataset.state = "error"; 
-                status.innerHTML = `<span class="dot"></span> Échec`; 
-                genBtn.disabled = false;
-              }
-            } catch (err) { console.warn("Poll error", err); }
-          }, 3000);
-
-        } catch (e) { 
-          // Si c'est une erreur 429 ou queue full, on attend 12s et on relance (Burst)
-          if (e.code === 'rate_limit' || e.message.includes('Trop') || e.message.includes('quota')) {
-            attempts++;
-            if (attempts < 5) {
-              status.innerHTML = `<span class="dot"></span> Agnes occupé. Attente 12s...`;
-              await new Promise(r => setTimeout(r, 12000));
-              return sendRequest(); // On relance
+        const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
+        if (!data.id) throw new Error(data.error);
+        
+        state.id = data.id; 
+        status.innerHTML = `<span class="dot"></span> En cours...`;
+        
+        if (state.poll) clearInterval(state.poll);
+        state.poll = setInterval(async () => {
+          try {
+            const info = await apiFetch(`/api/status/${state.id}`);
+            if (info.status === "completed" && info.url) {
+              clearInterval(state.poll); 
+              video.src = info.url; 
+              player.hidden = false; 
+              dlBtn.disabled = false; 
+              status.dataset.state = "ready"; 
+              status.innerHTML = `<span class="dot"></span> Prête`; 
+              genBtn.disabled = false;
+              genBtn.textContent = "Générer";
+              
+              const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
+              const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
+              if(isStory) renderStoryHistory(); else renderVideoHistory();
+            } else if (info.status === "failed") {
+              clearInterval(state.poll); 
+              status.dataset.state = "error"; 
+              status.innerHTML = `<span class="dot"></span> Échec`; 
+              genBtn.disabled = false;
             }
-          }
-          status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false;
-        }
-      };
-      
-      sendRequest(); // On lance immédiatement
+          } catch (err) { console.warn("Poll error", err); }
+        }, 3000);
+
+      }, (msg) => {
+        // Fonction de mise à jour de l'UI pour la file d'attente
+        status.innerHTML = `<span class="dot"></span> ${msg}`;
+      });
     });
     
     dlBtn.addEventListener("click", () => { 
