@@ -61,7 +61,6 @@ app.post("/api/generate-image", async (req, res) => {
     if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
 
     const cinematicPrompt = `${prompt}, cinematic photography, 8k resolution, highly detailed`;
-
     const body = {
       model: "agnes-image-2.5-flash",
       prompt: cinematicPrompt,
@@ -93,7 +92,7 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
-// 3. VIDÉO & HISTOIRE
+// 3. VIDÉO & HISTOIRE (Envoi direct)
 app.post("/api/generate-video", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -158,7 +157,7 @@ app.post("/api/generate-video", async (req, res) => {
   }
 });
 
-// ⚠️ LE SECRET DE L'ANCIENNE APP : Test de 3 modèles pour le statut
+// ⚠️ LA BOUCLE MAGIQUE (3 modèles testés)
 app.get("/api/status/:id", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
