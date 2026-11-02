@@ -149,7 +149,7 @@
   }
   renderImageHistory();
 
-  // VIDÉO & HISTOIRE (Auto-Retry + Polling 3s)
+  // VIDÉO & HISTOIRE
   function setupVideoSlot(node, isStory = false) {
     const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
     const state = { base64: null, id: null, poll: null, retryInterval: null };
@@ -159,13 +159,12 @@
       status.dataset.state = "loading";
       let count = 65;
       status.innerHTML = `<span class="dot"></span> ⏱ Retry dans ${count}s`;
-      
       state.retryInterval = setInterval(() => {
         count--;
         if (count <= 0) {
           clearInterval(state.retryInterval);
           state.retryInterval = null;
-          genBtn.click(); // Relance automatique
+          genBtn.click();
         } else {
           status.innerHTML = `<span class="dot"></span> ⏱ Retry dans ${count}s`;
         }
@@ -193,7 +192,6 @@
         
         state.id = data.id; status.innerHTML = `<span class="dot"></span> En cours...`;
         
-        // Polling ultra rapide (3s)
         state.poll = setInterval(async () => {
           try {
             const info = await apiFetch(`/api/status/${state.id}`);
@@ -203,14 +201,13 @@
               const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
               if(isStory) renderStoryHistory(); else renderVideoHistory();
             } else if (info.status === "failed") {
-              clearInterval(state.poll); startAutoRetry(); // Retry auto si Agnes échoue
+              clearInterval(state.poll); startAutoRetry(); 
             }
           } catch (err) { console.warn("Poll error", err); }
         }, 3000);
 
       } catch (e) { 
         console.error(e);
-        // Si erreur 429 (Trop de requêtes) ou "quota" -> ON LANCE LE RETRY AUTO
         if (e.message.includes("quota") || e.message.includes("Trop") || e.code === "rate_limit") {
           startAutoRetry();
         } else {
