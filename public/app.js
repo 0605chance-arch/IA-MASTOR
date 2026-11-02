@@ -11,7 +11,7 @@
 
   function save() {
     try { 
-      localStorage.setItem('iamastor_final_v32', JSON.stringify({
+      localStorage.setItem('iamastor_final_v33', JSON.stringify({
         apiKey: state.apiKey, chatSessions: state.chatSessions, 
         imageHistory: state.imageHistory.slice(0, 30), videoScenes: state.videoScenes, 
         storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
@@ -21,7 +21,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v32');
+      const s = localStorage.getItem('iamastor_final_v33');
       if (s) { Object.assign(state, JSON.parse(s)); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -59,11 +59,13 @@
 
     c.innerHTML = arr.map((s, i) => {
       let status = '';
-      if (s.status === 'loading') status = '⏳ En cours...';
-      else if (s.status === 'retry') status = `⏱ Retry dans ${s.retryCount}s`;
-      else if (s.status === 'error') status = '❌ Erreur';
-      else if (s.status === 'success') status = '✅ Prêt';
-      else status = '⏸ En attente';
+      let btnText = isImg ? 'Générer cette image' : 'Générer cette scène';
+      
+      if (s.status === 'loading') { status = '⏳ En cours...'; }
+      else if (s.status === 'retry') { status = `⏱ Retry dans ${s.retryCount}s`; btnText = '⏱ Patiente...'; }
+      else if (s.status === 'error') { status = '❌ Erreur'; }
+      else if (s.status === 'success') { status = '✅ Prêt'; }
+      else { status = '⏸ En attente'; }
 
       return `
         <div class="scene">
@@ -91,7 +93,7 @@
             <select disabled><option>720P</option></select>`}
           </div>
           <button class="btn-gen" data-type="${type}" data-idx="${i}" ${s.status === 'retry' ? 'disabled' : ''}>
-            ${s.status === 'retry' ? `⏱ Patiente...` : `Générer cette ${isImg ? 'image' : 'scène'}`}
+            ${btnText}
           </button>
           ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}', '${s.mediaId}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
         </div>
@@ -104,7 +106,7 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
-  // LA MAGIE EST ICI : Auto-Retry avec compte à rebours
+  // --- LE SECRET EST ICI : Auto-Retry avec compte à rebours ---
   function startAutoRetry(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx];
@@ -121,7 +123,7 @@
         clearInterval(s.retryInterval);
         s.status = 'pending';
         save();
-        generate(type, idx); // Relance !
+        generate(type, idx); // Relance automatique !
       } else {
         renderScenes(type);
       }
@@ -159,13 +161,9 @@
         return;
       }
     } catch (e) { 
-      // Si c'est une erreur de limite de requête (429 ou queue_full), on lance le RETRY !
-      if (e.code === 'rate_limit' || e.message.includes('quota') || e.message.includes('Trop de requêtes')) {
-        startAutoRetry(type, idx);
-      } else {
-        s.status = 'error'; 
-        console.error(e);
-      }
+      // Peu importe l'erreur (429, 503, quota), on lance le retry au lieu de bloquer
+      console.warn("Lancement du retry auto suite à:", e.message);
+      startAutoRetry(type, idx);
     }
     renderScenes(type); save();
   }
@@ -186,35 +184,56 @@
           s.status = 'error'; renderScenes(type); save();
         }
       } catch (err) { 
-        console.warn('Polling erreur'); 
+        console.warn('Erreur polling, on continue...'); 
       }
-    }, 5000); // On vérifie toutes les 5s
+    }, 5000);
   }
 
-  // (Le reste du code chat / image / init est identique à mon message précédent, ne change rien d'autre)
+  // --- CHAT ---
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
     state.chatSessions.unshift(c); state.currentChatId = c.id; renderChatList(); renderChatMessages(); save();
   }
-  function deleteChat(id) { state.chatSessions = state.chatSessions.filter(s => s.id !== id); if (state.currentChatId === id) state.currentChatId = state.chatSessions[0]?.id || null; renderChatList(); renderChatMessages(); save(); }
+
+  function deleteChat(id) {
+    state.chatSessions = state.chatSessions.filter(s => s.id !== id);
+    if (state.currentChatId === id) state.currentChatId = state.chatSessions[0]?.id || null;
+    renderChatList(); renderChatMessages(); save();
+  }
+
   function renderChatList() {
     const l = $('#chat-history-list'); if (!l) return;
-    l.innerHTML = state.chatSessions.map(s => `<div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">${s.title}<span class="delete-chat" data-id="${s.id}" style="margin-left:8px;color:#ef4444;cursor:pointer;">✕</span></div>`).join('');
-    l.querySelectorAll('.history-chip').forEach(el => el.onclick = (e) => { if (e.target.classList.contains('delete-chat')) { deleteChat(e.target.dataset.id); return; } state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); });
+    l.innerHTML = state.chatSessions.map(s => `
+      <div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">
+        ${s.title}
+        <span class="delete-chat" data-id="${s.id}" style="margin-left:8px;color:#ef4444;cursor:pointer;">✕</span>
+      </div>
+    `).join('');
+    l.querySelectorAll('.history-chip').forEach(el => el.onclick = (e) => { 
+      if (e.target.classList.contains('delete-chat')) { deleteChat(e.target.dataset.id); return; }
+      state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); 
+    });
   }
+
   function renderChatMessages() {
-    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!box || !sess) return;
+    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId);
+    if (!box || !sess) { if(box) box.innerHTML = ''; return; }
     box.innerHTML = sess.messages.map(m => `<div class="msg ${m.role}">${(typeof m.content === 'string' ? m.content : '').replace(/\n/g, '<br>')}</div>`).join('');
     box.scrollTop = box.scrollHeight;
   }
+
   async function sendChat(text) {
     const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
-    sess.messages.push({ role: 'user', content: text }); if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
+    sess.messages.push({ role: 'user', content: text });
+    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
     renderChatList(); renderChatMessages();
     const box = $('#chat-messages'); const ph = document.createElement('div'); ph.className = 'msg assistant'; ph.textContent = '...'; box.appendChild(ph);
+    
     try {
-      const body = { messages: sess.messages.slice(-15), stream: true }; if (state.chatImageBase64) body.imageBase64 = state.chatImageBase64;
+      const body = { messages: sess.messages.slice(-15), stream: true };
+      if (state.chatImageBase64) body.imageBase64 = state.chatImageBase64;
+
       const res = await fetch(`/api/chat`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = '', buffer = '';
       while (true) {
@@ -230,40 +249,66 @@
       }
       sess.messages.push({ role: 'assistant', content: full }); save();
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
-    state.chatImageBase64 = null; $('#chat-input').placeholder = 'Écris ton message...';
+    
+    state.chatImageBase64 = null;
+    $('#chat-input').placeholder = 'Écris ton message...';
   }
+
   function renderHistory() {
     const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}', '${img.id}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hs = $('#story-history'); if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
   }
+
   window.downloadFile = downloadFile;
 
   document.addEventListener('DOMContentLoaded', () => {
     load();
+
     if (state.apiKey) {
-      $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
-      if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA.`); else { renderChatList(); renderChatMessages(); }
+      $('#welcome').classList.add('hidden'); 
+      $('#app').classList.remove('hidden');
+      if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA.`);
+      else { renderChatList(); renderChatMessages(); }
       renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
     }
+
     const changeKeyBtn = document.getElementById('change-key-btn');
-    if (changeKeyBtn) changeKeyBtn.onclick = () => { if(confirm("Changer de clé API ?")) { state.apiKey = null; save(); $('#welcome').classList.remove('hidden'); $('#app').classList.add('hidden'); } };
+    if (changeKeyBtn) {
+      changeKeyBtn.onclick = () => {
+        if(confirm("Voulez-vous vraiment changer de clé API ? L'historique restera sauvegardé.")) {
+          state.apiKey = null; save();
+          $('#welcome').classList.remove('hidden'); 
+          $('#app').classList.add('hidden');
+        }
+      };
+    }
+
     $('#login-form').onsubmit = async (e) => {
-      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true;
+      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = '...';
       try {
         const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
         const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
-        state.apiKey = key; save(); $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
-        if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀`); else { renderChatList(); renderChatMessages(); }
+        state.apiKey = key; save();
+        $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
+        
+        if (state.chatSessions.length === 0) {
+          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA. Voici ce que je peux générer :\n\n🎬 Vidéos IA : 500 sec/jour.\n🖼️ Images HD : 4000/jour.\n💬 Textes & Scripts.\n\n*Conseil : Sois régulier sur TikTok/Insta.*`);
+        } else { renderChatList(); renderChatMessages(); }
+        
         renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
       } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
     };
+
     document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => b.onclick = () => { document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active')); document.querySelectorAll(`[data-tab="${b.dataset.tab}"]`).forEach(x => x.classList.add('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.querySelector(`#tab-${b.dataset.tab}`).classList.add('active'); });
+
     $('#new-chat-btn').onclick = () => newChat();
     $('#chat-form').onsubmit = (e) => { e.preventDefault(); const v = $('#chat-input').value.trim(); if (!v) return; $('#chat-input').value = ''; sendChat(v); };
     $('#chat-file-btn').onclick = () => $('#chat-file').click();
     $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
+
     $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
+
     $('#story-synopsis').oninput = () => save();
     document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
     document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => el.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.storyChars[i].img = ev.target.result; const btn = document.querySelector(`#char-btn-${i}`); if(btn) btn.innerHTML = '✅'; save(); }; r.readAsDataURL(f); });
