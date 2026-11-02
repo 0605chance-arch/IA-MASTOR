@@ -3,23 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
   <title>IA MASTOR</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- ÉCRAN DE VERROUILLAGE -->
+  <!-- ÉCRAN DE VERROUILLAGE (BYOK) -->
   <div id="lock-screen" class="lock-screen">
     <div class="lock-card">
       <div class="logo">🚀 IA <em>MASTOR</em></div>
       <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 14px;">Entrez votre clé API Agnes pour déverrouiller le studio.</p>
-      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre clé ici..." style="margin-bottom: 15px;">
+      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre clé API ici..." style="margin-bottom: 15px;">
       <button id="unlock-btn" class="btn-primary" style="width: 100%;">Déverrouiller</button>
       <p id="lock-error" style="color: #ff453a; font-size: 12px; margin-top: 10px; display: none;"></p>
     </div>
   </div>
 
-  <!-- APPLICATION -->
+  <!-- APPLICATION PRINCIPALE -->
   <div class="app" id="main-app" style="display: none;">
     <header class="header">
       <div class="logo">🚀 IA <em>MASTOR</em></div>
@@ -27,6 +28,7 @@
       <button id="change-key-btn" style="background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:6px 12px; border-radius:6px; font-size:12px; margin-top:10px; cursor:pointer;">🔑 Changer de clé</button>
     </header>
 
+    <!-- ONGLETS -->
     <div class="tabs">
       <button id="tab-chat" class="tab-btn active">💬 Chat</button>
       <button id="tab-image" class="tab-btn">🖼️ Image</button>
@@ -35,7 +37,8 @@
     </div>
 
     <main class="main">
-      <!-- ONGLET CHAT -->
+      
+      <!-- SECTION CHAT -->
       <section id="section-chat" class="section active">
         <div class="chat-layout">
           <aside class="chat-sidebar" id="chat-sidebar">
@@ -54,10 +57,10 @@
         </div>
       </section>
 
-      <!-- ONGLET IMAGE -->
+      <!-- SECTION IMAGE -->
       <section id="section-image" class="section">
         <div class="card">
-          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image..."></textarea>
+          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image à générer..."></textarea>
           <div class="upload-area">
             <input type="file" id="image-upload" accept="image/*" hidden>
             <button id="image-upload-btn" class="btn-secondary">📷 Image de référence</button>
@@ -80,7 +83,7 @@
         </div>
       </section>
 
-      <!-- ONGLET VIDÉO -->
+      <!-- SECTION VIDÉO CLASSIQUE -->
       <section id="section-video" class="section">
         <div class="video-slots" id="video-slots"></div>
         <div class="history-section">
@@ -89,37 +92,43 @@
         </div>
       </section>
 
-      <!-- ONGLET HISTOIRE -->
+      <!-- SECTION HISTOIRE -->
       <section id="section-story" class="section">
         <div class="card" style="margin-bottom: 16px;">
-          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages</h3>
-          <div style="display: flex; gap: 10px;">
-            <div style="flex: 1; text-align: center;">
-              <input type="text" id="char1-name" class="input-field" placeholder="Nom 1" style="margin-bottom:5px; text-align:center;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages principaux (Max 3)</h3>
+          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">L'IA utilisera ces visages pour les scènes où le prénom est mentionné.</p>
+          <div class="char-grid">
+            <div class="char-col">
+              <input type="text" id="char1-name" class="input-field" placeholder="Prénom 1" style="margin-bottom: 5px; text-align: center;">
               <input type="file" id="char1-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()" style="width: 100%; padding: 10px 0;">📷 1</button>
+              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()" style="width: 100%; padding: 15px 0; font-size: 12px;">📷 Visage 1</button>
               <div id="char1-prev" class="preview"></div>
             </div>
-            <div style="flex: 1; text-align: center;">
-              <input type="text" id="char2-name" class="input-field" placeholder="Nom 2" style="margin-bottom:5px; text-align:center;">
+            <div class="char-col">
+              <input type="text" id="char2-name" class="input-field" placeholder="Prénom 2" style="margin-bottom: 5px; text-align: center;">
               <input type="file" id="char2-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()" style="width: 100%; padding: 10px 0;">📷 2</button>
+              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()" style="width: 100%; padding: 15px 0; font-size: 12px;">📷 Visage 2</button>
               <div id="char2-prev" class="preview"></div>
             </div>
-            <div style="flex: 1; text-align: center;">
-              <input type="text" id="char3-name" class="input-field" placeholder="Nom 3" style="margin-bottom:5px; text-align:center;">
+            <div class="char-col">
+              <input type="text" id="char3-name" class="input-field" placeholder="Prénom 3" style="margin-bottom: 5px; text-align: center;">
               <input type="file" id="char3-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()" style="width: 100%; padding: 10px 0;">📷 3</button>
+              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()" style="width: 100%; padding: 15px 0; font-size: 12px;">📷 Visage 3</button>
               <div id="char3-prev" class="preview"></div>
             </div>
           </div>
         </div>
         <div class="video-slots" id="story-slots"></div>
+        <div class="history-section">
+          <h3>Historique de l'histoire</h3>
+          <div id="story-history" class="history-grid"></div>
+        </div>
       </section>
+
     </main>
   </div>
 
-  <!-- TEMPLATE POUR LES BLOCS VIDÉO -->
+  <!-- TEMPLATE POUR LES 10 SLOTS VIDÉO -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
@@ -129,7 +138,7 @@
       <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène..."></textarea>
       <div class="slot-upload">
         <input type="file" class="slot-img-input" accept="image/*" hidden>
-        <button class="slot-upload-btn btn-secondary">📷 Image de scène</button>
+        <button class="slot-upload-btn btn-secondary">📷 Image de scène (Optionnel)</button>
       </div>
       <div class="slot-options">
         <select class="slot-format input-field">
