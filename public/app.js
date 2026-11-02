@@ -1,361 +1,257 @@
 (function () {
-  'use strict';
+  window.userApiKey = sessionStorage.getItem("agnes_api_key") || null;
+  const lockScreen = document.getElementById("lock-screen");
+  const mainApp = document.getElementById("main-app");
+  const apiKeyInput = document.getElementById("api-key-input");
+  const unlockBtn = document.getElementById("unlock-btn");
+  const lockError = document.getElementById("lock-error");
 
-  const state = {
-    apiKey: null, chatSessions: [], currentChatId: null, imageHistory: [],
-    videoScenes: [], storyScenes: [], imageScenes: [], storyChars: [{name:'', img:null},{name:'', img:null},{name:'', img:null}],
-    chatImageBase64: null 
-  };
-
-  const $ = s => document.querySelector(s);
-
-  function save() {
-    try { 
-      localStorage.setItem('iamastor_final_v34', JSON.stringify({
-        apiKey: state.apiKey, chatSessions: state.chatSessions, 
-        imageHistory: state.imageHistory.slice(0, 30), videoScenes: state.videoScenes, 
-        storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
-      })); 
-    } catch(e){}
-  }
-
-  function load() {
-    try {
-      const s = localStorage.getItem('iamastor_final_v34');
-      if (s) { Object.assign(state, JSON.parse(s)); }
-      if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
-      if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
-      if (!state.storyScenes?.length) state.storyScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
-    } catch(e){}
-  }
-
-  async function api(url, options = {}) {
-    if (!state.apiKey) throw new Error('Clé manquante');
-    const res = await fetch(`/api${url}`, { ...options, headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) } });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) { 
-      const err = new Error(data.error || 'Erreur API');
-      err.code = data.code;
-      throw err; 
+  function checkLock() {
+    if (window.userApiKey) {
+      lockScreen.style.display = "none";
+      mainApp.style.display = "flex";
+    } else {
+      lockScreen.style.display = "flex";
+      mainApp.style.display = "none";
     }
-    return { res, data };
   }
 
-  function downloadFile(url, id) { 
-    if (!url && !id) return; 
-    const link = document.createElement('a');
-    link.href = `/api/download/${id || 'media'}?url=${encodeURIComponent(url || '')}`;
-    link.download = 'ia-mastor.mp4';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-
-  // ⚠️ FONCTION MAGIQUE : Compresser l'image pour éviter les crashs Agnes
-  function compressImage(file, maxWidth = 1024, maxHeight = 1024) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = event => {
-        const img = new Image();
-        img.src = event.target.result;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
-          } else {
-            if (height > maxHeight) { width *= maxHeight / height; height = maxHeight; }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          // On renvoie l'image compressée en base64 (qualité 80%)
-          resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]); 
-        };
-      };
-    });
-  }
-
-  function renderScenes(type) {
-    const isImg = type === 'image';
-    const c = $(`#${type}-scenes`); if (!c) return;
-    const arr = isImg ? state.imageScenes : (type === 'video' ? state.videoScenes : state.storyScenes);
-    if (!arr?.length) { c.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">Aucune scène.</p>'; return; }
-
-    c.innerHTML = arr.map((s, i) => {
-      let status = '';
-      let btnText = isImg ? 'Générer cette image' : 'Générer cette scène';
-      
-      if (s.status === 'loading') { status = '⏳ En cours...'; }
-      else if (s.status === 'retry') { status = `⏱ Retry dans ${s.retryCount}s`; btnText = '⏱ Patiente...'; }
-      else if (s.status === 'error') { status = '❌ Erreur'; }
-      else if (s.status === 'success') { status = '✅ Prêt'; }
-      else { status = '⏸ En attente'; }
-
-      return `
-        <div class="scene">
-          <div class="scene-head"><span>SCÈNE ${i+1}</span><span>${status}</span></div>
-          <textarea placeholder="Décris cette scène..." data-type="${type}" data-idx="${i}">${s.prompt || ''}</textarea>
-          <input type="file" accept="image/*" hidden id="${type}-ref-${i}">
-          <label for="${type}-ref-${i}" class="btn-upload" style="display:block;padding:10px;background:var(--bg);border-radius:8px;text-align:center;font-size:12px;margin-bottom:12px;cursor:pointer;">
-            ${s.imageBase64 ? '✅ Image de référence jointe' : '📷 Joindre une image (Optionnel)'}
-          </label>
-          <div class="row">
-            <select data-type="${type}" data-idx="${i}" data-key="ratio">
-              <option value="9:16" ${s.ratio === '9:16' ? 'selected' : ''}>9:16</option>
-              <option value="16:9" ${s.ratio === '16:9' ? 'selected' : ''}>16:9</option>
-              ${isImg ? `<option value="1:1" ${s.ratio === '1:1' ? 'selected' : ''}>1:1</option>` : ''}
-            </select>
-            ${isImg ? `
-            <select data-type="${type}" data-idx="${i}" data-key="size">
-              <option value="1K" ${s.size === '1K' ? 'selected' : ''}>1K</option>
-              <option value="2K" ${s.size === '2K' ? 'selected' : ''}>2K</option>
-              <option value="4K" ${s.size === '4K' ? 'selected' : ''}>4K</option>
-            </select>` : `
-            <select data-type="${type}" data-idx="${i}" data-key="seconds">
-              ${[4,5,6,8,10,12].map(n => `<option value="${n}" ${s.seconds == n ? 'selected' : ''}>${n}s</option>`).join('')}
-            </select>
-            <select disabled><option>720P</option></select>`}
-          </div>
-          <button class="btn-gen" data-type="${type}" data-idx="${i}" ${s.status === 'retry' ? 'disabled' : ''}>
-            ${btnText}
-          </button>
-          ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}', '${s.mediaId}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
-        </div>
-      `;
-    }).join('');
-
-    c.querySelectorAll('textarea').forEach(el => el.oninput = e => { const t = e.target.dataset.type, idx = e.target.dataset.idx; const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes; a[idx].prompt = e.target.value; save(); });
-    c.querySelectorAll('select[data-key]').forEach(el => el.onchange = e => { const t = e.target.dataset.type, idx = e.target.dataset.idx, key = e.target.dataset.key; const a = t === 'image' ? state.imageScenes : t === 'video' ? state.videoScenes : state.storyScenes; a[idx][key] = e.target.value; save(); });
-    
-    // Upload avec compression
-    c.querySelectorAll('.btn-upload').forEach((el, i) => { 
-      const input = c.querySelector(`#${type}-ref-${i}`); 
-      if (input) input.onchange = async e => { 
-        const f = e.target.files[0]; 
-        if (!f) return; 
-        // Compression de l'image
-        const compressedBase64 = await compressImage(f);
-        const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes; 
-        a[i].imageBase64 = compressedBase64; 
-        renderScenes(type); save(); 
-      }; 
-    });
-    
-    c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
-  }
-
-  function startAutoRetry(type, idx) {
-    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
-    const s = a[idx];
-    s.status = 'retry'; s.retryCount = 65;
-    renderScenes(type);
-
-    if (s.retryInterval) clearInterval(s.retryInterval);
-    s.retryInterval = setInterval(() => {
-      s.retryCount--;
-      if (s.retryCount <= 0) {
-        clearInterval(s.retryInterval);
-        s.status = 'pending'; save();
-        generate(type, idx);
-      } else {
-        renderScenes(type);
-      }
-    }, 1000);
-  }
-
-  async function generate(type, idx) {
-    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
-    const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    if (s.status === 'loading' || s.status === 'retry') return;
-
-    s.status = 'loading'; s.videoUrl = null; s.mediaId = null;
-    renderScenes(type);
-    
-    try {
-      if (type === 'image') {
-        const { data } = await api('/generate-image', { method: 'POST', body: JSON.stringify({ prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64 }) });
-        if (data.url) {
-          state.imageHistory.unshift({ url: data.url, size: '4K', ratio: s.ratio, id: data.id });
-          s.status = 'success'; s.videoUrl = data.url; s.mediaId = data.id;
-          renderScenes(type); renderHistory(); save();
-        }
-      } else {
-        const body = { prompt: s.prompt, format: s.ratio, duration: s.seconds };
-        if (s.imageBase64) body.imageBase64 = s.imageBase64;
-        if (type === 'story') body.storyCharacters = state.storyChars;
-
-        const { data } = await api('/generate-video', { method: 'POST', body: JSON.stringify(body) });
-        if (!data.id) throw new Error('Erreur ID');
-
-        s.mediaId = data.id;
-        save();
-        
-        startPolling(type, idx, data.id);
-        return;
-      }
-    } catch (e) { 
-      startAutoRetry(type, idx);
+  unlockBtn.addEventListener("click", () => {
+    const key = apiKeyInput.value.trim();
+    if (key.length < 5) {
+      lockError.textContent = "Veuillez entrer une clé API valide.";
+      lockError.style.display = "block";
+      return;
     }
-    renderScenes(type); save();
-  }
-
-  function startPolling(type, idx, videoId) {
-    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
-    const s = a[idx];
-    let pollCount = 0;
-    
-    const poll = setInterval(async () => {
-      pollCount++;
-      // Si ça fait plus de 40 vérifications (environ 3-4 min), on abandonne et on retente
-      if (pollCount > 40) {
-        clearInterval(poll);
-        startAutoRetry(type, idx);
-        return;
-      }
-
-      try {
-        const { data } = await api(`/status/${videoId}`);
-        if (data.status === 'completed' && data.url) {
-          clearInterval(poll);
-          s.status = 'success'; s.videoUrl = data.url;
-          renderScenes(type); renderHistory(); save();
-        } else if (data.status === 'failed') {
-          clearInterval(poll);
-          startAutoRetry(type, idx);
-        }
-      } catch (err) { 
-        // Si erreur 404, la vidéo n'est pas encore enregistrée côté Agnes, on continue.
-        // Si erreur 429, on attend un peu.
-        console.warn('Polling...', err.message); 
-      }
-    }, 5000);
-  }
-
-  function newChat(welcome = null) {
-    const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
-    if (welcome) c.messages.push({ role: 'assistant', content: welcome });
-    state.chatSessions.unshift(c); state.currentChatId = c.id; renderChatList(); renderChatMessages(); save();
-  }
-
-  function deleteChat(id) {
-    state.chatSessions = state.chatSessions.filter(s => s.id !== id);
-    if (state.currentChatId === id) state.currentChatId = state.chatSessions[0]?.id || null;
-    renderChatList(); renderChatMessages(); save();
-  }
-
-  function renderChatList() {
-    const l = $('#chat-history-list'); if (!l) return;
-    l.innerHTML = state.chatSessions.map(s => `
-      <div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">
-        ${s.title}
-        <span class="delete-chat" data-id="${s.id}" style="margin-left:8px;color:#ef4444;cursor:pointer;">✕</span>
-      </div>
-    `).join('');
-    l.querySelectorAll('.history-chip').forEach(el => el.onclick = (e) => { 
-      if (e.target.classList.contains('delete-chat')) { deleteChat(e.target.dataset.id); return; }
-      state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); 
-    });
-  }
-
-  function renderChatMessages() {
-    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId);
-    if (!box || !sess) { if(box) box.innerHTML = ''; return; }
-    box.innerHTML = sess.messages.map(m => `<div class="msg ${m.role}">${(typeof m.content === 'string' ? m.content : '').replace(/\n/g, '<br>')}</div>`).join('');
-    box.scrollTop = box.scrollHeight;
-  }
-
-  async function sendChat(text) {
-    const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
-    sess.messages.push({ role: 'user', content: text });
-    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
-    renderChatList(); renderChatMessages();
-    const box = $('#chat-messages'); const ph = document.createElement('div'); ph.className = 'msg assistant'; ph.textContent = '...'; box.appendChild(ph);
-    
-    try {
-      const body = { messages: sess.messages.slice(-15), stream: true };
-      if (state.chatImageBase64) body.imageBase64 = state.chatImageBase64;
-
-      const res = await fetch(`/api/chat`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = '', buffer = '';
-      while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n'); buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim(); if (data === '[DONE]') continue;
-            try { const p = JSON.parse(data); const delta = p.choices?.[0]?.delta?.content || ''; if (delta) { full += delta; ph.innerHTML = full.replace(/\n/g, '<br>'); box.scrollTop = box.scrollHeight; } } catch(e) {}
-          }
-        }
-      }
-      sess.messages.push({ role: 'assistant', content: full }); save();
-    } catch(err) { ph.textContent = `❌ ${err.message}`; }
-    
-    state.chatImageBase64 = null;
-    $('#chat-input').placeholder = 'Écris ton message...';
-  }
-
-  function renderHistory() {
-    const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}', '${img.id}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
-    const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
-    const hs = $('#story-history'); if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
-  }
-
-  window.downloadFile = downloadFile;
-
-  document.addEventListener('DOMContentLoaded', () => {
-    load();
-
-    if (state.apiKey) {
-      $('#welcome').classList.add('hidden'); 
-      $('#app').classList.remove('hidden');
-      if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA.`);
-      else { renderChatList(); renderChatMessages(); }
-      renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
-    }
-
-    const changeKeyBtn = document.getElementById('change-key-btn');
-    if (changeKeyBtn) {
-      changeKeyBtn.onclick = () => {
-        if(confirm("Voulez-vous vraiment changer de clé API ? L'historique restera sauvegardé.")) {
-          state.apiKey = null; save();
-          $('#welcome').classList.remove('hidden'); 
-          $('#app').classList.add('hidden');
-        }
-      };
-    }
-
-    $('#login-form').onsubmit = async (e) => {
-      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = '...';
-      try {
-        const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
-        const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
-        state.apiKey = key; save();
-        $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
-        
-        if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA. Voici ce que je peux générer :\n\n🎬 Vidéos IA : 500 sec/jour.\n🖼️ Images HD : 4000/jour.\n💬 Textes & Scripts.\n\n*Conseil : Sois régulier sur TikTok/Insta.*`);
-        } else { renderChatList(); renderChatMessages(); }
-        
-        renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
-      } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
-    };
-
-    document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => b.onclick = () => { document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active')); document.querySelectorAll(`[data-tab="${b.dataset.tab}"]`).forEach(x => x.classList.add('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.querySelector(`#tab-${b.dataset.tab}`).classList.add('active'); });
-
-    $('#new-chat-btn').onclick = () => newChat();
-    $('#chat-form').onsubmit = (e) => { e.preventDefault(); const v = $('#chat-input').value.trim(); if (!v) return; $('#chat-input').value = ''; sendChat(v); };
-    $('#chat-file-btn').onclick = () => $('#chat-file').click();
-    $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
-
-    $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
-
-    $('#story-synopsis').oninput = () => save();
-    document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
-    document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => el.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.storyChars[i].img = ev.target.result; const btn = document.querySelector(`#char-btn-${i}`); if(btn) btn.innerHTML = '✅'; save(); }; r.readAsDataURL(f); });
+    window.userApiKey = key;
+    sessionStorage.setItem("agnes_api_key", key);
+    lockError.style.display = "none";
+    checkLock();
   });
+
+  checkLock();
+
+  async function apiFetch(endpoint, options = {}) {
+    if (!window.userApiKey) throw new Error("Non autorisé");
+    const headers = { "Content-Type": "application/json", ...options.headers, "x-api-key": window.userApiKey };
+    const response = await fetch(endpoint, { ...options, headers });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) {
+      const err = new Error(data.error || "Erreur serveur");
+      err.code = data.code;
+      throw err;
+    }
+    return data;
+  }
+
+  function parseMarkdown(text) {
+    if (!text) return "";
+    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>").replace(/`([^`]+)`/g, "<code>$1</code>");
+    html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>");
+    html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>");
+    let lines = html.split('\n'), inTable = false, tableHtml = "", output = [];
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i].trim();
+      if (line.startsWith('|') && line.endsWith('|')) {
+        if (!inTable) { inTable = true; tableHtml = "<div class='table-responsive'><table>"; }
+        if (line.match(/^\|[\s\-\|]+\|$/)) continue;
+        let cells = line.split('|').filter(c => c.trim() !== '');
+        let tag = (i === 0 || lines[i-1].match(/^\|[\s\-\|]+\|$/)) ? 'th' : 'td';
+        tableHtml += '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+      } else {
+        if (inTable) { tableHtml += "</table></div>"; output.push(tableHtml); inTable = false; }
+        output.push(line);
+      }
+    }
+    if (inTable) { tableHtml += "</table></div>"; output.push(tableHtml); }
+    html = output.join('\n').replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>").replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
+    return html.replace(/\n/g, "<br>");
+  }
+
+  const tabs = document.querySelectorAll(".tab-btn"), sections = document.querySelectorAll(".section");
+  tabs.forEach(t => t.addEventListener("click", () => {
+    tabs.forEach(b => b.classList.remove("active")); sections.forEach(s => s.classList.remove("active"));
+    t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
+  }));
+
+  // CHAT
+  const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
+  let chatImageBase64 = null, allSessions = JSON.parse(localStorage.getItem("iamastor_chat_sessions") || "[]"), currentSessionId = null;
+
+  chatImageBtn.addEventListener("click", () => chatImageUpload.click());
+  chatImageUpload.addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { chatImageBase64 = r.result.split(",")[1]; chatImageBtn.textContent = "✅"; }; r.readAsDataURL(f); });
+
+  function saveSessions() { localStorage.setItem("iamastor_chat_sessions", JSON.stringify(allSessions)); }
+  function createNewSession() { const n = { id: Date.now().toString(), title: "Nouvelle conversation", messages: [{ role: "assistant", content: "Bonjour !" }] }; allSessions.unshift(n); currentSessionId = n.id; saveSessions(); renderSessions(); renderChat(); }
+  function renderSessions() {
+    sessionsList.innerHTML = "";
+    allSessions.forEach(s => {
+      const div = document.createElement("div"); div.className = `session-item ${s.id === currentSessionId ? 'active' : ''}`;
+      div.innerHTML = `<span>${s.title}</span><button class="session-del" data-id="${s.id}">×</button>`;
+      div.addEventListener("click", (e) => {
+        if (e.target.classList.contains('session-del')) { allSessions = allSessions.filter(x => x.id !== e.target.dataset.id); if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null; saveSessions(); renderSessions(); renderChat(); return; }
+        currentSessionId = s.id; renderSessions(); renderChat();
+      });
+      sessionsList.appendChild(div);
+    });
+  }
+  function renderChat() {
+    chatHistory.innerHTML = ""; if (!currentSessionId) return;
+    const s = allSessions.find(x => x.id === currentSessionId); if (!s) return;
+    s.messages.forEach(m => { chatHistory.innerHTML += `<div class="message ${m.role === 'user' ? 'user' : 'assistant'}">${m.role === 'user' ? m.content : parseMarkdown(m.content)}</div>`; });
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+  newChatBtn.addEventListener("click", createNewSession);
+  if (allSessions.length === 0) createNewSession(); else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
+
+  chatSend.addEventListener("click", async () => {
+    const text = chatInput.value.trim(); if (!text || !currentSessionId) return;
+    const s = allSessions.find(x => x.id === currentSessionId);
+    chatInput.value = ""; chatSend.disabled = true;
+    let displayHtml = text;
+    if (chatImageBase64) displayHtml += `<br><img src="data:image/jpeg;base64,${chatImageBase64}" style="max-width:200px; border-radius:8px;">`;
+    s.messages.push({ role: "user", content: displayHtml });
+    if (s.title === "Nouvelle conversation") { s.title = text.slice(0, 30); renderSessions(); }
+    saveSessions(); renderChat();
+    try {
+      const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content.replace(/<br><img.*>/g, '') })), imageBase64: chatImageBase64 }) });
+      if (data.content) { s.messages.push({ role: "assistant", content: data.content }); saveSessions(); renderChat(); }
+    } catch (e) { chatHistory.innerHTML += `<div class="message assistant" style="color:#ff453a">Erreur: ${e.message}</div>`; }
+    chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
+  });
+
+  // IMAGES
+  const imgSlotsContainer = document.getElementById("image-slots"), imgTemplate = document.getElementById("img-slot-template"), imageHistoryEl = document.getElementById("image-history");
+  for (let i = 0; i < 10; i++) { const node = imgTemplate.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Image #${i + 1}`; imgSlotsContainer.appendChild(node); setupImageSlot(node); }
+  function setupImageSlot(node) {
+    const prompt = node.querySelector(".img-prompt"), format = node.querySelector(".img-format"), genBtn = node.querySelector(".img-gen-btn"), dlBtn = node.querySelector(".img-dl-btn"), refInput = node.querySelector(".img-ref-input"), refBtn = node.querySelector(".img-ref-btn"), refPrev = node.querySelector(".img-ref-prev"), resArea = node.querySelector(".img-result-area"), resImg = node.querySelector(".img-result");
+    let base64 = null, id = null;
+    refBtn.addEventListener("click", () => refInput.click());
+    refInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { base64 = r.result.split(",")[1]; refPrev.innerHTML = `<img src="${r.result}">`; }; r.readAsDataURL(f); });
+    genBtn.addEventListener("click", async () => {
+      if (!prompt.value.trim()) return;
+      genBtn.disabled = true; genBtn.textContent = "Génération..."; resArea.hidden = true;
+      try {
+        const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt.value, format: format.value, imageBase64: base64 }) });
+        if (data.url) {
+          resImg.src = data.url; resArea.hidden = false; dlBtn.disabled = false; id = data.id;
+          dlBtn.onclick = () => { window.location.href = `/api/download/${id}?url=${encodeURIComponent(data.url)}&apiKey=${window.userApiKey}`; };
+          const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); h.unshift({ prompt: prompt.value, url: data.url, id: data.id }); localStorage.setItem("iamastor_image_history", JSON.stringify(h)); renderImageHistory();
+        }
+      } catch (e) { alert(e.message); }
+      genBtn.disabled = false; genBtn.textContent = "Générer l'image";
+    });
+  }
+  function renderImageHistory() {
+    const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]");
+    imageHistoryEl.innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?url=${encodeURIComponent(i.url)}&apiKey=${window.userApiKey}" class="history-btn" download>⬇</a></div></div>`).join("");
+  }
+  renderImageHistory();
+
+  // VIDÉO & HISTOIRE (Auto-Retry + Polling 3s)
+  function setupVideoSlot(node, isStory = false) {
+    const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
+    const state = { base64: null, id: null, poll: null, retryInterval: null };
+
+    function startAutoRetry() {
+      if (state.retryInterval) clearInterval(state.retryInterval);
+      status.dataset.state = "loading";
+      let count = 65;
+      status.innerHTML = `<span class="dot"></span> ⏱ Retry dans ${count}s`;
+      
+      state.retryInterval = setInterval(() => {
+        count--;
+        if (count <= 0) {
+          clearInterval(state.retryInterval);
+          state.retryInterval = null;
+          genBtn.click(); // Relance automatique
+        } else {
+          status.innerHTML = `<span class="dot"></span> ⏱ Retry dans ${count}s`;
+        }
+      }, 1000);
+    }
+    
+    if (uploadBtn) {
+      uploadBtn.addEventListener("click", () => imgInput.click());
+      imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
+    }
+
+    genBtn.addEventListener("click", async () => {
+      if (!prompt.value.trim()) return; 
+      if (state.poll) clearInterval(state.poll);
+      if (state.retryInterval) clearInterval(state.retryInterval);
+      
+      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Envoi...`;
+      
+      try {
+        const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
+        if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
+
+        const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
+        if (!data.id) throw new Error(data.error);
+        
+        state.id = data.id; status.innerHTML = `<span class="dot"></span> En cours...`;
+        
+        // Polling ultra rapide (3s)
+        state.poll = setInterval(async () => {
+          try {
+            const info = await apiFetch(`/api/status/${state.id}`);
+            if (info.status === "completed" && info.url) {
+              clearInterval(state.poll); video.src = info.url; player.hidden = false; dlBtn.disabled = false; status.dataset.state = "ready"; status.innerHTML = `<span class="dot"></span> Prête`; genBtn.disabled = false;
+              const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
+              const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
+              if(isStory) renderStoryHistory(); else renderVideoHistory();
+            } else if (info.status === "failed") {
+              clearInterval(state.poll); startAutoRetry(); // Retry auto si Agnes échoue
+            }
+          } catch (err) { console.warn("Poll error", err); }
+        }, 3000);
+
+      } catch (e) { 
+        console.error(e);
+        // Si erreur 429 (Trop de requêtes) ou "quota" -> ON LANCE LE RETRY AUTO
+        if (e.message.includes("quota") || e.message.includes("Trop") || e.code === "rate_limit") {
+          startAutoRetry();
+        } else {
+          status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false;
+        }
+      }
+    });
+    dlBtn.addEventListener("click", () => { if (state.id) window.location.href = `/api/download/${state.id}?apiKey=${window.userApiKey}`; });
+  }
+
+  const slotsContainer = document.getElementById("video-slots"), template = document.getElementById("slot-template");
+  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Vidéo #${i + 1}`; slotsContainer.appendChild(node); setupVideoSlot(node, false); }
+  
+  const storySlotsContainer = document.getElementById("story-slots");
+  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Scène ${i + 1}`; storySlotsContainer.appendChild(node); setupVideoSlot(node, true); }
+
+  window.storyCharactersData = []; 
+  [1, 2, 3].forEach(num => {
+    const nameInput = document.getElementById(`char${num}-name`), fileInput = document.getElementById(`char${num}-file`), prev = document.getElementById(`char${num}-prev`);
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        window.storyCharactersData[num - 1] = { name: nameInput.value.trim() || `Personnage ${num}`, base64: reader.result.split(",")[1] };
+        prev.innerHTML = `<img src="${reader.result}">`;
+      };
+      reader.readAsDataURL(file);
+    });
+    nameInput.addEventListener("input", () => { if (window.storyCharactersData[num - 1]) window.storyCharactersData[num - 1].name = nameInput.value.trim() || `Personnage ${num}`; });
+  });
+
+  function renderVideoHistory() {
+    const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]");
+    document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?apiKey=${window.userApiKey}" class="history-btn" download>⬇</a></div></div>`).join("");
+  }
+  
+  function renderStoryHistory() {
+    const h = JSON.parse(localStorage.getItem("iamastor_story_history") || "[]");
+    document.getElementById("story-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?apiKey=${window.userApiKey}" class="history-btn" download>⬇</a></div></div>`).join("");
+  }
+
+  renderVideoHistory();
+  renderStoryHistory();
 })();
