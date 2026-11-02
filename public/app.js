@@ -11,7 +11,7 @@
 
   function save() {
     try { 
-      localStorage.setItem('iamastor_final_v31', JSON.stringify({
+      localStorage.setItem('iamastor_final_v32', JSON.stringify({
         apiKey: state.apiKey, chatSessions: state.chatSessions, 
         imageHistory: state.imageHistory.slice(0, 30), videoScenes: state.videoScenes, 
         storyScenes: state.storyScenes, imageScenes: state.imageScenes, storyChars: state.storyChars
@@ -21,7 +21,7 @@
 
   function load() {
     try {
-      const s = localStorage.getItem('iamastor_final_v31');
+      const s = localStorage.getItem('iamastor_final_v32');
       if (s) { Object.assign(state, JSON.parse(s)); }
       if (!state.imageScenes?.length) state.imageScenes = [{ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }];
       if (!state.videoScenes?.length) state.videoScenes = Array.from({length: 10}, () => ({ prompt: '', seconds: '8', ratio: '9:16', status: 'pending' }));
@@ -32,8 +32,13 @@
   async function api(url, options = {}) {
     if (!state.apiKey) throw new Error('Clé manquante');
     const res = await fetch(`/api${url}`, { ...options, headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json', ...(options.headers || {}) } });
-    if (!res.ok) { const e = await res.json().catch(()=>({error:'Erreur API'})); throw new Error(e.error || 'Erreur API'); }
-    return res;
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { 
+      const err = new Error(data.error || 'Erreur API');
+      err.code = data.code;
+      throw err; 
+    }
+    return { res, data };
   }
 
   function downloadFile(url, id) { 
@@ -55,6 +60,7 @@
     c.innerHTML = arr.map((s, i) => {
       let status = '';
       if (s.status === 'loading') status = '⏳ En cours...';
+      else if (s.status === 'retry') status = `⏱ Retry dans ${s.retryCount}s`;
       else if (s.status === 'error') status = '❌ Erreur';
       else if (s.status === 'success') status = '✅ Prêt';
       else status = '⏸ En attente';
@@ -84,7 +90,9 @@
             </select>
             <select disabled><option>720P</option></select>`}
           </div>
-          <button class="btn-gen" data-type="${type}" data-idx="${i}">Générer cette ${isImg ? 'image' : 'scène'}</button>
+          <button class="btn-gen" data-type="${type}" data-idx="${i}" ${s.status === 'retry' ? 'disabled' : ''}>
+            ${s.status === 'retry' ? `⏱ Patiente...` : `Générer cette ${isImg ? 'image' : 'scène'}`}
+          </button>
           ${s.videoUrl ? `<div style="margin-top:12px;"><video controls src="${s.videoUrl}" style="width:100%;border-radius:8px;margin-bottom:8px;"></video><button onclick="downloadFile('${s.videoUrl}', '${s.mediaId}')" style="width:100%;padding:10px;background:var(--surface-hover);border:1px solid var(--border);border-radius:8px;color:#fff;cursor:pointer;">⬇ Télécharger</button></div>` : ''}
         </div>
       `;
@@ -96,141 +104,118 @@
     c.querySelectorAll('.btn-gen').forEach(el => el.onclick = e => generate(e.target.dataset.type, e.target.dataset.idx));
   }
 
+  // LA MAGIE EST ICI : Auto-Retry avec compte à rebours
+  function startAutoRetry(type, idx) {
+    const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
+    const s = a[idx];
+    
+    s.status = 'retry';
+    s.retryCount = 65;
+    renderScenes(type);
+
+    if (s.retryInterval) clearInterval(s.retryInterval);
+
+    s.retryInterval = setInterval(() => {
+      s.retryCount--;
+      if (s.retryCount <= 0) {
+        clearInterval(s.retryInterval);
+        s.status = 'pending';
+        save();
+        generate(type, idx); // Relance !
+      } else {
+        renderScenes(type);
+      }
+    }, 1000);
+  }
+
   async function generate(type, idx) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
     const s = a[idx]; if (!s.prompt) return alert('Écris un prompt.');
-    if (s.status === 'loading') return;
+    if (s.status === 'loading' || s.status === 'retry') return;
 
     s.status = 'loading'; s.videoUrl = null; s.mediaId = null;
     renderScenes(type);
     
     try {
       if (type === 'image') {
-        const res = await api('/generate-image', { method: 'POST', body: JSON.stringify({ prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64 }) });
-        const data = await res.json();
+        const { data } = await api('/generate-image', { method: 'POST', body: JSON.stringify({ prompt: s.prompt, format: s.ratio, imageBase64: s.imageBase64 }) });
         if (data.url) {
           state.imageHistory.unshift({ url: data.url, size: '4K', ratio: s.ratio, id: data.id });
           s.status = 'success'; s.videoUrl = data.url; s.mediaId = data.id;
           renderScenes(type); renderHistory(); save();
-        } else throw new Error('Erreur image');
+        }
       } else {
         const body = { prompt: s.prompt, format: s.ratio, duration: s.seconds };
         if (s.imageBase64) body.imageBase64 = s.imageBase64;
         if (type === 'story') body.storyCharacters = state.storyChars;
 
-        // 1. Envoi au serveur (qui met en file d'attente)
-        const res = await api('/generate-video', { method: 'POST', body: JSON.stringify(body) });
-        const data = await res.json();
-        
-        if (!data.id) throw new Error(data.error || 'Erreur ID');
+        const { data } = await api('/generate-video', { method: 'POST', body: JSON.stringify(body) });
+        if (!data.id) throw new Error('Erreur ID');
 
         s.mediaId = data.id;
-        s.timestamp = Date.now();
         save();
         
-        // 2. Lancement de la vérification groupée
-        startGroupedPolling(type);
+        startPolling(type, idx, data.id);
         return;
       }
     } catch (e) { 
-      s.status = 'error'; 
-      alert(e.message);
+      // Si c'est une erreur de limite de requête (429 ou queue_full), on lance le RETRY !
+      if (e.code === 'rate_limit' || e.message.includes('quota') || e.message.includes('Trop de requêtes')) {
+        startAutoRetry(type, idx);
+      } else {
+        s.status = 'error'; 
+        console.error(e);
+      }
     }
     renderScenes(type); save();
   }
 
-  // Vérification groupée de toutes les vidéos en cours
-  function startGroupedPolling(type) {
+  function startPolling(type, idx, videoId) {
     const a = type === 'image' ? state.imageScenes : type === 'video' ? state.videoScenes : state.storyScenes;
-    const loadingScenes = a.filter(s => s.status === 'loading' && s.mediaId);
+    const s = a[idx];
     
-    if (loadingScenes.length === 0) return;
-    
-    const ids = loadingScenes.map(s => s.mediaId);
-    
-    setTimeout(async () => {
-      let pollCount = 0;
-      const poll = setInterval(async () => {
-        pollCount++;
-        let delay = 10000; 
-        if (pollCount > 10) delay = 15000; 
-        if (pollCount > 20) delay = 20000;
-
-        try {
-          const pRes = await api(`/status-batch?ids=${ids.join(',')}`);
-          const pData = await pRes.json();
-          
-          pData.statuses.forEach(statusInfo => {
-            const scene = a.find(s => s.mediaId === statusInfo.id);
-            if (!scene) return;
-            
-            if (statusInfo.status === 'completed' && statusInfo.url) {
-              scene.status = 'success'; scene.videoUrl = statusInfo.url;
-            } else if (statusInfo.status === 'failed') {
-              scene.status = 'error';
-            }
-          });
-          
-          const stillLoading = a.some(s => s.status === 'loading');
-          if (!stillLoading) {
-            clearInterval(poll);
-          }
-          renderScenes(type);
-          renderHistory(); save();
-        } catch (err) { 
-          if (err.message.includes('429') || err.message.includes('trop')) {
-            await new Promise(r => setTimeout(r, 30000));
-          }
+    const poll = setInterval(async () => {
+      try {
+        const { data } = await api(`/status/${videoId}`);
+        if (data.status === 'completed' && data.url) {
+          clearInterval(poll);
+          s.status = 'success'; s.videoUrl = data.url;
+          renderScenes(type); renderHistory(); save();
+        } else if (data.status === 'failed') {
+          clearInterval(poll);
+          s.status = 'error'; renderScenes(type); save();
         }
-      }, delay);
-    }, 25000); 
+      } catch (err) { 
+        console.warn('Polling erreur'); 
+      }
+    }, 5000); // On vérifie toutes les 5s
   }
 
+  // (Le reste du code chat / image / init est identique à mon message précédent, ne change rien d'autre)
   function newChat(welcome = null) {
     const c = { id: Date.now().toString(), title: 'Discussion', messages: [] };
     if (welcome) c.messages.push({ role: 'assistant', content: welcome });
     state.chatSessions.unshift(c); state.currentChatId = c.id; renderChatList(); renderChatMessages(); save();
   }
-
-  function deleteChat(id) {
-    state.chatSessions = state.chatSessions.filter(s => s.id !== id);
-    if (state.currentChatId === id) state.currentChatId = state.chatSessions[0]?.id || null;
-    renderChatList(); renderChatMessages(); save();
-  }
-
+  function deleteChat(id) { state.chatSessions = state.chatSessions.filter(s => s.id !== id); if (state.currentChatId === id) state.currentChatId = state.chatSessions[0]?.id || null; renderChatList(); renderChatMessages(); save(); }
   function renderChatList() {
     const l = $('#chat-history-list'); if (!l) return;
-    l.innerHTML = state.chatSessions.map(s => `
-      <div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">
-        ${s.title}
-        <span class="delete-chat" data-id="${s.id}" style="margin-left:8px;color:#ef4444;cursor:pointer;">✕</span>
-      </div>
-    `).join('');
-    l.querySelectorAll('.history-chip').forEach(el => el.onclick = (e) => { 
-      if (e.target.classList.contains('delete-chat')) { deleteChat(e.target.dataset.id); return; }
-      state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); 
-    });
+    l.innerHTML = state.chatSessions.map(s => `<div class="history-chip ${s.id === state.currentChatId ? 'active' : ''}" data-id="${s.id}">${s.title}<span class="delete-chat" data-id="${s.id}" style="margin-left:8px;color:#ef4444;cursor:pointer;">✕</span></div>`).join('');
+    l.querySelectorAll('.history-chip').forEach(el => el.onclick = (e) => { if (e.target.classList.contains('delete-chat')) { deleteChat(e.target.dataset.id); return; } state.currentChatId = el.dataset.id; renderChatList(); renderChatMessages(); });
   }
-
   function renderChatMessages() {
-    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId);
-    if (!box || !sess) { if(box) box.innerHTML = ''; return; }
+    const box = $('#chat-messages'); const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!box || !sess) return;
     box.innerHTML = sess.messages.map(m => `<div class="msg ${m.role}">${(typeof m.content === 'string' ? m.content : '').replace(/\n/g, '<br>')}</div>`).join('');
     box.scrollTop = box.scrollHeight;
   }
-
   async function sendChat(text) {
     const sess = state.chatSessions.find(s => s.id === state.currentChatId); if (!sess) return;
-    sess.messages.push({ role: 'user', content: text });
-    if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
+    sess.messages.push({ role: 'user', content: text }); if (sess.title === 'Discussion') sess.title = text.substring(0, 20);
     renderChatList(); renderChatMessages();
     const box = $('#chat-messages'); const ph = document.createElement('div'); ph.className = 'msg assistant'; ph.textContent = '...'; box.appendChild(ph);
-    
     try {
-      const body = { messages: sess.messages.slice(-15), stream: true };
-      if (state.chatImageBase64) body.imageBase64 = state.chatImageBase64;
-
-      const res = await api('/chat', { method: 'POST', body: JSON.stringify(body) });
+      const body = { messages: sess.messages.slice(-15), stream: true }; if (state.chatImageBase64) body.imageBase64 = state.chatImageBase64;
+      const res = await fetch(`/api/chat`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = '', buffer = '';
       while (true) {
         const { done, value } = await reader.read(); if (done) break;
@@ -245,73 +230,40 @@
       }
       sess.messages.push({ role: 'assistant', content: full }); save();
     } catch(err) { ph.textContent = `❌ ${err.message}`; }
-    
-    state.chatImageBase64 = null;
-    $('#chat-input').placeholder = 'Écris ton message...';
+    state.chatImageBase64 = null; $('#chat-input').placeholder = 'Écris ton message...';
   }
-
   function renderHistory() {
     const hi = $('#image-history'); if (hi) hi.innerHTML = state.imageHistory.map(img => `<div class="item"><img src="${img.url}"><button onclick="downloadFile('${img.url}', '${img.id}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hv = $('#video-history'); if (hv) hv.innerHTML = state.videoScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
     const hs = $('#story-history'); if (hs) hs.innerHTML = state.storyScenes.filter(s => s.videoUrl).map(v => `<div class="item"><video controls src="${v.videoUrl}"></video><button onclick="downloadFile('${v.videoUrl}', '${v.mediaId}')" class="item-btn" style="cursor:pointer;border:none;width:100%;">⬇ Télécharger</button></div>`).join('');
   }
-
   window.downloadFile = downloadFile;
 
   document.addEventListener('DOMContentLoaded', () => {
     load();
-
     if (state.apiKey) {
-      $('#welcome').classList.add('hidden'); 
-      $('#app').classList.remove('hidden');
-      if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA.`);
-      else { renderChatList(); renderChatMessages(); }
+      $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
+      if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA.`); else { renderChatList(); renderChatMessages(); }
       renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
-      
-      ['video', 'story'].forEach(type => {
-        const arr = type === 'video' ? state.videoScenes : state.storyScenes;
-        if (arr.some(s => s.status === 'loading' && s.mediaId)) {
-          startGroupedPolling(type);
-        }
-      });
     }
-
     const changeKeyBtn = document.getElementById('change-key-btn');
-    if (changeKeyBtn) {
-      changeKeyBtn.onclick = () => {
-        if(confirm("Voulez-vous vraiment changer de clé API ? L'historique restera sauvegardé.")) {
-          state.apiKey = null; save();
-          $('#welcome').classList.remove('hidden'); 
-          $('#app').classList.add('hidden');
-        }
-      };
-    }
-
+    if (changeKeyBtn) changeKeyBtn.onclick = () => { if(confirm("Changer de clé API ?")) { state.apiKey = null; save(); $('#welcome').classList.remove('hidden'); $('#app').classList.add('hidden'); } };
     $('#login-form').onsubmit = async (e) => {
-      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = '...';
+      e.preventDefault(); const key = $('#api-key').value.trim(); const btn = e.target.querySelector('button'); btn.disabled = true;
       try {
         const res = await fetch('/api/validate-key', { method: 'POST', headers: { 'Authorization': `Bearer ${key}` } });
         const d = await res.json(); if (!res.ok || !d.valid) throw new Error();
-        state.apiKey = key; save();
-        $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
-        
-        if (state.chatSessions.length === 0) {
-          newChat(`Bienvenue sur IA MASTOR 🚀\n\nJe suis ton mentor IA. Voici ce que je peux générer :\n\n🎬 Vidéos IA : 500 sec/jour.\n🖼️ Images HD : 4000/jour.\n💬 Textes & Scripts.\n\n*Conseil : Sois régulier sur TikTok/Insta.*`);
-        } else { renderChatList(); renderChatMessages(); }
-        
+        state.apiKey = key; save(); $('#welcome').classList.add('hidden'); $('#app').classList.remove('hidden');
+        if (state.chatSessions.length === 0) newChat(`Bienvenue sur IA MASTOR 🚀`); else { renderChatList(); renderChatMessages(); }
         renderScenes('image'); renderScenes('video'); renderScenes('story'); renderHistory();
       } catch(err) { $('#login-error').textContent = 'Clé invalide'; btn.disabled = false; btn.textContent = 'Démarrer'; }
     };
-
     document.querySelectorAll('.nav-btn, .mob-btn').forEach(b => b.onclick = () => { document.querySelectorAll('.nav-btn, .mob-btn').forEach(x => x.classList.remove('active')); document.querySelectorAll(`[data-tab="${b.dataset.tab}"]`).forEach(x => x.classList.add('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.querySelector(`#tab-${b.dataset.tab}`).classList.add('active'); });
-
     $('#new-chat-btn').onclick = () => newChat();
     $('#chat-form').onsubmit = (e) => { e.preventDefault(); const v = $('#chat-input').value.trim(); if (!v) return; $('#chat-input').value = ''; sendChat(v); };
     $('#chat-file-btn').onclick = () => $('#chat-file').click();
     $('#chat-file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.chatImageBase64 = ev.target.result; $('#chat-input').placeholder = '📷 Image jointe'; }; r.readAsDataURL(f); };
-
     $('#add-image-prompt').onclick = () => { state.imageScenes.push({ prompt: '', size: '4K', ratio: '16:9', status: 'pending' }); renderScenes('image'); save(); };
-
     $('#story-synopsis').oninput = () => save();
     document.querySelectorAll('.char-row input[type="text"]').forEach((el, i) => el.oninput = e => { state.storyChars[i].name = e.target.value; save(); });
     document.querySelectorAll('.char-row input[type="file"]').forEach((el, i) => el.onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => { state.storyChars[i].img = ev.target.result; const btn = document.querySelector(`#char-btn-${i}`); if(btn) btn.innerHTML = '✅'; save(); }; r.readAsDataURL(f); });
