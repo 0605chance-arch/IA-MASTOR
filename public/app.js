@@ -1,5 +1,6 @@
 (function () {
   window.userApiKey = sessionStorage.getItem("agnes_api_key") || null;
+  
   const lockScreen = document.getElementById("lock-screen");
   const mainApp = document.getElementById("main-app");
   const apiKeyInput = document.getElementById("api-key-input");
@@ -7,195 +8,401 @@
   const lockError = document.getElementById("lock-error");
 
   function checkLock() {
-    if (window.userApiKey) { lockScreen.style.display = "none"; mainApp.style.display = "flex"; }
-    else { lockScreen.style.display = "flex"; mainApp.style.display = "none"; }
+    if (window.userApiKey) {
+      lockScreen.style.display = "none";
+      mainApp.style.display = "flex";
+    } else {
+      lockScreen.style.display = "flex";
+      mainApp.style.display = "none";
+    }
   }
 
   unlockBtn.addEventListener("click", () => {
     const key = apiKeyInput.value.trim();
-    if (key.length < 5) { lockError.textContent = "Clé invalide."; lockError.style.display = "block"; return; }
-    window.userApiKey = key; sessionStorage.setItem("agnes_api_key", key);
-    lockError.style.display = "none"; checkLock();
+    if (key.length < 5) {
+      lockError.textContent = "Veuillez entrer une clé API valide.";
+      lockError.style.display = "block";
+      return;
+    }
+    window.userApiKey = key;
+    sessionStorage.setItem("agnes_api_key", key);
+    lockError.style.display = "none";
+    checkLock();
   });
+
   checkLock();
 
   async function apiFetch(endpoint, options = {}) {
     if (!window.userApiKey) throw new Error("Non autorisé");
-    const headers = { "Content-Type": "application/json", ...options.headers, "x-api-key": window.userApiKey };
+    const headers = { 
+      "Content-Type": "application/json", 
+      ...options.headers, 
+      "x-api-key": window.userApiKey 
+    };
     const response = await fetch(endpoint, { ...options, headers });
     const data = await response.json().catch(()=>({}));
-    if (!response.ok) { const err = new Error(data.error || "Erreur"); err.status = response.status; throw err; }
+    
+    if (!response.ok) { 
+      const err = new Error(data.error || "Erreur serveur"); 
+      err.status = response.status; 
+      throw err; 
+    }
     return data;
   }
 
+  // --- NAVIGATION ONGLETS ---
+  const tabs = document.querySelectorAll(".tab-btn");
+  const sections = document.querySelectorAll(".section");
+  
+  tabs.forEach(t => t.addEventListener("click", () => {
+    tabs.forEach(b => b.classList.remove("active")); 
+    sections.forEach(s => s.classList.remove("active"));
+    t.classList.add("active"); 
+    document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
+  }));
+
   // --- CHAT ---
-  const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
-  let chatImageBase64 = null, allSessions = JSON.parse(localStorage.getItem("iamastor_chat_sessions") || "[]"), currentSessionId = null;
+  const chatHistory = document.getElementById("chat-history");
+  const chatInput = document.getElementById("chat-input");
+  const chatSend = document.getElementById("chat-send");
+  const chatImageUpload = document.getElementById("chat-image-upload");
+  const chatImageBtn = document.getElementById("chat-image-btn");
+  const sessionsList = document.getElementById("chat-sessions-list");
+  const newChatBtn = document.getElementById("new-chat-btn");
+
+  let chatImageBase64 = null;
+  let allSessions = JSON.parse(localStorage.getItem("iamastor_chat_sessions") || "[]");
+  let currentSessionId = null;
 
   chatImageBtn.addEventListener("click", () => chatImageUpload.click());
-  chatImageUpload.addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { chatImageBase64 = r.result.split(",")[1]; chatImageBtn.textContent = "✅"; }; r.readAsDataURL(f); });
-
-  function saveSessions() { localStorage.setItem("iamastor_chat_sessions", JSON.stringify(allSessions)); }
-  function createNewSession() { const n = { id: Date.now().toString(), title: "Discussion", messages: [{ role: "assistant", content: "Bonjour !" }] }; allSessions.unshift(n); currentSessionId = n.id; saveSessions(); renderSessions(); renderChat(); }
-  function renderSessions() {
-    sessionsList.innerHTML = "";
-    allSessions.forEach(s => {
-      const div = document.createElement("div"); div.className = `session-item ${s.id === currentSessionId ? 'active' : ''}`;
-      div.innerHTML = `<span>${s.title}</span><button class="session-del" data-id="${s.id}">×</button>`;
-      div.addEventListener("click", (e) => {
-        if (e.target.classList.contains('session-del')) { allSessions = allSessions.filter(x => x.id !== e.target.dataset.id); if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null; saveSessions(); renderSessions(); renderChat(); return; }
-        currentSessionId = s.id; renderSessions(); renderChat();
-      });
-      sessionsList.appendChild(div);
-    });
-  }
-  function renderChat() {
-    chatHistory.innerHTML = ""; if (!currentSessionId) return;
-    const s = allSessions.find(x => x.id === currentSessionId); if (!s) return;
-    s.messages.forEach(m => { chatHistory.innerHTML += `<div class="message ${m.role === 'user' ? 'user' : 'assistant'}">${m.role === 'user' ? m.content : m.content}</div>`; });
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-  }
-  newChatBtn.addEventListener("click", createNewSession);
-  if (allSessions.length === 0) createNewSession(); else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
-
-  chatSend.addEventListener("click", async () => {
-    const text = chatInput.value.trim(); if (!text || !currentSessionId) return;
-    const s = allSessions.find(x => x.id === currentSessionId);
-    chatInput.value = ""; chatSend.disabled = true;
-    s.messages.push({ role: "user", content: text });
-    if (s.title === "Discussion") { s.title = text.slice(0, 30); renderSessions(); }
-    saveSessions(); renderChat();
-    try {
-      const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content })), imageBase64: chatImageBase64 }) });
-      if (data.content) { s.messages.push({ role: "assistant", content: data.content }); saveSessions(); renderChat(); }
-    } catch (e) { alert(e.message); }
-    chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
+  
+  chatImageUpload.addEventListener("change", (e) => { 
+    const f = e.target.files[0]; 
+    if (!f) return; 
+    const r = new FileReader(); 
+    r.onload = () => { 
+      chatImageBase64 = r.result.split(",")[1]; 
+      chatImageBtn.textContent = "✅"; 
+    }; 
+    r.readAsDataURL(f); 
   });
 
-  // --- VARIABLES VIDÉO GLOBALES (Pour le polling groupé) ---
-  let activeVideoTasks = []; // Contient { id, slotNode }
+  function saveSessions() { 
+    localStorage.setItem("iamastor_chat_sessions", JSON.stringify(allSessions)); 
+  }
+
+  function createNewSession() { 
+    const n = { id: Date.now().toString(), title: "Discussion", messages: [{ role: "assistant", content: "Bonjour !" }] }; 
+    allSessions.unshift(n); 
+    currentSessionId = n.id; 
+    saveSessions(); 
+    renderSessions(); 
+    renderChat(); 
+  }
+
+  function renderSessions() { 
+    sessionsList.innerHTML = ""; 
+    allSessions.forEach(s => { 
+      const div = document.createElement("div"); 
+      div.className = `session-item ${s.id === currentSessionId ? 'active' : ''}`; 
+      div.innerHTML = `<span>${s.title}</span><button class="session-del" data-id="${s.id}">×</button>`; 
+      div.addEventListener("click", (e) => { 
+        if (e.target.classList.contains('session-del')) { 
+          allSessions = allSessions.filter(x => x.id !== e.target.dataset.id); 
+          if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null; 
+          saveSessions(); 
+          renderSessions(); 
+          renderChat(); 
+          return; 
+        } 
+        currentSessionId = s.id; 
+        renderSessions(); 
+        renderChat(); 
+      }); 
+      sessionsList.appendChild(div); 
+    }); 
+  }
+
+  function renderChat() { 
+    chatHistory.innerHTML = ""; 
+    if (!currentSessionId) return; 
+    const s = allSessions.find(x => x.id === currentSessionId); 
+    if (!s) return; 
+    s.messages.forEach(m => { 
+      chatHistory.innerHTML += `<div class="message ${m.role === 'user' ? 'user' : 'assistant'}">${m.role === 'user' ? m.content : m.content}</div>`; 
+    }); 
+    chatHistory.scrollTop = chatHistory.scrollHeight; 
+  }
+
+  newChatBtn.addEventListener("click", createNewSession);
+  
+  if (allSessions.length === 0) {
+    createNewSession(); 
+  } else { 
+    currentSessionId = allSessions[0].id; 
+    renderSessions(); 
+    renderChat(); 
+  }
+
+  chatSend.addEventListener("click", async () => { 
+    const text = chatInput.value.trim(); 
+    if (!text || !currentSessionId) return; 
+    const s = allSessions.find(x => x.id === currentSessionId); 
+    chatInput.value = ""; 
+    chatSend.disabled = true; 
+    s.messages.push({ role: "user", content: text }); 
+    if (s.title === "Discussion") { 
+      s.title = text.slice(0, 30); 
+      renderSessions(); 
+    } 
+    saveSessions(); 
+    renderChat(); 
+    
+    try { 
+      const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content })), imageBase64: chatImageBase64 }) }); 
+      if (data.content) { 
+        s.messages.push({ role: "assistant", content: data.content }); 
+        saveSessions(); 
+        renderChat(); 
+      } 
+    } catch (e) { 
+      alert(e.message); 
+    } 
+    chatImageBase64 = null; 
+    chatImageBtn.textContent = "📷"; 
+    chatSend.disabled = false; 
+  });
+
+  // --- IMAGES ---
+  const imgPrompt = document.getElementById("image-prompt");
+  const imgFormat = document.getElementById("image-format");
+  const imgBtn = document.getElementById("image-generate");
+  const imgArea = document.getElementById("image-result-area");
+  const imgResult = document.getElementById("image-result");
+  const imgDownload = document.getElementById("image-download");
+  const imgUploadInput = document.getElementById("image-upload");
+  const imgUploadBtn = document.getElementById("image-upload-btn");
+  const imgPreview = document.getElementById("image-preview");
+  const imageHistoryEl = document.getElementById("image-history");
+
+  let imgBase64 = null;
+
+  imgUploadBtn.addEventListener("click", () => imgUploadInput.click());
+  imgUploadInput.addEventListener("change", (e) => { 
+    const f = e.target.files[0]; 
+    if(!f) return; 
+    const r = new FileReader(); 
+    r.onload = () => { 
+      imgBase64 = r.result.split(",")[1]; 
+      imgPreview.innerHTML = `<img src="${r.result}">`; 
+    }; 
+    r.readAsDataURL(f); 
+  });
+
+  imgBtn.addEventListener("click", async () => { 
+    if (!imgPrompt.value.trim()) return; 
+    imgBtn.disabled = true; 
+    imgBtn.textContent = "Génération..."; 
+    imgArea.hidden = true; 
+    try { 
+      const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 }) }); 
+      if (data.url) { 
+        imgResult.src = data.url; 
+        imgDownload.href = data.url; 
+        imgDownload.download = "image.jpg"; 
+        imgArea.hidden = false; 
+        const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); 
+        h.unshift({ prompt: imgPrompt.value, url: data.url, id: data.id }); 
+        localStorage.setItem("iamastor_image_history", JSON.stringify(h)); 
+        renderImageHistory(); 
+      } 
+    } catch (e) { 
+      alert(e.message); 
+    } 
+    imgBtn.disabled = false; 
+    imgBtn.textContent = "Générer l'image"; 
+  });
+
+  function renderImageHistory() { 
+    const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); 
+    imageHistoryEl.innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="${i.url}" class="history-btn" download>⬇</a></div></div>`).join(""); 
+  }
+  renderImageHistory();
+
+  // --- VARIABLES VIDÉO (Polling Groupé & Burst) ---
+  let activeVideoTasks = []; 
   let pollingInterval = null;
 
   function startGlobalPolling() {
-    if (pollingInterval) return; // Déjà en cours
+    if (pollingInterval) return;
     pollingInterval = setInterval(async () => {
-      if (activeVideoTasks.length === 0) { clearInterval(pollingInterval); pollingInterval = null; return; }
-      
+      if (activeVideoTasks.length === 0) { 
+        clearInterval(pollingInterval); 
+        pollingInterval = null; 
+        return; 
+      }
       const ids = activeVideoTasks.map(t => t.id);
       try {
         const data = await apiFetch("/api/status-batch", { method: "POST", body: JSON.stringify({ ids }) });
-        
         data.results.forEach(res => {
           const task = activeVideoTasks.find(t => t.id === res.id);
           if (task) {
-             if (res.status === "completed" && res.url) {
-                // La vidéo est prête !
-                task.onSuccess(res.url);
-                activeVideoTasks = activeVideoTasks.filter(t => t.id !== res.id); // On retire de la liste
-             } else if (res.status === "failed") {
-                task.onError();
-                activeVideoTasks = activeVideoTasks.filter(t => t.id !== res.id);
+             if (res.status === "completed" && res.url) { 
+               task.onSuccess(res.url); 
+               activeVideoTasks = activeVideoTasks.filter(t => t.id !== res.id); 
+             }
+             else if (res.status === "failed") { 
+               task.onError(); 
+               activeVideoTasks = activeVideoTasks.filter(t => t.id !== res.id); 
              }
           }
         });
-      } catch (e) { console.warn("Erreur polling groupé", e); }
+      } catch (e) { 
+        console.warn("Erreur polling", e);
+      }
     }, 3000);
   }
 
-  // --- VIDÉO CLASSIQUE & HISTOIRE ---
+  // --- VIDÉO & HISTOIRE ---
   function setupSlot(node, isStory = false) {
-    const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
+    const prompt = node.querySelector(".slot-prompt");
+    const format = node.querySelector(".slot-format");
+    const duration = node.querySelector(".slot-duration");
+    const genBtn = node.querySelector(".slot-gen-btn");
+    const dlBtn = node.querySelector(".slot-dl-btn");
+    const status = node.querySelector(".slot-status");
+    const player = node.querySelector(".slot-player");
+    const video = node.querySelector("video");
+    const uploadBtn = node.querySelector(".slot-upload-btn");
+    const imgInput = node.querySelector(".slot-img-input");
+    
     const state = { base64: null };
 
-    if (uploadBtn) {
-      uploadBtn.addEventListener("click", () => imgInput.click());
-      imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
+    if (uploadBtn) { 
+      uploadBtn.addEventListener("click", () => imgInput.click()); 
+      imgInput.addEventListener("change", (e) => { 
+        const f = e.target.files[0]; 
+        if(!f) return; 
+        const r = new FileReader(); 
+        r.onload = () => { 
+          state.base64 = r.result.split(",")[1]; 
+          uploadBtn.textContent = "✅ Image"; 
+        }; 
+        r.readAsDataURL(f); 
+      }); 
     }
-
-    // FONCTION D'ENVOI AVEC RETRY INDIVIDUEL
+    
     const sendVideoRequest = async (attempt = 1) => {
       try {
         const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
-        if (isStory) { payload.storyCharacters = window.storyCharactersData || []; }
-
+        if (isStory) { 
+          payload.storyCharacters = window.storyCharactersData || []; 
+        }
+        
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
         
-        // Si succès, on ajoute la tâche au polling global
-        const videoId = res.id;
         status.innerHTML = `<span class="dot"></span> En cours...`;
         
-        activeVideoTasks.push({
-          id: videoId,
-          onSuccess: (url) => {
-            video.src = url; player.hidden = false; dlBtn.disabled = false; status.dataset.state = "ready"; status.innerHTML = `<span class="dot"></span> Prête`; genBtn.disabled = false;
-            const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]"); h.unshift({ prompt: prompt.value, url, id: videoId }); localStorage.setItem("iamastor_video_history", JSON.stringify(h)); renderVideoHistory();
-          },
-          onError: () => {
-            status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Échec`; genBtn.disabled = false;
-          }
+        activeVideoTasks.push({ 
+          id: res.id, 
+          onSuccess: (url) => { 
+            video.src = url; 
+            player.hidden = false; 
+            dlBtn.disabled = false; 
+            status.dataset.state = "ready"; 
+            status.innerHTML = `<span class="dot"></span> Prête`; 
+            genBtn.disabled = false; 
+            const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]"); 
+            h.unshift({ prompt: prompt.value, url, id: res.id }); 
+            localStorage.setItem("iamastor_video_history", JSON.stringify(h)); 
+            renderVideoHistory(); 
+          }, 
+          onError: () => { 
+            status.dataset.state = "error"; 
+            status.innerHTML = `<span class="dot"></span> Échec`; 
+            genBtn.disabled = false; 
+          } 
         });
-        startGlobalPolling(); // Démarre la vérification globale si pas déjà fait
-
+        startGlobalPolling();
       } catch (err) {
-        // Si Agnes bloque (429), on relance CETTE vidéo spécifiquement
-        if (err.status === 429 || err.message.includes("429") || err.message.includes("Trop")) {
-          if (attempt <= 5) {
-            let waitTime = attempt * 10; // 10s, 20s, 30s...
-            status.innerHTML = `<span class="dot"></span> Agnes occupé. Retry dans ${waitTime}s...`;
-            setTimeout(() => sendVideoRequest(attempt + 1), waitTime * 1000);
-            return;
-          }
+        if ((err.status === 429 || err.message.includes("429")) && attempt <= 5) { 
+          let waitTime = attempt * 10; 
+          status.innerHTML = `<span class="dot"></span> Retry dans ${waitTime}s...`; 
+          setTimeout(() => sendVideoRequest(attempt + 1), waitTime * 1000); 
+          return; 
         }
-        status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false;
+        status.dataset.state = "error"; 
+        status.innerHTML = `<span class="dot"></span> Erreur`; 
+        genBtn.disabled = false;
       }
     };
 
-    genBtn.addEventListener("click", () => {
+    genBtn.addEventListener("click", () => { 
       if (!prompt.value.trim()) return; 
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Envoi...`;
-      
-      // ON LANCE LA REQUÊTE IMMÉDIATEMENT (sans file d'attente)
-      sendVideoRequest();
+      genBtn.disabled = true; 
+      dlBtn.disabled = true; 
+      player.hidden = true; 
+      status.dataset.state = "loading"; 
+      status.innerHTML = `<span class="dot"></span> Envoi...`; 
+      sendVideoRequest(); 
     });
     
     dlBtn.addEventListener("click", () => { 
-      // Le téléchargement passe par l'API avec l'ID
-      const videoId = video.src.includes("task_") ? video.src.split("/").pop().split(".")[0] : null; 
-      // On utilise l'URL directe pour éviter les bugs de download
-      window.open(video.src, '_blank');
+      if (video.src) window.open(video.src, '_blank'); 
     });
   }
 
-  const slotsContainer = document.getElementById("video-slots"), template = document.getElementById("slot-template");
-  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Vidéo #${i + 1}`; slotsContainer.appendChild(node); setupSlot(node, false); }
+  const slotsContainer = document.getElementById("video-slots");
+  const template = document.getElementById("slot-template");
+  
+  for (let i = 0; i < 10; i++) { 
+    const node = template.content.firstElementChild.cloneNode(true); 
+    node.querySelector(".slot-num").textContent = `Vidéo #${i + 1}`; 
+    slotsContainer.appendChild(node); 
+    setupSlot(node, false); 
+  }
   
   const storySlotsContainer = document.getElementById("story-slots");
-  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Scène ${i + 1}`; storySlotsContainer.appendChild(node); setupSlot(node, true); }
+  for (let i = 0; i < 10; i++) { 
+    const node = template.content.firstElementChild.cloneNode(true); 
+    node.querySelector(".slot-num").textContent = `Scène ${i + 1}`; 
+    storySlotsContainer.appendChild(node); 
+    setupSlot(node, true); 
+  }
 
   window.storyCharactersData = []; 
-  [1, 2, 3].forEach(num => {
-    const nameInput = document.getElementById(`char${num}-name`), fileInput = document.getElementById(`char${num}-file`), prev = document.getElementById(`char${num}-prev`);
-    if(fileInput) fileInput.addEventListener("change", (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        window.storyCharactersData[num - 1] = { name: nameInput.value.trim() || `Personnage ${num}`, img: reader.result.split(",")[1] };
-        prev.innerHTML = `<img src="${reader.result}">`;
-      };
-      reader.readAsDataURL(file);
-    });
+  
+  [1, 2, 3].forEach(num => { 
+    const nameInput = document.getElementById(`char${num}-name`); 
+    const fileInput = document.getElementById(`char${num}-file`); 
+    const prev = document.getElementById(`char${num}-prev`); 
+    if(fileInput) {
+      fileInput.addEventListener("change", (e) => { 
+        const file = e.target.files[0]; 
+        if (!file) return; 
+        const reader = new FileReader(); 
+        reader.onload = () => { 
+          window.storyCharactersData[num - 1] = { name: nameInput.value.trim() || `Perso ${num}`, img: reader.result.split(",")[1] }; 
+          prev.innerHTML = `<img src="${reader.result}">`; 
+        }; 
+        reader.readAsDataURL(file); 
+      }); 
+    }
   });
 
-  function renderVideoHistory() {
-    const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]");
-    document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="${i.url}" class="history-btn" download>⬇</a></div></div>`).join("");
+  function renderVideoHistory() { 
+    const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]"); 
+    document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="${i.url}" class="history-btn" download>⬇</a></div></div>`).join(""); 
   }
+  
   renderVideoHistory();
 
-  // ONGLETS
-  const tabs = document.querySelectorAll(".tab-btn"), sections = document.querySelectorAll(".section");
-  tabs.forEach(t => t.addEventListener("click", () => {
-    tabs.forEach(b => b.classList.remove("active")); sections.forEach(s => s.classList.remove("active"));
-    t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
-  }));
+  // --- CHANGER DE CLÉ ---
+  document.getElementById('change-key-btn').onclick = () => { 
+    if(confirm("Voulez-vous vraiment changer de clé API ? L'historique restera sauvegardé.")) { 
+      sessionStorage.removeItem("agnes_api_key"); 
+      window.location.reload(); 
+    } 
+  };
+
 })();
