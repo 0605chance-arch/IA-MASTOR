@@ -3,7 +3,7 @@ const path = require("path");
 const app = express();
 
 app.use(express.json({ limit: "50mb" }));
-app.use(express.static(path.join(__dirname, "Public")));
+app.use(express.static(path.join(__dirname, "public")));
 
 function getApiKey(req) {
     const key = req.headers['x-api-key'] || req.body.apiKey || req.query.apiKey;
@@ -69,7 +69,7 @@ app.post("/api/generate-image", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 3. VIDÉO (Envoi direct, pas d'attente)
+// 3. VIDÉO
 app.post("/api/generate-video", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -97,26 +97,33 @@ app.post("/api/generate-video", async (req, res) => {
     });
 
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: data.error?.message || "Erreur", code: data.error?.code });
+    
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        error: data.error?.message || "Erreur Vidéo", 
+        code: data.error?.code 
+      });
+    }
 
     res.json({ id: data.video_id || data.id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ⚠️ LE SECRET : Route pour vérifier PLUSIEURS vidéos en 1 seule requête
+// 4. STATUT GROUPÉ (Le secret pour ne pas planter)
 app.post("/api/status-batch", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
-    const { ids } = req.body; // Tableau d'IDs
+    const { ids } = req.body; 
     
     const results = await Promise.all(ids.map(async (id) => {
       try {
         const response = await fetch(`https://apihub.agnes-ai.com/agnesapi?video_id=${id}&model_name=agnes-video-2.5-flash`, {
           headers: { "Authorization": `Bearer ${apiKey}` }
         });
+        if (response.status === 429) return { id, status: "processing", url: null };
         const data = await response.json();
         return { id, status: data.status, url: data.url || data.metadata?.url };
-      } catch (e) { return { id, status: "processing" }; }
+      } catch (e) { return { id, status: "processing", url: null }; }
     }));
 
     res.json({ results });
@@ -146,6 +153,6 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur"); }
 });
 
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Serveur prêt sur ${PORT}`));
