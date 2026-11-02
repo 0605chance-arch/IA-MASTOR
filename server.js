@@ -92,7 +92,7 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
-// 3. VIDÉO & HISTOIRE (Envoi direct)
+// 3. VIDÉO
 app.post("/api/generate-video", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -157,7 +157,7 @@ app.post("/api/generate-video", async (req, res) => {
   }
 });
 
-// ⚠️ LA BOUCLE MAGIQUE (3 modèles testés)
+// ⚠️ 3 MODÈLES TESTÉS POUR LE STATUT
 app.get("/api/status/:id", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -189,6 +189,7 @@ app.get("/api/status/:id", async (req, res) => {
   }
 });
 
+// ⚠️ TÉLÉCHARGEMENT SÉCURISÉ (Plus de fichiers .json)
 app.get("/api/download/:id", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -202,23 +203,18 @@ app.get("/api/download/:id", async (req, res) => {
       fileUrl = d.url || d.metadata?.url;
     }
 
-    if (!fileUrl) return res.status(404).send("Fichier introuvable");
-
-    if (fileUrl.startsWith("data:")) {
-        const base64Data = fileUrl.split(',')[1];
-        const buffer = Buffer.from(base64Data, 'base64');
-        const ext = id.startsWith("img_") ? "jpg" : "mp4";
-        res.setHeader("Content-Disposition", `attachment; filename="iamastor-${id}.${ext}"`);
-        return res.send(buffer);
-    }
+    if (!fileUrl) return res.status(404).send("Fichier introuvable sur Agnes");
 
     const fileRes = await fetch(fileUrl);
+    if (!fileRes.ok) return res.status(500).send("Erreur de téléchargement depuis Agnes");
+    
     const buffer = await fileRes.arrayBuffer();
     const ext = id.startsWith("img_") ? "jpg" : "mp4";
+    res.setHeader("Content-Type", ext === "mp4" ? "video/mp4" : "image/jpeg");
     res.setHeader("Content-Disposition", `attachment; filename="iamastor-${id}.${ext}"`);
-    res.send(buffer);
+    res.send(Buffer.from(buffer));
   } catch (err) {
-    res.status(500).send("Erreur download");
+    res.status(500).send("Erreur téléchargement");
   }
 });
 
