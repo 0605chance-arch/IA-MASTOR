@@ -35,6 +35,7 @@
     </div>
 
     <main class="main">
+      <!-- ONGLET CHAT -->
       <section id="section-chat" class="section active">
         <div class="chat-layout">
           <aside class="chat-sidebar" id="chat-sidebar">
@@ -53,6 +54,7 @@
         </div>
       </section>
 
+      <!-- ONGLET IMAGE -->
       <section id="section-image" class="section">
         <div class="card">
           <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image..."></textarea>
@@ -78,6 +80,7 @@
         </div>
       </section>
 
+      <!-- ONGLET VIDÉO -->
       <section id="section-video" class="section">
         <div class="video-slots" id="video-slots"></div>
         <div class="history-section">
@@ -86,6 +89,7 @@
         </div>
       </section>
 
+      <!-- ONGLET HISTOIRE -->
       <section id="section-story" class="section">
         <div class="card" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages</h3>
@@ -93,19 +97,19 @@
             <div style="flex: 1; text-align: center;">
               <input type="text" id="char1-name" class="input-field" placeholder="Nom 1" style="margin-bottom:5px; text-align:center;">
               <input type="file" id="char1-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()" style="width: 100%; padding: 10px 0;">📷 Visage 1</button>
+              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()" style="width: 100%; padding: 10px 0;">📷 1</button>
               <div id="char1-prev" class="preview"></div>
             </div>
             <div style="flex: 1; text-align: center;">
               <input type="text" id="char2-name" class="input-field" placeholder="Nom 2" style="margin-bottom:5px; text-align:center;">
               <input type="file" id="char2-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()" style="width: 100%; padding: 10px 0;">📷 Visage 2</button>
+              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()" style="width: 100%; padding: 10px 0;">📷 2</button>
               <div id="char2-prev" class="preview"></div>
             </div>
             <div style="flex: 1; text-align: center;">
               <input type="text" id="char3-name" class="input-field" placeholder="Nom 3" style="margin-bottom:5px; text-align:center;">
               <input type="file" id="char3-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()" style="width: 100%; padding: 10px 0;">📷 Visage 3</button>
+              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()" style="width: 100%; padding: 10px 0;">📷 3</button>
               <div id="char3-prev" class="preview"></div>
             </div>
           </div>
@@ -115,6 +119,7 @@
     </main>
   </div>
 
+  <!-- TEMPLATE POUR LES BLOCS VIDÉO -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
