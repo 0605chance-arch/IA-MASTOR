@@ -24,27 +24,39 @@ app.post('/api/validate-key', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const response = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      method: 'POST', 
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'agnes-3.0-flash', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 })
     });
     if (!response.ok) throw new Error('Clé invalide');
     res.json({ valid: true });
-  } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
+  } catch (err) { 
+    res.status(401).json({ valid: false, error: 'Clé invalide' }); 
+  }
 });
 
 app.post('/api/chat', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { messages, stream = true, imageBase64 } = req.body;
+    
     let finalMessages = [...messages];
     if (imageBase64) {
       const lastMsg = finalMessages[finalMessages.length - 1];
-      lastMsg.content = [{ type: "text", text: lastMsg.content }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }];
+      lastMsg.content = [
+        { type: "text", text: lastMsg.content }, 
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+      ];
     }
+
     const body = { model: 'agnes-3.0-flash', messages: finalMessages.slice(-20), stream, temperature: 0.8 };
+    
     const response = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      method: 'POST', 
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(body)
     });
+    
     if (!response.ok) return res.status(response.status).json({ error: await response.text() });
     if (!stream) return res.json(await response.json());
     
@@ -54,31 +66,54 @@ app.post('/api/chat', async (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no'); 
     res.flushHeaders();
     
-    response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
+    response.body.on('data', (chunk) => { 
+      res.write(chunk); 
+      if (typeof res.flush === 'function') res.flush(); 
+    });
     response.body.on('end', () => res.end());
-  } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    if (res.headersSent) res.end(); 
+    else res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.post('/api/generate-image', async (req, res) => {
   try {
     const apiKey = getApiKey(req);
     const { prompt, format, imageBase64 } = req.body;
-    const body = { model: 'agnes-image-2.5-flash', prompt: prompt, size: '4K', ratio: format, extra_body: { response_format: 'url' } };
-    if (imageBase64) body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
+    
+    const body = { 
+      model: 'agnes-image-2.5-flash', 
+      prompt: prompt, 
+      size: '4K', 
+      ratio: format, 
+      extra_body: { response_format: 'url' } 
+    };
+    
+    if (imageBase64) {
+      body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
+    }
     
     const response = await fetch(`${AGNES_BASE}/images/generations`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      method: 'POST', 
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(body)
     });
+    
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || 'Erreur Image');
     
     let finalUrl = data.data?.[0]?.url || data.url;
+    if (!finalUrl) throw new Error('Pas d\'URL image');
+    
     res.json({ id: 'img_' + Date.now(), url: finalUrl });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.post('/api/generate-video', async (req, res) => {
-  console.log("📥 [RENDER] Nouvelle requête vidéo !");
+  console.log("📥 [RENDER] Nouvelle requête vidéo reçue !");
   try {
     const apiKey = getApiKey(req);
     const { prompt, format, duration, imageBase64, storyCharacters } = req.body;
@@ -88,40 +123,58 @@ app.post('/api/generate-video', async (req, res) => {
     if (parseInt(seconds) > 12) seconds = '12';
 
     const body = {
-      model: 'agnes-video-2.5-flash', prompt: prompt, seconds: seconds, size: '720P', aspect_ratio: format, mode: 'text'
+      model: 'agnes-video-2.5-flash', 
+      prompt: prompt, 
+      seconds: seconds, 
+      size: '720P', 
+      aspect_ratio: format, 
+      mode: 'text'
     };
 
+    // ⚠️ CORRECTION : On s'assure que les images ont le bon préfixe
     if (storyCharacters && storyCharacters.length > 0) {
       body.mode = 'reference';
       let validImages = [];
+      
       storyCharacters.forEach(char => {
         if (char.name && prompt.toLowerCase().includes(char.name.toLowerCase()) && char.img) {
-          validImages.push(char.img.replace(/^data:image\/\w+;base64,/, ''));
+          const cleanBase64 = char.img.replace(/^data:image\/\w+;base64,/, '');
+          validImages.push(`data:image/jpeg;base64,${cleanBase64}`);
         }
       });
-      if (imageBase64) validImages.push(imageBase64.replace(/^data:image\/\w+;base64,/, ''));
+      
+      if (imageBase64) {
+        const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+        validImages.push(`data:image/jpeg;base64,${cleanBase64}`);
+      }
+      
       body.images = validImages.slice(0, 5);
       if (body.images.length === 0) body.mode = 'text';
+      
     } else if (imageBase64) {
       body.mode = 'reference'; 
-      body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      body.images = [`data:image/jpeg;base64,${cleanBase64}`]; 
     }
 
-    console.log(`🎬 [AGNES] Envoi...`);
+    console.log(`🎬 [AGNES] Envoi de la requête...`);
     const response = await fetch(`${AGNES_BASE}/videos`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      method: 'POST', 
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(body)
     });
+    
     const data = await response.json();
 
     if (!response.ok) {
-      console.log(`❌ [AGNES] Erreur ${response.status}`);
+      console.log(`❌ [AGNES] Erreur ${response.status} :`, data.error?.message || data);
       return res.status(response.status).json({ 
         error: data.error?.message || 'Erreur Vidéo', 
         code: data.error?.code || (response.status === 429 ? 'rate_limit' : 'unknown')
       });
     }
 
-    console.log(`✅ [AGNES] Accepté ID: ${data.video_id || data.id}`);
+    console.log(`✅ [AGNES] Accepté ! ID: ${data.video_id || data.id}`);
     res.json({ id: data.video_id || data.id });
   } catch (err) { 
     console.error(`💥 [RENDER] Crash:`, err.message);
@@ -135,11 +188,21 @@ app.get('/api/status/:id', async (req, res) => {
     const response = await fetch(`${AGNES_POLL_BASE}?video_id=${req.params.id}&model_name=agnes-video-2.5-flash`, {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
-    if (response.status === 429 || response.status === 404) return res.json({ status: 'processing', url: null });
+    
+    if (response.status === 429 || response.status === 404) {
+      return res.json({ status: 'processing', url: null });
+    }
+    
     const data = await response.json();
     const videoUrl = data.url || data.video_url || data.metadata?.url;
-    res.json({ status: videoUrl ? 'completed' : (data.status || 'processing'), url: videoUrl });
-  } catch (err) { res.status(500).json({ error: 'Erreur statut' }); }
+    
+    res.json({ 
+      status: videoUrl ? 'completed' : (data.status || 'processing'), 
+      url: videoUrl 
+    });
+  } catch (err) { 
+    res.status(500).json({ error: 'Erreur statut' }); 
+  }
 });
 
 app.get('/api/download/:id', async (req, res) => {
@@ -148,18 +211,26 @@ app.get('/api/download/:id', async (req, res) => {
     const { id } = req.params;
     const { url } = req.query;
     let fileUrl = url;
+    
     if (!fileUrl && !id.startsWith('img_')) {
-      const s = await fetch(`${AGNES_POLL_BASE}?video_id=${id}&model_name=agnes-video-2.5-flash`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+      const s = await fetch(`${AGNES_POLL_BASE}?video_id=${id}&model_name=agnes-video-2.5-flash`, { 
+        headers: { 'Authorization': `Bearer ${apiKey}` } 
+      });
       const d = await s.json();
       fileUrl = d.url || d.metadata?.url;
     }
+    
     if (!fileUrl) return res.status(404).send('Introuvable');
+    
     const fileRes = await fetch(fileUrl);
     const buffer = await fileRes.arrayBuffer();
     const ext = id.startsWith('img_') ? 'jpg' : 'mp4';
+    
     res.setHeader('Content-Disposition', `attachment; filename="ia-mastor-${id}.${ext}"`);
     res.send(Buffer.from(buffer));
-  } catch (err) { res.status(500).send('Erreur download'); }
+  } catch (err) { 
+    res.status(500).send('Erreur download'); 
+  }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
