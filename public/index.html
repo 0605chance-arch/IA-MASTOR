@@ -2,107 +2,172 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <meta name="theme-color" content="#09090b">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>IA MASTOR</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="welcome" class="welcome">
-    <div class="welcome-box">
-      <div class="logo">🚀</div>
-      <h1>IA MASTOR</h1>
-      <p>L'usine à contenu viral propulsée par Agnes AI.</p>
-      <div class="info">
-        <strong>Clé API requise (Starter Plan 4$)</strong><br>
-        <a href="https://platform.agnes-ai.com" target="_blank">Obtenir une clé Agnes →</a>
-      </div>
-      <form id="login-form">
-        <input type="password" id="api-key" placeholder="Colle ta clé API (sk-...)" required spellcheck="false">
-        <p id="login-error"></p>
-        <button type="submit" class="btn-white">Démarrer</button>
-      </form>
+
+  <!-- ÉCRAN DE VERROUILLAGE -->
+  <div id="lock-screen" class="lock-screen">
+    <div class="lock-card">
+      <div class="logo">🚀 IA <em>MASTOR</em></div>
+      <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 14px;">Entrez votre clé API Agnes pour déverrouiller le studio.</p>
+      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre clé ici..." style="margin-bottom: 15px;">
+      <button id="unlock-btn" class="btn-primary" style="width: 100%;">Déverrouiller</button>
+      <p id="lock-error" style="color: #ff453a; font-size: 12px; margin-top: 10px; display: none;"></p>
     </div>
-    <p class="footer-note">Après achat, cette application est interdite à la vente.</p>
   </div>
 
-  <div id="app" class="app hidden">
+  <!-- APP PRINCIPALE -->
+  <div class="app" id="main-app" style="display: none;">
     <header class="header">
-      <div class="brand">🚀 IA MASTOR</div>
-      <button id="change-key-btn" style="background:transparent; border:1px solid var(--border); color:var(--muted); padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">🔑 Changer de clé</button>
-      <nav class="nav">
-        <button class="nav-btn active" data-tab="chat">Chat</button>
-        <button class="nav-btn" data-tab="image">Image</button>
-        <button class="nav-btn" data-tab="video">Vidéo</button>
-        <button class="nav-btn" data-tab="story">Histoire</button>
-      </nav>
+      <div class="logo">🚀 IA <em>MASTOR</em></div>
+      <p class="tagline">Chat • Image • Vidéo • Histoire</p>
+      <button id="change-key-btn" style="background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:6px 12px; border-radius:6px; font-size:12px; margin-top:10px; cursor:pointer;">🔑 Changer de clé</button>
     </header>
 
+    <div class="tabs">
+      <button id="tab-chat" class="tab-btn active">💬 Chat</button>
+      <button id="tab-image" class="tab-btn">🖼️ Image</button>
+      <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
+      <button id="tab-story" class="tab-btn">📖 Histoire</button>
+    </div>
+
     <main class="main">
-      <section id="tab-chat" class="tab active">
-        <div class="chat-wrap">
-          <div class="chat-header"><h2>Conversations</h2><button id="new-chat-btn" class="btn-new-chat">+ Nouvelle</button></div>
-          <div id="chat-history-list" class="chat-history-list"></div>
-          <div id="chat-messages" class="chat-messages"></div>
-          <form id="chat-form" class="chat-form">
-            <input type="file" id="chat-file" accept="image/*" hidden>
-            <button type="button" id="chat-file-btn" class="btn-icon">📎</button>
-            <textarea id="chat-input" placeholder="Écris ton message..." rows="1"></textarea>
-            <button type="submit" class="btn-send">↑</button>
-          </form>
-        </div>
-      </section>
-
-      <section id="tab-image" class="tab">
-        <div class="container">
-          <h2>Générateur d'images</h2>
-          <div class="actions"><button id="add-image-prompt" class="btn-gray">+ Nouveau prompt</button></div>
-          <div id="image-scenes" class="scenes"></div>
-          <h2 style="margin-top: 30px;">Galerie</h2>
-          <div id="image-history" class="grid"></div>
-        </div>
-      </section>
-
-      <section id="tab-video" class="tab">
-        <div class="container">
-          <h2>Storyboard Vidéo</h2>
-          <div id="video-scenes" class="scenes"></div>
-          <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
-          <div id="video-history" class="grid"></div>
-        </div>
-      </section>
-
-      <section id="tab-story" class="tab">
-        <div class="container">
-          <h2>Mode Histoire</h2>
-          <div class="story-layout">
-            <aside class="story-side">
-              <label class="label" style="margin-top:0;">Synopsis</label>
-              <textarea id="story-synopsis" placeholder="Résume l'histoire globale..." rows="3"></textarea>
-              <p class="label">Personnages (Optionnel)</p>
-              <div class="char-row"><input type="text" id="char1-name" placeholder="Nom du perso 1"><input type="file" id="char1-file" accept="image/*" hidden><button type="button" class="btn-img" id="char-btn-0" onclick="document.getElementById('char1-file').click()">📷</button></div>
-              <div class="char-row"><input type="text" id="char2-name" placeholder="Nom du perso 2"><input type="file" id="char2-file" accept="image/*" hidden><button type="button" class="btn-img" id="char-btn-1" onclick="document.getElementById('char2-file').click()">📷</button></div>
-              <div class="char-row"><input type="text" id="char3-name" placeholder="Nom du perso 3"><input type="file" id="char3-file" accept="image/*" hidden><button type="button" class="btn-img" id="char-btn-2" onclick="document.getElementById('char3-file').click()">📷</button></div>
-            </aside>
-            <div class="story-main"><div id="story-scenes" class="scenes"></div></div>
+      <!-- CHAT -->
+      <section id="section-chat" class="section active">
+        <div class="chat-layout">
+          <aside class="chat-sidebar" id="chat-sidebar">
+            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
+            <div id="chat-sessions-list" class="sessions-list"></div>
+          </aside>
+          <div class="chat-main">
+            <div id="chat-history" class="chat-history"></div>
+            <div class="chat-input-area">
+              <input type="file" id="chat-image-upload" accept="image/*" hidden>
+              <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;">📷</button>
+              <textarea id="chat-input" placeholder="Envoyez un message..." rows="1"></textarea>
+              <button id="chat-send" class="btn-primary">⬆️</button>
+            </div>
           </div>
-          <h2 style="margin-top: 30px;">Historique des Vidéos</h2>
-          <div id="story-history" class="grid"></div>
+        </div>
+      </section>
+
+      <!-- IMAGE -->
+      <section id="section-image" class="section">
+        <div class="video-slots" id="image-slots"></div>
+        <div class="history-section">
+          <h3>Historique des images</h3>
+          <div id="image-history" class="history-grid"></div>
+        </div>
+      </section>
+
+      <!-- VIDÉO -->
+      <section id="section-video" class="section">
+        <div class="video-slots" id="video-slots"></div>
+        <div class="history-section">
+          <h3>Bibliothèque vidéo</h3>
+          <div id="video-history" class="history-grid"></div>
+        </div>
+      </section>
+
+      <!-- HISTOIRE -->
+      <section id="section-story" class="section">
+        <div class="card" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">📝 Synopsis de l'histoire</h3>
+          <textarea id="story-synopsis" class="input-field" rows="4" placeholder="Résumez l'histoire globale... (L'IA utilisera ce contexte pour chaque scène)"></textarea>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages</h3>
+          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">L'IA n'inclura le visage que si le prénom est écrit dans le prompt de la scène.</p>
+          <div class="char-grid">
+            <div class="char-col">
+              <input type="text" id="char1-name" class="input-field" placeholder="Prénom 1">
+              <input type="file" id="char1-file" accept="image/*" hidden>
+              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()">📷 Visage 1</button>
+              <div id="char1-prev" class="preview"></div>
+            </div>
+            <div class="char-col">
+              <input type="text" id="char2-name" class="input-field" placeholder="Prénom 2">
+              <input type="file" id="char2-file" accept="image/*" hidden>
+              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()">📷 Visage 2</button>
+              <div id="char2-prev" class="preview"></div>
+            </div>
+            <div class="char-col">
+              <input type="text" id="char3-name" class="input-field" placeholder="Prénom 3">
+              <input type="file" id="char3-file" accept="image/*" hidden>
+              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()">📷 Visage 3</button>
+              <div id="char3-prev" class="preview"></div>
+            </div>
+          </div>
+        </div>
+        <div class="video-slots" id="story-slots"></div>
+        <div class="history-section">
+          <h3>Historique de l'histoire</h3>
+          <div id="story-history" class="history-grid"></div>
         </div>
       </section>
     </main>
-
-    <nav class="mobile-nav">
-      <button class="mob-btn active" data-tab="chat">Chat</button>
-      <button class="mob-btn" data-tab="image">Image</button>
-      <button class="mob-btn" data-tab="video">Vidéo</button>
-      <button class="mob-btn" data-tab="story">Histoire</button>
-    </nav>
   </div>
-  <script src="/app.js"></script>
+
+  <!-- TEMPLATES -->
+  <template id="slot-template">
+    <div class="slot card">
+      <div class="slot-header">
+        <span class="slot-num">#1</span>
+        <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
+      </div>
+      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène..."></textarea>
+      <div class="slot-upload">
+        <input type="file" class="slot-img-input" accept="image/*" hidden>
+        <button class="slot-upload-btn btn-secondary">📷 Image de scène (Optionnel)</button>
+      </div>
+      <div class="slot-options">
+        <select class="slot-format input-field">
+          <option value="9:16">9:16</option>
+          <option value="16:9">16:9</option>
+          <option value="1:1">1:1</option>
+        </select>
+        <select class="slot-duration input-field">
+          <option value="4">4s</option>
+          <option value="8" selected>8s</option>
+          <option value="12">12s</option>
+        </select>
+      </div>
+      <div class="slot-actions">
+        <button class="slot-gen-btn btn-primary">Générer</button>
+        <button class="slot-dl-btn btn-download" disabled>Télécharger</button>
+      </div>
+      <div class="slot-player" hidden><video controls playsinline></video></div>
+    </div>
+  </template>
+
+  <template id="img-slot-template">
+    <div class="slot card">
+      <div class="slot-header"><span class="slot-num">Img #1</span></div>
+      <textarea class="img-prompt input-field" rows="2" placeholder="Décrivez l'image..."></textarea>
+      <div class="slot-upload">
+        <input type="file" class="img-ref-input" accept="image/*" hidden>
+        <button class="img-ref-btn btn-secondary">📷 Image de réf.</button>
+        <div class="img-ref-prev preview"></div>
+      </div>
+      <div class="slot-options">
+        <select class="img-format input-field">
+          <option value="9:16">Portrait (9:16)</option>
+          <option value="16:9">Paysage (16:9)</option>
+          <option value="1:1">Carré (1:1)</option>
+        </select>
+      </div>
+      <div class="slot-actions">
+        <button class="img-gen-btn btn-primary">Générer l'image</button>
+        <button class="img-dl-btn btn-download" disabled>Télécharger</button>
+      </div>
+      <div class="img-result-area result-area" hidden><img class="img-result" src="" alt="Résultat"></div>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
 </body>
 </html>
