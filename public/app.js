@@ -76,35 +76,6 @@
     t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
   }));
 
-  // --- SYSTÈME DE FILE D'ATTENTE (13 SECONDES) ---
-  let isQueueRunning = false;
-  const submissionQueue = [];
-
-  async function addToQueue(executeFn, updateStatusFn) {
-    submissionQueue.push({ execute: executeFn, updateStatus: updateStatusFn });
-    processQueue();
-  }
-
-  async function processQueue() {
-    if (isQueueRunning || submissionQueue.length === 0) return;
-    isQueueRunning = true;
-    
-    const task = submissionQueue.shift();
-    task.updateStatus("Envoi...");
-    
-    try {
-      await task.execute(); // Envoie la requête à Agnes
-    } catch(e) {
-      console.error(e);
-    }
-    
-    // On attend 13 secondes AVANT de passer à la requête suivante (5 RPM max)
-    setTimeout(() => {
-      isQueueRunning = false;
-      processQueue();
-    }, 13000);
-  }
-
   // CHAT
   const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
   let chatImageBase64 = null, allSessions = JSON.parse(localStorage.getItem("iamastor_chat_sessions") || "[]"), currentSessionId = null;
@@ -160,18 +131,18 @@
     refBtn.addEventListener("click", () => refInput.click());
     refInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { base64 = r.result.split(",")[1]; refPrev.innerHTML = `<img src="${r.result}">`; }; r.readAsDataURL(f); });
     
-    genBtn.addEventListener("click", () => {
+    genBtn.addEventListener("click", async () => {
       if (!prompt.value.trim()) return;
-      genBtn.disabled = true; resArea.hidden = true;
-      addToQueue(async () => {
+      genBtn.disabled = true; genBtn.textContent = "En cours..."; resArea.hidden = true;
+      try {
         const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt.value, format: format.value, imageBase64: base64 }) });
         if (data.url) {
           resImg.src = data.url; resArea.hidden = false; dlBtn.disabled = false; id = data.id;
           dlBtn.onclick = () => { window.location.href = `/api/download/${id}?url=${encodeURIComponent(data.url)}&apiKey=${window.userApiKey}`; };
           const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); h.unshift({ prompt: prompt.value, url: data.url, id: data.id }); localStorage.setItem("iamastor_image_history", JSON.stringify(h)); renderImageHistory();
         }
-        genBtn.disabled = false;
-      }, (msg) => { genBtn.textContent = msg; });
+      } catch (e) { alert(e.message); }
+      genBtn.disabled = false; genBtn.textContent = "Générer l'image";
     });
   }
   function renderImageHistory() {
@@ -180,7 +151,7 @@
   }
   renderImageHistory();
 
-  // VIDÉO & HISTOIRE
+  // VIDÉO & HISTOIRE (Envoi Instantané + Retry auto)
   function setupVideoSlot(node, isStory = false) {
     const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
     const state = { base64: null, id: null, poll: null };
@@ -190,50 +161,66 @@
       imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
     }
 
-    genBtn.addEventListener("click", () => {
+    genBtn.addEventListener("click", async () => {
       if (!prompt.value.trim()) return; 
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading";
+      if (state.poll) clearInterval(state.poll);
       
-      addToQueue(async () => {
-        const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
-        if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
+      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Envoi...`;
+      
+      const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
+      if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
 
-        const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
-        if (!data.id) throw new Error(data.error);
-        
-        state.id = data.id; 
-        status.innerHTML = `<span class="dot"></span> En cours...`;
-        
-        if (state.poll) clearInterval(state.poll);
-        state.poll = setInterval(async () => {
-          try {
-            const info = await apiFetch(`/api/status/${state.id}`);
-            if (info.status === "completed" && info.url) {
-              clearInterval(state.poll); 
-              video.src = info.url; 
-              player.hidden = false; 
-              dlBtn.disabled = false; 
-              status.dataset.state = "ready"; 
-              status.innerHTML = `<span class="dot"></span> Prête`; 
-              genBtn.disabled = false;
-              
-              const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
-              const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
-              if(isStory) renderStoryHistory(); else renderVideoHistory();
-            } else if (info.status === "failed") {
-              clearInterval(state.poll); 
-              status.dataset.state = "error"; 
-              status.innerHTML = `<span class="dot"></span> Échec`;
-              genBtn.disabled = false;
+      let attempts = 0;
+      const sendRequest = async () => {
+        try {
+          const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
+          if (!data.id) throw new Error(data.error);
+          
+          state.id = data.id; 
+          status.innerHTML = `<span class="dot"></span> En cours...`;
+          
+          state.poll = setInterval(async () => {
+            try {
+              const info = await apiFetch(`/api/status/${state.id}`);
+              if (info.status === "completed" && info.url) {
+                clearInterval(state.poll); 
+                video.src = info.url; 
+                player.hidden = false; 
+                dlBtn.disabled = false; 
+                status.dataset.state = "ready"; 
+                status.innerHTML = `<span class="dot"></span> Prête`; 
+                genBtn.disabled = false;
+                genBtn.textContent = "Générer";
+                
+                const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
+                const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
+                if(isStory) renderStoryHistory(); else renderVideoHistory();
+              } else if (info.status === "failed") {
+                clearInterval(state.poll); 
+                status.dataset.state = "error"; 
+                status.innerHTML = `<span class="dot"></span> Échec`; 
+                genBtn.disabled = false;
+              }
+            } catch (err) { console.warn("Poll error", err); }
+          }, 3000);
+
+        } catch (e) { 
+          // Si c'est une erreur 429 ou queue full, on attend 12s et on relance (Burst)
+          if (e.code === 'rate_limit' || e.message.includes('Trop') || e.message.includes('quota')) {
+            attempts++;
+            if (attempts < 5) {
+              status.innerHTML = `<span class="dot"></span> Agnes occupé. Attente 12s...`;
+              await new Promise(r => setTimeout(r, 12000));
+              return sendRequest(); // On relance
             }
-          } catch (err) { console.warn("Poll error", err); }
-        }, 3000);
-      }, (msg) => {
-        status.innerHTML = `<span class="dot"></span> ${msg}`;
-      });
+          }
+          status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false;
+        }
+      };
+      
+      sendRequest(); // On lance immédiatement
     });
     
-    // ⚠️ CORRECTION TÉLÉCHARGEMENT ICI (n'ouvre plus de json)
     dlBtn.addEventListener("click", () => { 
         if (state.id) window.location.href = `/api/download/${state.id}?apiKey=${window.userApiKey}`; 
     });
