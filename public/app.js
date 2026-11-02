@@ -76,38 +76,33 @@
     t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
   }));
 
-  // --- SYSTÈME DE FILE D'ATTENTE (POUR LES 5 CLICS) ---
-  const generationQueue = [];
-  let isProcessingQueue = false;
+  // --- SYSTÈME DE FILE D'ATTENTE (13 SECONDES) ---
+  let isQueueRunning = false;
+  const submissionQueue = [];
 
-  async function processQueue() {
-    if (isProcessingQueue || generationQueue.length === 0) return;
-    isProcessingQueue = true;
-    
-    const task = generationQueue[0]; // On regarde la première tâche
-    
-    try {
-      await task.execute(); // On tente de la lancer
-      generationQueue.shift(); // Si succès, on la retire de la file
-    } catch (err) {
-      // Si erreur 429 (Agnes occupé), on attend 15s et on réessaie la même tâche
-      if (err.message.includes("Trop") || err.code === "rate_limit" || err.message.includes("quota")) {
-        console.log("File d'attente : Agnes occupé, attente 15s...");
-        await new Promise(r => setTimeout(r, 15000));
-        // On ne fait pas de shift(), donc la boucle va réessayer
-      } else {
-        // Autre erreur, on annule la tâche
-        generationQueue.shift(); 
-      }
-    }
-    
-    isProcessingQueue = false;
-    processQueue(); // On passe à la suivante
+  async function addToQueue(executeFn, updateStatusFn) {
+    submissionQueue.push({ execute: executeFn, updateStatus: updateStatusFn });
+    processQueue();
   }
 
-  function addToQueue(executeFn) {
-    generationQueue.push({ execute: executeFn });
-    processQueue();
+  async function processQueue() {
+    if (isQueueRunning || submissionQueue.length === 0) return;
+    isQueueRunning = true;
+    
+    const task = submissionQueue.shift();
+    task.updateStatus("Envoi...");
+    
+    try {
+      await task.execute(); // Envoie la requête à Agnes
+    } catch(e) {
+      console.error(e);
+    }
+    
+    // On attend 13 secondes AVANT de passer à la requête suivante (5 RPM max)
+    setTimeout(() => {
+      isQueueRunning = false;
+      processQueue();
+    }, 13000);
   }
 
   // CHAT
@@ -167,18 +162,16 @@
     
     genBtn.addEventListener("click", () => {
       if (!prompt.value.trim()) return;
-      genBtn.disabled = true; genBtn.textContent = "En attente..."; resArea.hidden = true;
-      
+      genBtn.disabled = true; resArea.hidden = true;
       addToQueue(async () => {
-        genBtn.textContent = "Génération...";
         const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt.value, format: format.value, imageBase64: base64 }) });
         if (data.url) {
           resImg.src = data.url; resArea.hidden = false; dlBtn.disabled = false; id = data.id;
           dlBtn.onclick = () => { window.location.href = `/api/download/${id}?url=${encodeURIComponent(data.url)}&apiKey=${window.userApiKey}`; };
           const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); h.unshift({ prompt: prompt.value, url: data.url, id: data.id }); localStorage.setItem("iamastor_image_history", JSON.stringify(h)); renderImageHistory();
         }
-        genBtn.disabled = false; genBtn.textContent = "Générer l'image";
-      });
+        genBtn.disabled = false;
+      }, (msg) => { genBtn.textContent = msg; });
     });
   }
   function renderImageHistory() {
@@ -187,7 +180,7 @@
   }
   renderImageHistory();
 
-  // VIDÉO & HISTOIRE (Avec File d'attente)
+  // VIDÉO & HISTOIRE
   function setupVideoSlot(node, isStory = false) {
     const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
     const state = { base64: null, id: null, poll: null };
@@ -199,19 +192,17 @@
 
     genBtn.addEventListener("click", () => {
       if (!prompt.value.trim()) return; 
-      
-      // On ajoute la requête à la file d'attente
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> En attente...`;
+      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading";
       
       addToQueue(async () => {
-        status.innerHTML = `<span class="dot"></span> Envoi...`;
         const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
         if (isStory) { payload.storyCharacters = window.storyCharactersData || []; payload.storyContext = document.getElementById("story-synopsis").value.trim(); }
 
         const data = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
         if (!data.id) throw new Error(data.error);
         
-        state.id = data.id; status.innerHTML = `<span class="dot"></span> En cours...`;
+        state.id = data.id; 
+        status.innerHTML = `<span class="dot"></span> En cours...`;
         
         if (state.poll) clearInterval(state.poll);
         state.poll = setInterval(async () => {
@@ -225,7 +216,6 @@
               status.dataset.state = "ready"; 
               status.innerHTML = `<span class="dot"></span> Prête`; 
               genBtn.disabled = false;
-              genBtn.textContent = "Générer";
               
               const hKey = isStory ? "iamastor_story_history" : "iamastor_video_history";
               const h = JSON.parse(localStorage.getItem(hKey) || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem(hKey, JSON.stringify(h)); 
@@ -238,10 +228,15 @@
             }
           } catch (err) { console.warn("Poll error", err); }
         }, 3000);
+      }, (msg) => {
+        status.innerHTML = `<span class="dot"></span> ${msg}`;
       });
     });
     
-    dlBtn.addEventListener("click", () => { if (state.id) window.location.href = `/api/download/${state.id}?apiKey=${window.userApiKey}`; });
+    // ⚠️ CORRECTION TÉLÉCHARGEMENT ICI (n'ouvre plus de json)
+    dlBtn.addEventListener("click", () => { 
+        if (state.id) window.location.href = `/api/download/${state.id}?apiKey=${window.userApiKey}`; 
+    });
   }
 
   const slotsContainer = document.getElementById("video-slots"), template = document.getElementById("slot-template");
