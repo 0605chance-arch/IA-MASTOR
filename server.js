@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
 const path = require('path');
 
 const app = express();
@@ -15,50 +14,69 @@ app.use(express.static(path.join(__dirname, 'public')));
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1';
 const AGNES_POLL_BASE = 'https://apihub.agnes-ai.com/agnesapi';
 
-// File d'attente : 1 requête toutes les 13s pour respecter le RPM
-const queueMap = new Map();
-const MIN_INTERVAL = 13000; 
-
-function getQueue(apiKey) {
-  if (!queueMap.has(apiKey)) {
-    queueMap.set(apiKey, { lastRequest: 0, queue: [] });
-  }
-  return queueMap.get(apiKey);
+function getApiKey(req) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) throw new Error('Clé API manquante.');
+  return auth.replace('Bearer ', '').trim();
 }
 
-async function processQueue(apiKey, taskFn) {
-  const q = getQueue(apiKey);
-  return new Promise((resolve, reject) => {
-    q.queue.push({ taskFn, resolve, reject });
-    processNext(apiKey);
-  });
-}
-
-async function processNext(apiKey) {
-  const q = getQueue(apiKey);
-  if (q.queue.length === 0) return;
-  
-  const now = Date.now();
-  const timeSinceLast = now - q.lastRequest;
-  if (timeSinceLast < MIN_INTERVAL) {
-    setTimeout(() => processNext(apiKey), MIN_INTERVAL - timeSinceLast);
-    return;
-  }
-  
-  const task = q.queue.shift();
-  q.lastRequest = Date.now();
-  
+app.post('/api/validate-key', async (req, res) => {
   try {
-    const result = await task.taskFn();
-    task.resolve(result);
-  } catch (err) {
-    task.reject(err);
-  } finally {
-    processNext(apiKey);
-  }
-}
+    const apiKey = getApiKey(req);
+    const response = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: 'POST', 
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'agnes-3.0-flash', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 })
+    });
+    if (!response.ok) throw new Error('Clé invalide');
+    res.json({ valid: true });
+  } catch (err) { res.status(401).json({ valid: false, error: 'Clé invalide' }); }
+});
 
-// ... (garder getApiKey, /api/validate-key, /api/chat, /api/generate-image identiques) ...
+app.post('/api/chat', async (req, res) => {
+  try {
+    const apiKey = getApiKey(req);
+    const { messages, stream = true, imageBase64 } = req.body;
+    let finalMessages = [...messages];
+    if (imageBase64) {
+      const lastMsg = finalMessages[finalMessages.length - 1];
+      lastMsg.content = [{ type: "text", text: lastMsg.content }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }];
+    }
+    const body = { model: 'agnes-3.0-flash', messages: finalMessages.slice(-20), stream, temperature: 0.8 };
+    const response = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (!response.ok) return res.status(response.status).json({ error: await response.text() });
+    if (!stream) return res.json(await response.json());
+    
+    res.setHeader('Content-Type', 'text/event-stream'); 
+    res.setHeader('Cache-Control', 'no-cache'); 
+    res.setHeader('Connection', 'keep-alive'); 
+    res.setHeader('X-Accel-Buffering', 'no'); 
+    res.flushHeaders();
+    
+    response.body.on('data', (chunk) => { res.write(chunk); if (typeof res.flush === 'function') res.flush(); });
+    response.body.on('end', () => res.end());
+  } catch (err) { if (res.headersSent) res.end(); else res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/generate-image', async (req, res) => {
+  try {
+    const apiKey = getApiKey(req);
+    const { prompt, format, imageBase64 } = req.body;
+    const body = { model: 'agnes-image-2.5-flash', prompt: prompt, size: '4K', ratio: format, extra_body: { response_format: 'url' } };
+    if (imageBase64) body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
+    
+    const response = await fetch(`${AGNES_BASE}/images/generations`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Erreur Image');
+    
+    let finalUrl = data.data?.[0]?.url || data.url;
+    res.json({ id: 'img_' + Date.now(), url: finalUrl });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 app.post('/api/generate-video', async (req, res) => {
   try {
@@ -89,34 +107,58 @@ app.post('/api/generate-video', async (req, res) => {
       body.images = [imageBase64.replace(/^data:image\/\w+;base64,/, '')]; 
     }
 
-    const result = await processQueue(apiKey, async () => {
-      console.log(`🎬 Envoi création vidéo (respect RPM)...`);
-      let response = await fetch(`${AGNES_BASE}/videos`, {
-        method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-      });
-      let data = await response.json();
-
-      if (response.status === 429) {
-        console.log(`⏳ Trop de requêtes (429). Attente 30s...`);
-        await new Promise(r => setTimeout(r, 30000));
-        response = await fetch(`${AGNES_BASE}/videos`, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-        });
-        data = await response.json();
-      }
-
-      if (!response.ok) throw new Error(data.error?.message || 'Erreur Vidéo');
-      const videoId = data.video_id || data.id;
-      if (!videoId) throw new Error('Pas de video_id');
-      console.log(`✅ Accepté: ${videoId}`);
-      return videoId;
+    const response = await fetch(`${AGNES_BASE}/videos`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
+    const data = await response.json();
 
-    res.json({ id: result });
+    // On renvoie l'erreur exacte avec son code (429) pour que le frontend gère l'attente
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        error: data.error?.message || 'Erreur Vidéo', 
+        code: data.error?.code || (response.status === 429 ? 'rate_limit' : 'unknown')
+      });
+    }
+
+    res.json({ id: data.video_id || data.id });
   } catch (err) { 
-    console.error('❌ Erreur:', err.message);
     res.status(500).json({ error: err.message }); 
   }
 });
 
-// ... (garder /api/status-batch, /api/download, app.get('*'), app.listen) ...
+app.get('/api/status/:id', async (req, res) => {
+  try {
+    const apiKey = getApiKey(req);
+    const response = await fetch(`${AGNES_POLL_BASE}?video_id=${req.params.id}&model_name=agnes-video-2.5-flash`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    if (response.status === 429 || response.status === 404) return res.json({ status: 'processing', url: null });
+    const data = await response.json();
+    const videoUrl = data.url || data.video_url || data.metadata?.url;
+    res.json({ status: videoUrl ? 'completed' : (data.status || 'processing'), url: videoUrl });
+  } catch (err) { res.status(500).json({ error: 'Erreur statut' }); }
+});
+
+app.get('/api/download/:id', async (req, res) => {
+  try {
+    const apiKey = getApiKey(req);
+    const { id } = req.params;
+    const { url } = req.query;
+    let fileUrl = url;
+    if (!fileUrl && !id.startsWith('img_')) {
+      const s = await fetch(`${AGNES_POLL_BASE}?video_id=${id}&model_name=agnes-video-2.5-flash`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+      const d = await s.json();
+      fileUrl = d.url || d.metadata?.url;
+    }
+    if (!fileUrl) return res.status(404).send('Introuvable');
+    const fileRes = await fetch(fileUrl);
+    const buffer = await fileRes.arrayBuffer();
+    const ext = id.startsWith('img_') ? 'jpg' : 'mp4';
+    res.setHeader('Content-Disposition', `attachment; filename="ia-mastor-${id}.${ext}"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) { res.status(500).send('Erreur download'); }
+});
+
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+app.listen(PORT, () => console.log(`🚀 IA MASTOR prêt sur le port ${PORT}`));
