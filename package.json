@@ -1,7 +1,7 @@
 {
   "name": "ia-mastor",
   "version": "1.0.0",
-  "description": "IA MASTOR - Studio de création IA (Chat, Image, Vidéo, Histoire)",
+  "description": "Studio de création IA - IA MASTOR",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,14 +11,5 @@
   },
   "dependencies": {
     "express": "^4.19.2"
-  },
-  "keywords": [
-    "ai",
-    "video",
-    "image",
-    "agnes",
-    "generator"
-  ],
-  "author": "",
-  "license": "MIT"
+  }
 }
