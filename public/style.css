@@ -17,22 +17,29 @@
 /* ==========================================
    RESET & BASE
    ========================================== */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
+* { 
+  box-sizing: border-box; 
+  margin: 0; 
+  padding: 0; 
+  -webkit-tap-highlight-color: transparent; 
 }
 
-body {
+html, body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+  min-height: 100%;
   line-height: 1.5;
+}
+
+body {
+  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
   overflow-x: hidden;
 }
 
+/* ==========================================
+   STRUCTURE GLOBALE
+   ========================================== */
 .app {
   max-width: 900px;
   margin: 0 auto;
@@ -41,9 +48,6 @@ body {
   min-height: 100vh;
 }
 
-/* ==========================================
-   HEADER
-   ========================================== */
 .header {
   text-align: center;
   padding: 24px 0 16px;
@@ -90,8 +94,8 @@ body {
   scrollbar-width: none;
 }
 
-.tabs::-webkit-scrollbar {
-  display: none;
+.tabs::-webkit-scrollbar { 
+  display: none; 
 }
 
 .tab-btn {
@@ -101,7 +105,7 @@ body {
   background: transparent;
   color: var(--text-dim);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   border-radius: 8px;
   cursor: pointer;
   transition: 0.2s;
@@ -115,7 +119,7 @@ body {
 }
 
 /* ==========================================
-   SECTIONS & ANIMATIONS
+   SECTIONS
    ========================================== */
 .section {
   display: none;
@@ -124,8 +128,8 @@ body {
   animation: fadeIn 0.3s ease;
 }
 
-.section.active {
-  display: flex;
+.section.active { 
+  display: flex; 
 }
 
 @keyframes fadeIn {
@@ -134,7 +138,7 @@ body {
 }
 
 /* ==========================================
-   CARTES ET CHAMPS DE SAISIE
+   CARTES ET CHAMPS
    ========================================== */
 .card {
   background: var(--surface);
@@ -156,7 +160,7 @@ body {
   font-size: 15px;
   color: var(--text);
   outline: none;
-  transition: 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   -webkit-appearance: none;
 }
 
@@ -165,9 +169,9 @@ body {
   box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
 }
 
-textarea {
-  resize: vertical;
-  min-height: 80px;
+textarea { 
+  resize: vertical; 
+  min-height: 80px; 
 }
 
 /* ==========================================
@@ -182,17 +186,13 @@ textarea {
   font-weight: 600;
   font-size: 16px;
   cursor: pointer;
-  transition: 0.2s;
+  transition: transform 0.1s, background 0.2s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-secondary {
   padding: 12px 16px;
@@ -203,12 +203,10 @@ textarea {
   font-weight: 500;
   cursor: pointer;
   font-size: 14px;
-  transition: 0.2s;
+  transition: background 0.2s;
 }
 
-.btn-secondary:hover {
-  background: var(--border);
-}
+.btn-secondary:hover { background: var(--border); }
 
 .btn-download {
   display: block;
@@ -223,17 +221,11 @@ textarea {
   font-weight: 600;
   margin-top: 12px;
   cursor: pointer;
-  transition: 0.2s;
+  transition: background 0.2s;
 }
 
-.btn-download:hover {
-  background: var(--border);
-}
-
-.btn-download:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn-download:hover { background: var(--border); }
+.btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ==========================================
    ÉCRAN DE VERROUILLAGE (LOCK SCREEN)
@@ -287,11 +279,7 @@ textarea {
   overflow-y: auto;
 }
 
-.sessions-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.sessions-list { display: flex; flex-direction: column; gap: 8px; }
 
 .session-item {
   padding: 12px;
@@ -302,18 +290,11 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: 0.2s;
+  transition: background 0.2s;
 }
 
-.session-item:hover {
-  background: var(--surface-2);
-}
-
-.session-item.active {
-  background: var(--surface-2);
-  color: var(--text);
-  font-weight: 600;
-}
+.session-item:hover { background: var(--surface-2); }
+.session-item.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
 
 .session-del {
   color: #ff453a;
@@ -326,9 +307,7 @@ textarea {
   opacity: 0.7;
 }
 
-.session-del:hover {
-  opacity: 1;
-}
+.session-del:hover { opacity: 1; }
 
 .chat-main {
   flex: 1;
@@ -383,27 +362,15 @@ textarea {
 }
 
 /* MESSAGES CHAT */
-.message {
-  padding: 4px 0;
-  font-size: 15px;
-  max-width: 100%;
-  line-height: 1.6;
-}
-
-.message.user {
-  align-self: flex-end;
-  background: var(--accent);
-  color: #fff;
-  border-radius: 20px;
-  padding: 12px 20px;
-  max-width: 85%;
-}
-
-.message.assistant {
-  align-self: flex-start;
-  color: var(--text);
-  max-width: 100%;
-}
+.message { padding: 4px 0; font-size: 15px; max-width: 100%; line-height: 1.6; }
+.message.user { align-self: flex-end; background: var(--accent); color: #fff; border-radius: 20px; padding: 12px 20px; max-width: 85%; }
+.message.assistant { align-self: flex-start; color: var(--text); max-width: 100%; }
+.message.assistant p { margin-bottom: 14px; }
+.message.assistant ul, .message.assistant ol { margin: 12px 0 12px 24px; }
+.message.assistant strong { font-weight: 600; color: #fff; }
+.message.assistant table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; background: var(--bg); }
+.message.assistant th { background: var(--surface-2); padding: 12px; text-align: left; }
+.message.assistant td { padding: 12px; border-bottom: 1px solid var(--border); }
 
 /* ==========================================
    IMAGES & VIDÉOS (SLOTS)
@@ -416,11 +383,7 @@ textarea {
   display: block;
 }
 
-.result-area {
-  text-align: center;
-  margin-top: 12px;
-}
-
+.result-area { text-align: center; margin-top: 12px; }
 .result-area img {
   width: 100%;
   border-radius: var(--radius);
@@ -428,11 +391,7 @@ textarea {
   box-shadow: var(--shadow);
 }
 
-.video-slots {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
+.video-slots { display: flex; flex-direction: column; gap: 20px; }
 
 .slot-header {
   display: flex;
@@ -448,30 +407,15 @@ textarea {
 .slot-status[data-state="error"] { color: #ff453a; }
 .slot-status[data-state="loading"] { color: #ff9f0a; }
 
-.slot-options {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
+.slot-options { display: flex; gap: 12px; flex-wrap: wrap; }
+.slot-options select { flex: 1; min-width: 100px; }
 
-.slot-options select {
-  flex: 1;
-  min-width: 100px;
-}
-
-.slot-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.slot-actions button {
-  flex: 1;
-}
+.slot-actions { display: flex; gap: 12px; margin-top: 8px; }
+.slot-actions button { flex: 1; }
 
 /* 
-   ⚠️ CORRECTIF IMPORTANT : 
-   Empêche la vidéo de dézoomer toute la page quand elle est générée 
+   ⚠️ CORRECTIF ANTI-DÉZOOM VIDÉO
+   Empêche la vidéo de prendre tout l'écran et de casser l'application.
 */
 .slot-player {
   margin-top: 12px;
@@ -482,8 +426,8 @@ textarea {
 
 .slot-player video {
   width: 100%;
-  max-height: 50vh; /* La vidéo ne prendra jamais plus de 50% de la hauteur de l'écran */
-  object-fit: contain; /* Conserve les proportions sans étirer l'image */
+  max-height: 50vh; /* Bloque la hauteur à 50% de l'écran */
+  object-fit: contain; /* Garde les proportions sans étirer */
   display: block;
   border-radius: 12px;
 }
@@ -491,24 +435,10 @@ textarea {
 /* ==========================================
    HISTORIQUE (GALERIE)
    ========================================== */
-.history-section {
-  margin-top: 40px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-}
+.history-section { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); }
+.history-section h3 { font-size: 18px; margin-bottom: 16px; color: var(--text); font-weight: 600; }
 
-.history-section h3 {
-  font-size: 18px;
-  margin-bottom: 16px;
-  color: var(--text);
-  font-weight: 600;
-}
-
-.history-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.history-grid { display: flex; flex-direction: column; gap: 12px; }
 
 .history-item {
   background: var(--surface);
@@ -531,10 +461,7 @@ textarea {
   color: var(--text);
 }
 
-.history-actions {
-  display: flex;
-  gap: 8px;
-}
+.history-actions { display: flex; gap: 8px; }
 
 .history-btn {
   background: var(--surface-2);
@@ -546,42 +473,23 @@ textarea {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: 0.2s;
+  transition: background 0.2s;
 }
 
-.history-btn:hover {
-  background: var(--border);
-}
+.history-btn:hover { background: var(--border); }
 
 /* ==========================================
    PERSONNAGES (MODE HISTOIRE)
    ========================================== */
-.char-grid {
-  display: flex;
-  gap: 12px;
-}
-
-.char-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.char-col input[type="text"] {
-  text-align: center;
-  padding: 10px;
-  font-size: 14px;
-}
+.char-grid { display: flex; gap: 12px; }
+.char-col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.char-col input[type="text"] { text-align: center; padding: 10px; font-size: 14px; }
 
 /* ==========================================
    RESPONSIVE (MOBILE)
    ========================================== */
 @media (max-width: 768px) {
-  .chat-layout {
-    flex-direction: column;
-    height: 80vh;
-  }
+  .chat-layout { flex-direction: column; height: 80vh; }
   
   .chat-sidebar {
     width: 100%;
@@ -593,16 +501,7 @@ textarea {
     padding: 8px;
   }
   
-  .sessions-list {
-    flex-direction: row;
-  }
-  
-  .session-item {
-    white-space: nowrap;
-    padding: 8px 12px;
-  }
-
-  .char-grid {
-    flex-direction: column;
-  }
+  .sessions-list { flex-direction: row; }
+  .session-item { white-space: nowrap; padding: 8px 12px; }
+  .char-grid { flex-direction: column; }
 }
