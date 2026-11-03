@@ -235,10 +235,12 @@
   renderImageHistory();
 
   // ==========================================
-  // 3. VIDÉO (Le système de file d'attente invisible)
+  // 3. VIDÉO & HISTOIRE (Smart Queue)
   // ==========================================
   let activeVideoTasks = []; 
   let pollingInterval = null;
+  const videoQueue = [];
+  let isProcessingQueue = false;
 
   function startGlobalPolling() {
     if (pollingInterval) return;
@@ -262,8 +264,7 @@
              if (res.status === "completed" && res.url) { 
                task.onSuccess(res.url); 
                activeVideoTasks = activeVideoTasks.filter(t => t.id !== res.id); 
-             }
-             else if (res.status === "failed") { 
+             } else if (res.status === "failed") { 
                task.onError(); 
                activeVideoTasks = activeVideoTasks.filter(t => t.id !== res.id); 
              }
@@ -273,6 +274,32 @@
         console.warn("Erreur polling", e);
       }
     }, 3000);
+  }
+
+  // La file d'attente intelligente
+  async function processQueue() {
+    if (isProcessingQueue || videoQueue.length === 0) return;
+    isProcessingQueue = true;
+    
+    const task = videoQueue[0]; // On prend la première tâche
+    
+    try {
+      await task.execute(); // On tente de l'envoyer
+      videoQueue.shift(); // Succès, on la retire de la file
+    } catch (err) {
+      if (err.status === 429 || err.code === "rate_limit") {
+        // Agnes est plein, on attend 5s en silence et on réessaie
+        await new Promise(r => setTimeout(r, 5000));
+        // On ne fait pas de shift, donc la boucle va réessayer la même tâche
+      } else {
+        // Autre erreur, on annule la tâche pour ne pas bloquer la file
+        task.onError();
+        videoQueue.shift(); 
+      }
+    }
+    
+    isProcessingQueue = false;
+    processQueue(); // On passe à la suivante immédiatement
   }
 
   function setupSlot(node, isStory = false) {
@@ -303,17 +330,22 @@
       }); 
     }
     
-    // ⚠️ LA FAMEUSE FONCTION D'ENVOI SILENCIEUX
-    const sendVideoRequest = async (attempt = 1) => {
-      try {
+    genBtn.addEventListener("click", () => { 
+      if (!prompt.value.trim()) return; 
+      
+      genBtn.disabled = true; 
+      dlBtn.disabled = true; 
+      player.hidden = true; 
+      status.dataset.state = "loading"; 
+      status.innerHTML = `<span class="dot"></span> En cours...`;
+      
+      const executeRequest = async () => {
         const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
         if (isStory) { payload.storyCharacters = window.storyCharactersData || []; }
         
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
         
-        // Si ça marche, on affiche "En cours..." (déjà affiché, mais on confirme)
-        status.innerHTML = `<span class="dot"></span> En cours...`;
-        
+        // Une fois accepté par Agnes, on l'ajoute au polling global
         activeVideoTasks.push({ 
           id: res.id, 
           onSuccess: (url) => { 
@@ -335,40 +367,18 @@
           } 
         });
         startGlobalPolling();
+      };
 
-      } catch (err) {
-        // SI AGNES DIT "TROP DE REQUETES" (429), ON ATTEND 5 SECONDES EN SILENCE
-        // Le statut reste "En cours..." sans afficher de compte à rebours (pas de "Retry dans 10s")
-        if (err.status === 429 || err.code === "rate_limit") { 
-          if (attempt <= 10) { 
-            setTimeout(() => sendVideoRequest(attempt + 1), 5000); // Réessaie après 5s
-            return; 
-          }
-        }
-        // Vraie erreur (ex: problème de prompt)
-        status.dataset.state = "error"; 
-        status.innerHTML = `<span class="dot"></span> Erreur`; 
-        genBtn.disabled = false;
-      }
-    };
-
-    genBtn.addEventListener("click", () => { 
-      if (!prompt.value.trim()) return; 
-      genBtn.disabled = true; 
-      dlBtn.disabled = true; 
-      player.hidden = true; 
-      status.dataset.state = "loading"; 
-      status.innerHTML = `<span class="dot"></span> En cours...`; // Affiché instantanément au clic
-      sendVideoRequest(); 
+      // On ajoute à la file et on lance le traitement
+      videoQueue.push({ execute: executeRequest, onError: () => { status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false; } });
+      processQueue();
     });
     
-    // Téléchargement direct via l'URL de la vidéo
     dlBtn.addEventListener("click", () => { 
       if (video.src) window.open(video.src, '_blank'); 
     });
   }
 
-  // --- INITIALISATION DES 10 SLOTS VIDÉO ---
   const slotsContainer = document.getElementById("video-slots");
   const template = document.getElementById("slot-template");
   for (let i = 0; i < 10; i++) { 
@@ -378,7 +388,6 @@
     setupSlot(node, false); 
   }
   
-  // --- INITIALISATION DES 10 SCÈNES HISTOIRE ---
   const storySlotsContainer = document.getElementById("story-slots");
   for (let i = 0; i < 10; i++) { 
     const node = template.content.firstElementChild.cloneNode(true); 
@@ -387,7 +396,6 @@
     setupSlot(node, true); 
   }
 
-  // --- GESTION DES PERSONNAGES (HISTOIRE) ---
   window.storyCharactersData = []; 
   [1, 2, 3].forEach(num => { 
     const nameInput = document.getElementById(`char${num}-name`); 
@@ -407,14 +415,12 @@
     }
   });
 
-  // --- HISTORIQUE VIDÉO ---
   function renderVideoHistory() { 
     const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]"); 
     document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="${i.url}" class="history-btn" download>⬇</a></div></div>`).join(""); 
   }
   renderVideoHistory();
 
-  // --- BOUTON CHANGER DE CLÉ ---
   document.getElementById('change-key-btn').onclick = () => { 
     if(confirm("Voulez-vous vraiment changer de clé API ? L'historique restera sauvegardé.")) { 
       sessionStorage.removeItem("agnes_api_key"); 
