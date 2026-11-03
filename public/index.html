@@ -95,8 +95,13 @@
       <!-- SECTION HISTOIRE -->
       <section id="section-story" class="section">
         <div class="card" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">📝 Synopsis de l'histoire</h3>
+          <textarea id="story-synopsis" class="input-field" rows="3" placeholder="Résumez l'histoire globale..."></textarea>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages principaux (Max 3)</h3>
-          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">L'IA utilisera ces visages pour les scènes où le prénom est mentionné.</p>
+          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">Ces visages seront appliqués aux scènes où le prénom est mentionné.</p>
           <div class="char-grid">
             <div class="char-col">
               <input type="text" id="char1-name" class="input-field" placeholder="Prénom 1" style="margin-bottom: 5px; text-align: center;">
@@ -118,6 +123,7 @@
             </div>
           </div>
         </div>
+        
         <div class="video-slots" id="story-slots"></div>
         <div class="history-section">
           <h3>Historique de l'histoire</h3>
@@ -128,7 +134,7 @@
     </main>
   </div>
 
-  <!-- TEMPLATE POUR LES 10 SLOTS VIDÉO -->
+  <!-- TEMPLATE POUR LES SLOTS VIDÉO (Utilisé 20 fois par le JS) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
