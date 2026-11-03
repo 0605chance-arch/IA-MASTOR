@@ -8,28 +8,28 @@
   const lockError = document.getElementById("lock-error");
 
   function checkLock() {
-    if (window.userApiKey) {
-      lockScreen.style.display = "none";
-      mainApp.style.display = "flex";
-    } else {
-      lockScreen.style.display = "flex";
-      mainApp.style.display = "none";
+    if (window.userApiKey) { 
+      lockScreen.style.display = "none"; 
+      mainApp.style.display = "flex"; 
+    } else { 
+      lockScreen.style.display = "flex"; 
+      mainApp.style.display = "none"; 
     }
   }
 
   unlockBtn.addEventListener("click", () => {
     const key = apiKeyInput.value.trim();
-    if (key.length < 5) {
-      lockError.textContent = "Veuillez entrer une clé API valide.";
-      lockError.style.display = "block";
-      return;
+    if (key.length < 5) { 
+      lockError.textContent = "Clé invalide."; 
+      lockError.style.display = "block"; 
+      return; 
     }
-    window.userApiKey = key;
-    sessionStorage.setItem("agnes_api_key", key);
-    lockError.style.display = "none";
+    window.userApiKey = key; 
+    sessionStorage.setItem("agnes_api_key", key); 
+    lockError.style.display = "none"; 
     checkLock();
   });
-
+  
   checkLock();
 
   async function apiFetch(endpoint, options = {}) {
@@ -43,8 +43,9 @@
     const data = await response.json().catch(()=>({}));
     
     if (!response.ok) { 
-      const err = new Error(data.error || "Erreur serveur"); 
+      const err = new Error(data.error || "Erreur"); 
       err.status = response.status; 
+      err.code = data.code; 
       throw err; 
     }
     return data;
@@ -54,14 +55,16 @@
   const tabs = document.querySelectorAll(".tab-btn");
   const sections = document.querySelectorAll(".section");
   
-  tabs.forEach(t => t.addEventListener("click", () => {
+  tabs.forEach(t => t.addEventListener("click", () => { 
     tabs.forEach(b => b.classList.remove("active")); 
-    sections.forEach(s => s.classList.remove("active"));
+    sections.forEach(s => s.classList.remove("active")); 
     t.classList.add("active"); 
-    document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
+    document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active"); 
   }));
 
-  // --- CHAT ---
+  // ==========================================
+  // 1. CHAT
+  // ==========================================
   const chatHistory = document.getElementById("chat-history");
   const chatInput = document.getElementById("chat-input");
   const chatSend = document.getElementById("chat-send");
@@ -90,7 +93,7 @@
   function saveSessions() { 
     localStorage.setItem("iamastor_chat_sessions", JSON.stringify(allSessions)); 
   }
-
+  
   function createNewSession() { 
     const n = { id: Date.now().toString(), title: "Discussion", messages: [{ role: "assistant", content: "Bonjour !" }] }; 
     allSessions.unshift(n); 
@@ -99,7 +102,7 @@
     renderSessions(); 
     renderChat(); 
   }
-
+  
   function renderSessions() { 
     sessionsList.innerHTML = ""; 
     allSessions.forEach(s => { 
@@ -122,7 +125,7 @@
       sessionsList.appendChild(div); 
     }); 
   }
-
+  
   function renderChat() { 
     chatHistory.innerHTML = ""; 
     if (!currentSessionId) return; 
@@ -135,14 +138,7 @@
   }
 
   newChatBtn.addEventListener("click", createNewSession);
-  
-  if (allSessions.length === 0) {
-    createNewSession(); 
-  } else { 
-    currentSessionId = allSessions[0].id; 
-    renderSessions(); 
-    renderChat(); 
-  }
+  if (allSessions.length === 0) createNewSession(); else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
 
   chatSend.addEventListener("click", async () => { 
     const text = chatInput.value.trim(); 
@@ -159,7 +155,10 @@
     renderChat(); 
     
     try { 
-      const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content })), imageBase64: chatImageBase64 }) }); 
+      const data = await apiFetch("/api/chat", { 
+        method: "POST", 
+        body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content })), imageBase64: chatImageBase64 }) 
+      }); 
       if (data.content) { 
         s.messages.push({ role: "assistant", content: data.content }); 
         saveSessions(); 
@@ -173,7 +172,9 @@
     chatSend.disabled = false; 
   });
 
-  // --- IMAGES ---
+  // ==========================================
+  // 2. IMAGES
+  // ==========================================
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
   const imgBtn = document.getElementById("image-generate");
@@ -204,8 +205,12 @@
     imgBtn.disabled = true; 
     imgBtn.textContent = "Génération..."; 
     imgArea.hidden = true; 
+    
     try { 
-      const data = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 }) }); 
+      const data = await apiFetch("/api/generate-image", { 
+        method: "POST", 
+        body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 }) 
+      }); 
       if (data.url) { 
         imgResult.src = data.url; 
         imgDownload.href = data.url; 
@@ -229,7 +234,9 @@
   }
   renderImageHistory();
 
-  // --- VARIABLES VIDÉO (Polling Groupé & Burst) ---
+  // ==========================================
+  // 3. VIDÉO (Le système de file d'attente invisible)
+  // ==========================================
   let activeVideoTasks = []; 
   let pollingInterval = null;
 
@@ -242,8 +249,13 @@
         return; 
       }
       const ids = activeVideoTasks.map(t => t.id);
+      
       try {
-        const data = await apiFetch("/api/status-batch", { method: "POST", body: JSON.stringify({ ids }) });
+        const data = await apiFetch("/api/status-batch", { 
+          method: "POST", 
+          body: JSON.stringify({ ids }) 
+        });
+        
         data.results.forEach(res => {
           const task = activeVideoTasks.find(t => t.id === res.id);
           if (task) {
@@ -263,7 +275,6 @@
     }, 3000);
   }
 
-  // --- VIDÉO & HISTOIRE ---
   function setupSlot(node, isStory = false) {
     const prompt = node.querySelector(".slot-prompt");
     const format = node.querySelector(".slot-format");
@@ -292,15 +303,15 @@
       }); 
     }
     
+    // ⚠️ LA FAMEUSE FONCTION D'ENVOI SILENCIEUX
     const sendVideoRequest = async (attempt = 1) => {
       try {
         const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
-        if (isStory) { 
-          payload.storyCharacters = window.storyCharactersData || []; 
-        }
+        if (isStory) { payload.storyCharacters = window.storyCharactersData || []; }
         
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
         
+        // Si ça marche, on affiche "En cours..." (déjà affiché, mais on confirme)
         status.innerHTML = `<span class="dot"></span> En cours...`;
         
         activeVideoTasks.push({ 
@@ -324,13 +335,17 @@
           } 
         });
         startGlobalPolling();
+
       } catch (err) {
-        if ((err.status === 429 || err.message.includes("429")) && attempt <= 5) { 
-          let waitTime = attempt * 10; 
-          status.innerHTML = `<span class="dot"></span> Retry dans ${waitTime}s...`; 
-          setTimeout(() => sendVideoRequest(attempt + 1), waitTime * 1000); 
-          return; 
+        // SI AGNES DIT "TROP DE REQUETES" (429), ON ATTEND 5 SECONDES EN SILENCE
+        // Le statut reste "En cours..." sans afficher de compte à rebours (pas de "Retry dans 10s")
+        if (err.status === 429 || err.code === "rate_limit") { 
+          if (attempt <= 10) { 
+            setTimeout(() => sendVideoRequest(attempt + 1), 5000); // Réessaie après 5s
+            return; 
+          }
         }
+        // Vraie erreur (ex: problème de prompt)
         status.dataset.state = "error"; 
         status.innerHTML = `<span class="dot"></span> Erreur`; 
         genBtn.disabled = false;
@@ -343,18 +358,19 @@
       dlBtn.disabled = true; 
       player.hidden = true; 
       status.dataset.state = "loading"; 
-      status.innerHTML = `<span class="dot"></span> Envoi...`; 
+      status.innerHTML = `<span class="dot"></span> En cours...`; // Affiché instantanément au clic
       sendVideoRequest(); 
     });
     
+    // Téléchargement direct via l'URL de la vidéo
     dlBtn.addEventListener("click", () => { 
       if (video.src) window.open(video.src, '_blank'); 
     });
   }
 
+  // --- INITIALISATION DES 10 SLOTS VIDÉO ---
   const slotsContainer = document.getElementById("video-slots");
   const template = document.getElementById("slot-template");
-  
   for (let i = 0; i < 10; i++) { 
     const node = template.content.firstElementChild.cloneNode(true); 
     node.querySelector(".slot-num").textContent = `Vidéo #${i + 1}`; 
@@ -362,6 +378,7 @@
     setupSlot(node, false); 
   }
   
+  // --- INITIALISATION DES 10 SCÈNES HISTOIRE ---
   const storySlotsContainer = document.getElementById("story-slots");
   for (let i = 0; i < 10; i++) { 
     const node = template.content.firstElementChild.cloneNode(true); 
@@ -370,8 +387,8 @@
     setupSlot(node, true); 
   }
 
+  // --- GESTION DES PERSONNAGES (HISTOIRE) ---
   window.storyCharactersData = []; 
-  
   [1, 2, 3].forEach(num => { 
     const nameInput = document.getElementById(`char${num}-name`); 
     const fileInput = document.getElementById(`char${num}-file`); 
@@ -390,14 +407,14 @@
     }
   });
 
+  // --- HISTORIQUE VIDÉO ---
   function renderVideoHistory() { 
     const h = JSON.parse(localStorage.getItem("iamastor_video_history") || "[]"); 
     document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="${i.url}" class="history-btn" download>⬇</a></div></div>`).join(""); 
   }
-  
   renderVideoHistory();
 
-  // --- CHANGER DE CLÉ ---
+  // --- BOUTON CHANGER DE CLÉ ---
   document.getElementById('change-key-btn').onclick = () => { 
     if(confirm("Voulez-vous vraiment changer de clé API ? L'historique restera sauvegardé.")) { 
       sessionStorage.removeItem("agnes_api_key"); 
