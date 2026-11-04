@@ -91,14 +91,14 @@
       </section>
 
       <!-- =========================================
-           VIDÉO (Optimisé et complet)
+           VIDÉO
            ========================================= -->
       <section id="section-video" class="section">
         <div class="info-banner">
           <span class="info-icon">💡</span>
           <p>
             <strong>Astuce :</strong> Utilisez les prompts générés dans l'onglet <strong>Studio</strong> pour créer vos vidéos ici.<br>
-            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer. Restez actif sur l'app.
+            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer. Grâce au serveur, vous pouvez quitter l'app, la génération continue !
           </p>
         </div>
         <div class="video-slots" id="video-slots"></div>
@@ -247,7 +247,7 @@
        TEMPLATES
        ============================================ -->
   
-  <!-- Slot Vidéo (Onglet Vidéo - Bouton Image Restauré) -->
+  <!-- Slot Vidéo (Onglet Vidéo - Avec Import d'Image et Aperçu) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
@@ -256,7 +256,7 @@
       </div>
       <textarea class="slot-prompt input-field" rows="3" placeholder="Prompt vidéo…"></textarea>
       
-      <!-- Zone Image (Restaurée et avec Aperçu) -->
+      <!-- Zone Image (Restaurée) -->
       <div class="slot-image-area" style="display: flex; gap: 10px; align-items: center; margin: 10px 0;">
         <input type="file" class="slot-img-input" accept="image/*" hidden>
         <button class="slot-img-btn btn-secondary btn-small" type="button">📷 Ajouter une image</button>
