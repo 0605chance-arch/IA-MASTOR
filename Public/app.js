@@ -52,19 +52,16 @@
   async function downloadFile(url, filename, id) {
     try {
       let blob;
-
-      // On utilise apiFetch pour passer la clé API au serveur proxy
       if (url.startsWith("data:")) {
         const res = await fetch(url);
         blob = await res.blob();
       } else {
         const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
         const res = await apiFetch(proxyUrl);
-        if (!res.ok) throw new Error("Erreur serveur lors du téléchargement");
+        if (!res.ok) throw new Error("Erreur serveur");
         blob = await res.blob();
       }
 
-      // Création du fichier local pour forcer le téléchargement
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.style.display = "none";
@@ -74,10 +71,9 @@
       a.click(); 
       window.URL.revokeObjectURL(blobUrl);
       a.remove();
-
     } catch (e) {
-      console.error("Erreur de téléchargement:", e);
-      alert("Le téléchargement a échoué. Si vous êtes sur iPhone, ouvrez la vidéo avec 'Voir' et utilisez le bouton de partage pour l'enregistrer dans vos fichiers.");
+      console.error("Erreur:", e);
+      alert("Téléchargement échoué. Ouvrez la vidéo via 'Voir' pour l'enregistrer manuellement.");
     }
   }
 
@@ -125,13 +121,8 @@
 
   apiKeySave.addEventListener("click", async () => {
     const key = apiKeyInput.value.trim();
-    if (!key) {
-      apiKeyStatus.textContent = "Entrez une clé.";
-      apiKeyStatus.className = "api-status err";
-      return;
-    }
+    if (!key) return;
     apiKeyStatus.textContent = "Validation…";
-    apiKeyStatus.className = "api-status";
     apiKeySave.disabled = true;
     
     const ok = await validateKey(key);
@@ -144,7 +135,7 @@
       apiKeyStatus.className = "api-status ok";
       setTimeout(() => { apiModal.hidden = true; apiKeyStatus.textContent = ""; }, 500);
     } else {
-      apiKeyStatus.textContent = "Clé invalide ou expirée.";
+      apiKeyStatus.textContent = "Clé invalide.";
       apiKeyStatus.className = "api-status err";
     }
   });
@@ -152,7 +143,6 @@
   apiKeyBtn.addEventListener("click", () => {
     apiKeyInput.value = getKey();
     apiKeyStatus.textContent = "";
-    apiKeyStatus.className = "api-status";
     apiModal.hidden = false;
   });
 
@@ -214,7 +204,7 @@
     const n = {
       id: Date.now().toString(),
       title: "Nouvelle conversation",
-      messages: [{ role: "assistant", content: "Bonjour ! Comment puis-je vous aider aujourd'hui ?" }],
+      messages: [{ role: "assistant", content: "Bonjour ! Comment puis-je vous aider ?" }],
     };
     allSessions.unshift(n);
     currentSessionId = n.id;
@@ -228,7 +218,7 @@
     allSessions.forEach((s) => {
       const div = document.createElement("div");
       div.className = `session-item ${s.id === currentSessionId ? "active" : ""}`;
-      div.innerHTML = `<span>${escapeHtml(s.title)}</span><button class="session-del" data-id="${s.id}" title="Supprimer">×</button>`;
+      div.innerHTML = `<span>${escapeHtml(s.title)}</span><button class="session-del" data-id="${s.id}">×</button>`;
       div.addEventListener("click", (e) => {
         if (e.target.classList.contains("session-del")) {
           e.stopPropagation();
@@ -255,9 +245,7 @@
     s.messages.forEach((m) => {
       if (m.role === "user") {
         let html = escapeHtml(m.content).replace(/\n/g, "<br>");
-        if (m.imageBase64) {
-          html += `<br><img src="data:image/jpeg;base64,${m.imageBase64}" style="max-width:200px; border-radius:8px; margin-top:8px;" alt="">`;
-        }
+        if (m.imageBase64) html += `<br><img src="data:image/jpeg;base64,${m.imageBase64}" style="max-width:200px; border-radius:8px; margin-top:8px;">`;
         chatHistory.innerHTML += `<div class="message user">${html}</div>`;
       } else {
         chatHistory.innerHTML += `<div class="message assistant">${parseMarkdown(m.content)}</div>`;
@@ -278,10 +266,7 @@
     chatSend.disabled = true;
 
     s.messages.push({ role: "user", content: text, imageBase64: chatImageBase64 || undefined });
-    if (s.title === "Nouvelle conversation") {
-      s.title = text.slice(0, 30) + (text.length > 30 ? "…" : "");
-      renderSessions();
-    }
+    if (s.title === "Nouvelle conversation") { s.title = text.slice(0, 30) + "…"; renderSessions(); }
     saveSessions();
     renderChat();
 
@@ -292,11 +277,8 @@
         body: JSON.stringify({ messages: apiMessages, imageBase64: chatImageBase64 || undefined }),
       });
       const data = await res.json();
-      if (data.content) {
-        s.messages.push({ role: "assistant", content: data.content });
-      } else if (data.error) {
-        s.messages.push({ role: "assistant", content: `⚠️ Erreur : ${data.error}` });
-      }
+      if (data.content) s.messages.push({ role: "assistant", content: data.content });
+      else if (data.error) s.messages.push({ role: "assistant", content: `⚠️ Erreur : ${data.error}` });
     } catch (e) {
       s.messages.push({ role: "assistant", content: "⚠️ Erreur réseau." });
     }
@@ -330,7 +312,7 @@
     const reader = new FileReader();
     reader.onload = () => {
       imgBase64 = reader.result.split(",")[1];
-      imgPreview.innerHTML = `<img src="${reader.result}" alt="">`;
+      imgPreview.innerHTML = `<img src="${reader.result}">`;
     };
     reader.readAsDataURL(file);
   });
@@ -348,33 +330,21 @@
       const data = await res.json();
       if (data.url) {
         imgResult.src = data.url;
-        
-        imgDownload.onclick = (e) => {
-          e.preventDefault();
-          downloadFile(data.url, `videoai-${data.id}.jpg`, data.id);
-        };
-        
+        imgDownload.onclick = (e) => { e.preventDefault(); downloadFile(data.url, `videoai-${data.id}.jpg`, data.id); };
         imgArea.hidden = false;
         const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]");
         h.unshift({ prompt: imgPrompt.value, url: data.url, id: data.id, date: new Date().toLocaleDateString("fr-FR") });
         localStorage.setItem("videoai_image_history", JSON.stringify(h.slice(0, 20)));
         renderImageHistory();
-      } else {
-        alert(data.error || "Erreur image");
-      }
-    } catch {
-      alert("Erreur réseau");
-    }
+      } else alert(data.error);
+    } catch { alert("Erreur réseau"); }
     imgBtn.disabled = false;
     imgBtn.textContent = "Générer l'image";
   });
 
   function renderImageHistory() {
     const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]");
-    if (h.length === 0) {
-      imageHistoryEl.innerHTML = "<p style='color:gray;'>Aucune image.</p>";
-      return;
-    }
+    if (h.length === 0) { imageHistoryEl.innerHTML = "<p style='color:gray;'>Aucune image.</p>"; return; }
     imageHistoryEl.innerHTML = h.map((i) => `
       <div class="history-item">
         <span class="history-prompt">${escapeHtml(i.prompt)}</span>
@@ -385,9 +355,7 @@
       </div>`).join("");
 
     imageHistoryEl.querySelectorAll(".dl-img-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.jpg`, e.target.dataset.id);
-      });
+      btn.addEventListener("click", (e) => downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.jpg`, e.target.dataset.id));
     });
   }
   renderImageHistory();
@@ -407,10 +375,7 @@
     const key = type === "story" ? "videoai_story_history" : "videoai_video_history";
     const el = document.getElementById(type === "story" ? "story-history" : "video-history");
     const h = JSON.parse(localStorage.getItem(key) || "[]");
-    if (h.length === 0) {
-      el.innerHTML = "<p style='color:gray;'>Aucune vidéo.</p>";
-      return;
-    }
+    if (h.length === 0) { el.innerHTML = "<p style='color:gray;'>Aucune vidéo.</p>"; return; }
     
     el.innerHTML = h.map((i) => `
       <div class="history-item">
@@ -422,16 +387,15 @@
       </div>`).join("");
 
     el.querySelectorAll(".dl-vid-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.mp4`, e.target.dataset.id);
-      });
+      btn.addEventListener("click", (e) => downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.mp4`, e.target.dataset.id));
     });
   }
 
   // ============================================
-  // FACTORY SLOT (Vidéo & Studio)
+  // FACTORY SLOT + REPRISE AUTOMATIQUE
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
+  const activePolls = new Map(); // Stocke les vidéos en cours de génération
 
   function createSlot(node, context = "video", getSharedImages = () => []) {
     const promptEl = node.querySelector(".slot-prompt");
@@ -445,7 +409,8 @@
     const uploadBtn = node.querySelector(".slot-upload-btn");
     const imgInput = node.querySelector(".slot-img-input");
 
-    const state = { base64: null, id: null, url: null, poll: null };
+    const state = { base64: null, id: null, url: null };
+    const slotId = "slot_" + Math.random().toString(36).substr(2, 9);
 
     uploadBtn.addEventListener("click", () => imgInput.click());
     imgInput.addEventListener("change", (e) => {
@@ -464,9 +429,35 @@
       statusEl.innerHTML = `<span class="dot"></span> ${txt}`;
     }
 
+    async function checkStatus(videoId) {
+      try {
+        const s = await apiFetch(`/api/status/${videoId}`);
+        const info = await s.json();
+        
+        if (info.status === "completed" && info.url) {
+          activePolls.delete(slotId);
+          state.url = info.url;
+          video.src = info.url;
+          player.hidden = false;
+          dlBtn.disabled = false;
+          setStatus("ready", "Prête");
+          genBtn.disabled = false;
+          saveToHistory(context, promptEl.value.trim(), info.url, state.id);
+          return true;
+        } else if (info.status === "failed") {
+          activePolls.delete(slotId);
+          setStatus("error", "Échec");
+          genBtn.disabled = false;
+          return true;
+        }
+      } catch (err) {
+        console.warn("Erreur polling (réseau) :", err);
+      }
+      return false;
+    }
+
     genBtn.addEventListener("click", async () => {
       if (!promptEl.value.trim()) return;
-      if (state.poll) { clearInterval(state.poll); state.poll = null; }
       genBtn.disabled = true;
       dlBtn.disabled = true;
       player.hidden = true;
@@ -475,68 +466,34 @@
 
       const refs = [];
       if (state.base64) refs.push(state.base64);
-      
       if (context === "story") {
-        const charImgs = getSharedImages();
-        charImgs.forEach(img => {
+        getSharedImages().forEach(img => {
           if (img && !refs.includes(img) && refs.length < 5) refs.push(img);
         });
       }
 
-      const body = {
-        prompt: promptEl.value.trim(),
-        format: formatEl.value,
-        duration: parseInt(durationEl.value, 10),
-      };
+      const body = { prompt: promptEl.value.trim(), format: formatEl.value, duration: parseInt(durationEl.value, 10) };
       if (refs.length > 0) body.images = refs;
 
       try {
-        const res = await apiFetch("/api/generate-video", {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        
-        // Sécurité Anti-Crash Safari
+        const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(body) });
         const contentType = res.headers.get("content-type");
         let data;
-        if (contentType && contentType.includes("application/json")) {
-            data = await res.json();
-        } else {
-            throw new Error(`Erreur serveur (${res.status}). Veuillez réessayer.`);
-        }
+        if (contentType && contentType.includes("application/json")) data = await res.json();
+        else throw new Error(`Erreur serveur (${res.status})`);
 
-        if (!data.id) throw new Error(data.error || "Pas d'ID renvoyé");
-
+        if (!data.id) throw new Error(data.error || "Pas d'ID");
+        
         state.id = data.id;
         setStatus("loading", "Génération…");
         
-        // Polling toutes les 3 secondes
-        state.poll = setInterval(async () => {
-          try {
-            const s = await apiFetch(`/api/status/${state.id}`);
-            const info = await s.json();
-            
-            if (info.status === "completed" && info.url) {
-              clearInterval(state.poll);
-              state.poll = null;
-              state.url = info.url;
-              video.src = info.url;
-              player.hidden = false;
-              dlBtn.disabled = false;
-              setStatus("ready", "Prête");
-              genBtn.disabled = false;
-              saveToHistory(context, promptEl.value.trim(), info.url, state.id);
-            } else if (info.status === "failed") {
-              clearInterval(state.poll);
-              state.poll = null;
-              setStatus("error", "Échec");
-              genBtn.disabled = false;
-            }
-          } catch (pollErr) {
-            // On ignore les erreurs de réseau transitoires
-            console.warn("Erreur polling:", pollErr);
-          }
-        }, 3000); 
+        // Enregistrement pour la reprise auto
+        activePolls.set(slotId, { id: state.id, check: () => checkStatus(state.id) });
+        
+        const poll = setInterval(async () => {
+          const done = await checkStatus(state.id);
+          if (done) clearInterval(poll);
+        }, 3000);
 
       } catch (e) {
         setStatus("error", "Erreur : " + e.message);
@@ -549,6 +506,18 @@
       downloadFile(state.url, `videoai-${state.id}.mp4`, state.id);
     });
   }
+
+  // ============================================
+  // REPRISE AUTOMATIQUE (Anti "Load Failed" iOS)
+  // ============================================
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible") {
+      console.log("Reprise de l'application : vérification des vidéos en cours...");
+      for (const [slotId, pollData] of activePolls.entries()) {
+        await pollData.check();
+      }
+    }
+  });
 
   // ============================================
   // INITIALISATION ONGLET VIDÉO
@@ -593,16 +562,12 @@
       const r = new FileReader();
       r.onload = () => {
         node._imageBase64 = r.result.split(",")[1];
-        thumb.innerHTML = `<img src="${r.result}" alt="">`;
+        thumb.innerHTML = `<img src="${r.result}">`;
       };
       r.readAsDataURL(f);
     });
 
-    delBtn.addEventListener("click", () => {
-      node.remove();
-      updateCharUI();
-    });
-
+    delBtn.addEventListener("click", () => { node.remove(); updateCharUI(); });
     charsContainer.appendChild(node);
     updateCharUI();
   }
