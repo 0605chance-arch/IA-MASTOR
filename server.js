@@ -9,6 +9,23 @@ app.use(express.json({ limit: "60mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // ==========================================
+// KEEP-ALIVE (Anti-endormissement Render)
+// ==========================================
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL; // Render fournit cette variable automatiquement
+if (RENDER_URL) {
+  const pingInterval = 10 * 60 * 1000; // 10 minutes
+  setInterval(async () => {
+    try {
+      await fetch(`${RENDER_URL}/api/health`, { method: "GET" });
+      console.log("💓 Keep-Alive ping envoyé.");
+    } catch (e) {
+      console.log("⚠️ Keep-Alive échoué.");
+    }
+  }, pingInterval);
+  console.log(`Keep-Alive activé pour ${RENDER_URL}`);
+}
+
+// ==========================================
 // HELPERS
 // ==========================================
 function getApiKey(req) {
@@ -30,6 +47,9 @@ async function apiFetch(url, options = {}, timeoutMs = 90000) {
 }
 
 app.use("/api", (req, res, next) => {
+  // Exception pour le keep-alive qui n'a pas besoin de clé API
+  if (req.path === "/health" && req.method === "GET") return next();
+  
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKey = key;
@@ -90,12 +110,18 @@ async function processQueue(apiKey) {
         continue;
       }
 
+      // Sécurité : vérifier que la réponse est du JSON
+      const contentType = r.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+         throw new Error(`Serveur Agnes indisponible (Erreur ${r.status}).`);
+      }
+
       const data = await r.json();
       if (!r.ok) throw new Error(data.error?.message || "Erreur soumission vidéo");
 
       q.lastSubmit = Date.now();
       q.jobs.shift();
-      job.resolve({ id: data.video_id || data.id, seed: job.body.seed });
+      job.resolve({ id: data.video_id || data.id });
 
     } catch (err) {
       q.jobs.shift();
@@ -116,6 +142,11 @@ function enqueueVideoJob(apiKey, body) {
 // ==========================================
 // ROUTES
 // ==========================================
+
+// Route GET pour le Keep-Alive
+app.get("/api/health", (req, res) => res.json({ status: "awake" }));
+
+// Route POST pour la validation de la clé par l'interface
 app.post("/api/health", async (req, res) => {
   try {
     const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
@@ -198,7 +229,6 @@ app.post("/api/generate-video", async (req, res) => {
       seed: Math.floor(Math.random() * 1000000),
     };
 
-    // Gestion des références (API limite à 5 images)
     let refs = [];
     if (Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
     else if (imageBase64) refs = [imageBase64];
@@ -225,6 +255,13 @@ app.get("/api/status/:id", async (req, res) => {
       { headers: { "Authorization": `Bearer ${req.apiKey}` } },
       20000
     );
+    
+    // Sécurité : vérifier que la réponse est du JSON
+    const contentType = r.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        return res.status(502).json({ error: "Réponse invalide du serveur Agnes." });
+    }
+
     const data = await r.json();
     res.json({ status: data.status || "processing", url: data.url || data.metadata?.url });
   } catch (err) {
