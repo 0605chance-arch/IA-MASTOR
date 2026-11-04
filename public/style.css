@@ -707,3 +707,35 @@ textarea {
     flex-direction: column;
   }
 }
+/* Style des tableaux dans le chat */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  margin: 15px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.message.assistant table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--bg);
+}
+
+.message.assistant th {
+  background: var(--surface-2);
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+}
+
+.message.assistant td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.message.assistant tr:last-child td {
+  border-bottom: none;
+}
