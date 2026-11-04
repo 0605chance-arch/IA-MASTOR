@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>VideoAI Pro — Studio Créatif</title>
+  <title>AdopteTonIA — Studio de Production</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,20 +13,11 @@
        ============================================ -->
   <div id="api-modal" class="modal" hidden>
     <div class="modal-card">
-      <h2>🔑 Clé API Agnes</h2>
+      <h2>🔑 Clé API Agnès</h2>
       <p class="modal-desc">
-        Votre token est stocké uniquement en <strong>sessionStorage</strong> —
-        effacé automatiquement à la fermeture de l'onglet. Il n'est jamais
-        écrit sur disque ni transmis à un tiers.
+        Votre token est stocké uniquement en <strong>sessionStorage</strong> — effacé à la fermeture de l'onglet.
       </p>
-      <input
-        type="password"
-        id="api-key-input"
-        class="input-field"
-        placeholder="Collez votre token Agnes Starter…"
-        autocomplete="off"
-        spellcheck="false"
-      >
+      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre token Agnès Starter…" autocomplete="off">
       <div id="api-key-status" class="api-status"></div>
       <div class="modal-actions">
         <button id="api-key-save" class="btn-primary">Valider &amp; continuer</button>
@@ -40,19 +31,19 @@
   <div class="app">
     <header class="header">
       <div class="header-top">
-        <div class="logo">✨ Video<em>AI</em></div>
-        <button id="api-key-btn" class="api-btn" title="Changer la clé API" aria-label="Changer la clé API">
+        <div class="logo">✨ Adopte<em>TonIA</em></div>
+        <button id="api-key-btn" class="api-btn" title="Changer la clé API">
           <span class="api-dot" id="api-dot"></span> 🔑
         </button>
       </div>
-      <p class="tagline">Chat • Image • Vidéo • Studio</p>
+      <p class="tagline">Chat • Image • Vidéo • Studio de Production</p>
     </header>
 
     <div class="tabs">
       <button id="tab-chat"  class="tab-btn active">💬 Chat</button>
       <button id="tab-image" class="tab-btn">🖼️ Image</button>
       <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
-      <button id="tab-story" class="tab-btn">📖 Studio</button>
+      <button id="tab-studio" class="tab-btn">🎥 Studio</button>
     </div>
 
     <main class="main">
@@ -63,18 +54,16 @@
       <section id="section-chat" class="section active">
         <div class="chat-layout">
           <aside class="chat-sidebar" id="chat-sidebar">
-            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">
-              + Nouvelle conversation
-            </button>
+            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
             <div id="chat-sessions-list" class="sessions-list"></div>
           </aside>
           <div class="chat-main">
             <div id="chat-history" class="chat-history"></div>
             <div class="chat-input-area">
               <input type="file" id="chat-image-upload" accept="image/*" hidden>
-              <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;" aria-label="Joindre une image">📷</button>
+              <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;">📷</button>
               <textarea id="chat-input" placeholder="Envoyez un message…" rows="1"></textarea>
-              <button id="chat-send" class="btn-primary" aria-label="Envoyer">⬆️</button>
+              <button id="chat-send" class="btn-primary">⬆️</button>
             </div>
           </div>
         </div>
@@ -93,13 +82,13 @@
           </div>
           <select id="image-format" class="input-field">
             <option value="9:16">Portrait (9:16)</option>
-            <option value="16:9">Paysage (16:9)</option>
+            <option value="16:9">Large (16:9)</option>
             <option value="1:1">Carré (1:1)</option>
           </select>
           <button id="image-generate" class="btn-primary">Générer l'image</button>
         </div>
         <div id="image-result-area" class="result-area" hidden>
-          <img id="image-result" src="" alt="Résultat de la génération">
+          <img id="image-result" src="" alt="Résultat">
           <a id="image-download" class="btn-download" download>Télécharger</a>
         </div>
         <div class="history-section">
@@ -109,22 +98,17 @@
       </section>
 
       <!-- =========================================
-           VIDÉO
+           VIDÉO (Optimisé Starter Plan)
            ========================================= -->
       <section id="section-video" class="section">
-        
-        <!-- Bannière d'information -->
         <div class="info-banner">
           <span class="info-icon">⏳</span>
           <p>
-            <strong>Temps de génération :</strong> Une vidéo met généralement <strong>10 à 30 minutes</strong> à se générer (selon la charge des serveurs). 
-            <br>
-            <strong>Important :</strong> Restez actif sur l'application pendant la génération, car le serveur Render s'éteint automatiquement au bout de 10 minutes d'inactivité.
+            <strong>Temps de génération :</strong> Une vidéo met généralement <strong>10 à 30 min</strong> selon la charge. 
+            <strong>Important :</strong> Restez actif sur l'application, le serveur Render s'éteint après 10 min d'inactivité.
           </p>
         </div>
-
         <div class="video-slots" id="video-slots"></div>
-        
         <div class="history-section">
           <h3>Bibliothèque vidéo</h3>
           <div id="video-history" class="history-grid"></div>
@@ -132,62 +116,201 @@
       </section>
 
       <!-- =========================================
-           HISTOIRE / STUDIO
+           STUDIO DE PRODUCTION (Remplace Histoire)
            ========================================= -->
-      <section id="section-story" class="section">
+      <section id="section-studio" class="section">
         
-        <!-- En-tête Premium -->
-        <div class="story-premium-header">
-          <h2>🎬 Studio Cinématographique IA</h2>
-          <p>
-            Créez des vidéos IA de <strong>1 à 2 minutes</strong>. 
-            Notre système d'intelligence mémorise vos personnages et vos prompts pour générer une histoire cinématographique premium, scène par scène.
-          </p>
-        </div>
-
-        <!-- Étape 1 : Personnages de référence -->
-        <div class="card story-setup">
-          <div class="story-chars-header">
-            <span class="field-label">🎭 Personnages de référence (10 max)</span>
-            <span class="char-count" id="char-count">0 / 10</span>
+        <!-- VUE 1 : ACCUEIL DU STUDIO -->
+        <div id="studio-home" class="studio-view active">
+          <div class="studio-hero">
+            <h1>Donnez vie à vos idées.</h1>
+            <p>De votre première idée à votre production cinématographique, votre studio IA vous accompagne à chaque étape.</p>
           </div>
-          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px;">
-            L'IA s'en souviendra pour chaque scène. (Les 5 premières images seront utilisées par l'API pour garantir la cohérence).
-          </p>
+          
+          <div class="studio-actions-grid">
+            <div class="studio-action-card card" id="studio-btn-new">
+              <span class="action-icon">✨</span>
+              <h3>Créer un nouveau projet</h3>
+              <p>Démarrer une production entièrement personnalisée avec l'assistant IA.</p>
+            </div>
+            <div class="studio-action-card card" id="studio-btn-continue">
+              <span class="action-icon">📂</span>
+              <h3>Continuer un projet</h3>
+              <p>Retrouver vos productions précédentes et reprendre là où vous en étiez.</p>
+            </div>
+            <div class="studio-action-card card" id="studio-btn-templates">
+              <span class="action-icon">🎭</span>
+              <h3>Découvrir les modèles</h3>
+              <p>Publicité, court-métrage, TikTok, bande-annonce… Démarrez avec une base pro.</p>
+            </div>
+          </div>
 
-          <div id="story-characters" class="chars-grid"></div>
-
-          <button id="add-char-btn" class="btn-secondary" type="button">
-            + Ajouter un personnage
-          </button>
+          <div id="studio-projects-list" class="studio-projects-list" hidden>
+            <h3>Mes Productions Récentes</h3>
+            <div id="studio-projects-container"></div>
+          </div>
         </div>
 
-        <!-- Étape 2 : Les 10 scènes (mêmes paramètres que Vidéo) -->
-        <div class="story-slots-header">
-          <h3>🎞️ Vos 10 scènes</h3>
-          <button id="story-clear" class="btn-secondary btn-small" hidden>Effacer tout</button>
-        </div>
-        <div class="video-slots" id="story-slots"></div>
+        <!-- VUE 2 : ASSISTANT DE CRÉATION (WIZARD) -->
+        <div id="studio-wizard" class="studio-view" hidden>
+          <div class="wizard-header">
+            <button class="btn-secondary btn-small" id="wizard-back-to-home">← Retour</button>
+            <div class="wizard-progress" id="wizard-progress">Étape 1 sur 4</div>
+          </div>
+          
+          <div class="wizard-container card">
+            <!-- Étape 1 : Type -->
+            <div class="wizard-step active" id="wizard-step-1">
+              <h2>Quel type de vidéo souhaitez-vous créer ?</h2>
+              <div class="wizard-options-grid">
+                <button class="wizard-option-btn" data-type="Publicité">📺 Publicité commerciale</button>
+                <button class="wizard-option-btn" data-type="Histoire">🎬 Histoire cinématographique</button>
+                <button class="wizard-option-btn" data-type="Réseaux sociaux">📱 TikTok / Reels / Shorts</button>
+                <button class="wizard-option-btn" data-type="Court-métrage">🎞️ Court-métrage</button>
+                <button class="wizard-option-btn" data-type="Bande-annonce">🍿 Bande-annonce</button>
+                <button class="wizard-option-btn" data-type="Entreprise">🏢 Présentation d'entreprise</button>
+                <button class="wizard-option-btn" data-type="Série">📺 Série à épisodes</button>
+                <button class="wizard-option-btn" data-type="Libre">🎨 Projet libre</button>
+              </div>
+            </div>
 
-        <div class="history-section">
-          <h3>Bibliothèque Studio</h3>
-          <div id="story-history" class="history-grid"></div>
+            <!-- Étape 2 : Idée -->
+            <div class="wizard-step" id="wizard-step-2" hidden>
+              <h2>Quelle est votre idée ?</h2>
+              <p style="color:var(--text-dim); margin-bottom:15px;">Décrivez votre projet en quelques phrases. L'IA s'occupe de la structure professionnelle.</p>
+              <textarea id="wizard-idea" class="input-field" rows="5" placeholder="Ex: Une publicité cinématographique pour une montre de luxe, ambiance nocturne et pluvieuse, un homme élégant..."></textarea>
+            </div>
+
+            <!-- Étape 3 : Paramètres -->
+            <div class="wizard-step" id="wizard-step-3" hidden>
+              <h2>Paramètres de production</h2>
+              <div class="wizard-params">
+                <div class="input-group">
+                  <label>Format</label>
+                  <select id="wizard-format" class="input-field">
+                    <option value="16:9">16:9 (Cinéma / YouTube)</option>
+                    <option value="9:16">9:16 (TikTok / Reels)</option>
+                    <option value="1:1">1:1 (Carré)</option>
+                  </select>
+                </div>
+                <div class="input-group">
+                  <label>Durée totale (secondes)</label>
+                  <input type="number" id="wizard-duration" class="input-field" value="30" min="5" max="120">
+                </div>
+                <div class="input-group">
+                  <label>Style visuel</label>
+                  <select id="wizard-style" class="input-field">
+                    <option value="Cinématographique">Cinématographique (Film)</option>
+                    <option value="Photoréaliste">Photoréaliste</option>
+                    <option value="Publicité haut de gamme">Publicité haut de gamme</option>
+                    <option value="Animation 3D">Animation 3D</option>
+                  </select>
+                </div>
+                <div class="input-group">
+                  <label>Ambiance</label>
+                  <select id="wizard-mood" class="input-field">
+                    <option value="Dramatique">Dramatique</option>
+                    <option value="Émotionnelle">Émotionnelle</option>
+                    <option value="Mystérieuse">Mystérieuse</option>
+                    <option value="Épique">Épique</option>
+                    <option value="Humoristique">Humoristique</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Étape 4 : Validation -->
+            <div class="wizard-step" id="wizard-step-4" hidden>
+              <h2>Prêt à générer votre dossier de production</h2>
+              <p style="color:var(--text-dim); margin-bottom:20px;">L'IA va endosser le rôle de réalisateur et scénariste pour créer votre bible de personnages, votre direction artistique, vos scènes et vos prompts vidéo prêts à l'emploi.</p>
+              <div id="wizard-summary" class="wizard-summary-box"></div>
+              <button id="wizard-generate-btn" class="btn-primary" style="margin-top: 20px; width: 100%;">🎬 Lancer la production IA</button>
+            </div>
+
+            <div class="wizard-footer">
+              <button id="wizard-prev" class="btn-secondary" hidden>Précédent</button>
+              <button id="wizard-next" class="btn-primary">Suivant</button>
+            </div>
+          </div>
         </div>
+
+        <!-- VUE 3 : ESPACE DE TRAVAIL DU PROJET -->
+        <div id="studio-workspace" class="studio-view" hidden>
+          <div class="workspace-header">
+            <div>
+              <h2 id="workspace-title">Titre du projet</h2>
+              <p id="workspace-synopsis" class="text-dim">Synopsis...</p>
+            </div>
+            <button class="btn-secondary btn-small" id="workspace-back-btn">← Mes projets</button>
+          </div>
+
+          <div class="workspace-layout">
+            <!-- Navigation Interne Studio -->
+            <aside class="workspace-nav">
+              <button class="ws-nav-btn active" data-target="ws-synopsis">📖 Synopsis</button>
+              <button class="ws-nav-btn" data-target="ws-characters">🎭 Personnages</button>
+              <button class="ws-nav-btn" data-target="ws-scenes">🎬 Scènes & Prompts</button>
+              <button class="ws-nav-btn" data-target="ws-export">📦 Exportation</button>
+            </aside>
+
+            <!-- Contenu -->
+            <div class="workspace-content card">
+              
+              <!-- Onglet Synopsis -->
+              <div id="ws-synopsis" class="ws-tab active">
+                <h3>Direction Artistique</h3>
+                <div id="ws-da-info" class="info-box"></div>
+                <h3 style="margin-top:20px;">Synopsis complet</h3>
+                <p id="ws-synopsis-text" style="white-space: pre-wrap; line-height: 1.6;"></p>
+              </div>
+
+              <!-- Onglet Personnages -->
+              <div id="ws-characters" class="ws-tab" hidden>
+                <div class="ws-header-actions">
+                  <h3>Bible des Personnages</h3>
+                  <button class="btn-secondary btn-small" id="ws-add-char">+ Ajouter</button>
+                </div>
+                <div id="ws-characters-list" class="chars-grid"></div>
+              </div>
+
+              <!-- Onglet Scènes & Prompts -->
+              <div id="ws-scenes" class="ws-tab" hidden>
+                <h3>Découpage & Prompts Vidéo</h3>
+                <p style="font-size:13px; color:var(--text-dim); margin-bottom:15px;">Modifiez les prompts si besoin, puis lancez la génération des clips.</p>
+                <div id="ws-scenes-list" class="video-slots"></div>
+              </div>
+
+              <!-- Onglet Export -->
+              <div id="ws-export" class="ws-tab" hidden>
+                <h3>Dossier de Production</h3>
+                <p style="margin-bottom:15px;">Téléchargez votre projet complet pour l'utiliser dans vos logiciels (CapCut, Premiere, etc.).</p>
+                <div class="export-actions">
+                  <button class="btn-primary" id="export-json">📥 Exporter le projet (.json)</button>
+                  <button class="btn-secondary" id="export-txt">📄 Exporter le script (.txt)</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
       </section>
 
     </main>
   </div>
 
   <!-- ============================================
-       TEMPLATE SLOT (Partagé Vidéo + Studio)
+       TEMPLATES
        ============================================ -->
+  
+  <!-- Slot Vidéo (Partagé Vidéo / Studio) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
         <span class="slot-num">#1</span>
         <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
       </div>
-      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène…"></textarea>
+      <textarea class="slot-prompt input-field" rows="3" placeholder="Prompt vidéo…"></textarea>
       <div class="slot-upload">
         <input type="file" class="slot-img-input" accept="image/*" hidden>
         <button class="slot-upload-btn btn-secondary" type="button">📷 Image</button>
@@ -212,20 +335,17 @@
     </div>
   </template>
 
-  <!-- ============================================
-       TEMPLATE PERSONNAGE (Pour le Studio)
-       ============================================ -->
+  <!-- Personnage (Studio) -->
   <template id="char-template">
     <div class="char-card">
       <input type="file" class="char-img-input" accept="image/*" hidden>
-      <div class="char-thumb" role="button" tabindex="0" title="Ajouter une photo de référence">
+      <div class="char-thumb" role="button" title="Ajouter une image">
         <span class="char-plus">+</span>
       </div>
       <div class="char-fields">
-        <input type="text" class="char-name input-field" placeholder="Nom du personnage" maxlength="40">
-        <textarea class="char-desc input-field" rows="2" placeholder="Description physique / rôle…" maxlength="200"></textarea>
+        <input type="text" class="char-name input-field" placeholder="Nom" maxlength="40">
+        <textarea class="char-desc input-field" rows="3" placeholder="Description physique / rôle…" maxlength="400"></textarea>
       </div>
-      <button class="char-del btn-secondary" type="button" title="Retirer ce personnage" aria-label="Retirer ce personnage">×</button>
     </div>
   </template>
 
