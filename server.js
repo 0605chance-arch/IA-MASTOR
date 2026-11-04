@@ -5,26 +5,23 @@ const app = express();
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
-// Limite haute : les personnages de référence en base64 pèsent lourd
+// ==========================================
+// MIDDLEWARE
+// ==========================================
 app.use(express.json({ limit: "60mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // ==========================================
 // HELPERS
 // ==========================================
-
-/** Récupère la clé API depuis le header X-API-Key, Authorization: Bearer, ou env */
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) return h.trim();
-
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
-
   return DEFAULT_KEY;
 }
 
-/** Fetch avec timeout + keep-alive (undici gère le pool natif) */
 async function apiFetch(url, options = {}, timeoutMs = 90000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -35,51 +32,125 @@ async function apiFetch(url, options = {}, timeoutMs = 90000) {
   }
 }
 
-/** Middleware d'authentification uniforme sur /api/* */
+// Auth middleware
 app.use("/api", (req, res, next) => {
   const key = getApiKey(req);
-  if (!key) {
-    return res.status(401).json({
-      error: "Clé API manquante. Renseignez votre token Agnes dans l'interface.",
-    });
-  }
+  if (!key) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKey = key;
   next();
 });
 
 // ==========================================
-// 0. HEALTH — Validation de la clé Agnes
+// FILE D'ATTENTE VIDÉO — 5 RPM RÉELS
+// ==========================================
+/**
+ * Token Plan Starter : RPM réel = 5 (source officielle Agnes).
+ * 60s / 5 = 12s. On ajoute 500ms de marge de sécurité → 12500ms.
+ * Cela permet de soumettre 10 vidéos en ~2 minutes au lieu de ~10 minutes.
+ */
+const SUBMIT_INTERVAL_MS = 12500;
+
+const videoQueues = new Map();
+
+function queueKey(apiKey) {
+  let h = 0;
+  for (let i = 0; i < apiKey.length; i++) {
+    h = (h << 5) - h + apiKey.charCodeAt(i);
+    h |= 0;
+  }
+  return "q_" + Math.abs(h);
+}
+
+function getOrCreateQueue(apiKey) {
+  const k = queueKey(apiKey);
+  if (!videoQueues.has(k)) {
+    videoQueues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
+  }
+  return videoQueues.get(k);
+}
+
+async function processQueue(apiKey) {
+  const q = getOrCreateQueue(apiKey);
+  if (q.processing || q.jobs.length === 0) return;
+  q.processing = true;
+
+  while (q.jobs.length > 0) {
+    const job = q.jobs[0];
+    const now = Date.now();
+    const elapsed = now - q.lastSubmit;
+
+    if (elapsed < SUBMIT_INTERVAL_MS) {
+      const wait = SUBMIT_INTERVAL_MS - elapsed;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+
+    try {
+      const r = await apiFetch(`${API_BASE}/v1/videos`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(job.body),
+      }, 30000);
+
+      if (r.status === 429) {
+        const retryAfter = 15000 + Math.random() * 5000; // 15-20s de backoff
+        await new Promise((r) => setTimeout(r, retryAfter));
+        continue;
+      }
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error?.message || "Erreur soumission vidéo");
+
+      q.lastSubmit = Date.now();
+      q.jobs.shift();
+      job.resolve({ id: data.video_id || data.id, seed: job.body.seed });
+
+    } catch (err) {
+      q.jobs.shift();
+      job.reject(err);
+    }
+  }
+
+  q.processing = false;
+}
+
+function enqueueVideoJob(apiKey, body) {
+  return new Promise((resolve, reject) => {
+    const q = getOrCreateQueue(apiKey);
+    q.jobs.push({ body, resolve, reject });
+    processQueue(apiKey).catch((err) => console.error("Queue error:", err));
+  });
+}
+
+// ==========================================
+// 0. HEALTH — Validation de la clé
 // ==========================================
 app.post("/api/health", async (req, res) => {
   try {
-    const r = await apiFetch(
-      `${API_BASE}/v1/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${req.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "agnes-3.0-flash",
-          messages: [{ role: "user", content: "ping" }],
-          max_tokens: 1,
-        }),
+    const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${req.apiKey}`,
+        "Content-Type": "application/json",
       },
-      15000
-    );
+      body: JSON.stringify({
+        model: "agnes-3.0-flash",
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+      }),
+    }, 15000);
     if (r.ok) return res.json({ valid: true });
     const data = await r.json().catch(() => ({}));
-    return res
-      .status(401)
-      .json({ valid: false, error: data.error?.message || "Clé invalide" });
+    return res.status(401).json({ valid: false, error: data.error?.message || "Clé invalide" });
   } catch (err) {
     res.status(500).json({ valid: false, error: err.message });
   }
 });
 
 // ==========================================
-// 1. CHAT (avec support image)
+// 1. CHAT
 // ==========================================
 app.post("/api/chat", async (req, res) => {
   try {
@@ -88,7 +159,7 @@ app.post("/api/chat", async (req, res) => {
 
     const systemPrompt = {
       role: "system",
-      content: `Tu es une IA de haut niveau. Réponds toujours en français. Formate TOUJOURS en Markdown (gras, titres, listes). Si on te demande un tableau, crée un tableau Markdown. Sois clair, précis et structuré.`,
+      content: `Tu es une IA de haut niveau. Réponds toujours en français. Formate TOUJOURS en Markdown. Sois clair, précis et structuré.`,
     };
 
     let finalMessages = messages.map((m) => ({ ...m }));
@@ -96,10 +167,7 @@ app.post("/api/chat", async (req, res) => {
       const last = finalMessages[finalMessages.length - 1];
       last.content = [
         { type: "text", text: last.content },
-        {
-          type: "image_url",
-          image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-        },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
       ];
     }
 
@@ -119,11 +187,9 @@ app.post("/api/chat", async (req, res) => {
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur API");
-
     res.json({ content: data.choices[0].message.content });
   } catch (err) {
-    console.error("Erreur Chat:", err);
-    res.status(500).json({ error: err.message || "Erreur serveur chat" });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -166,26 +232,25 @@ app.post("/api/generate-image", async (req, res) => {
     if (data.data && data.data[0]) finalUrl = data.data[0].url || data.data[0].b64_json;
     else if (data.url) finalUrl = data.url;
 
-    if (!finalUrl) throw new Error("Aucune image renvoyée par l'API.");
+    if (!finalUrl) throw new Error("Aucune image renvoyée.");
     if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:"))
       finalUrl = "data:image/jpeg;base64," + finalUrl;
 
     res.json({ id: "img_" + Date.now(), url: finalUrl });
   } catch (err) {
-    console.error("Erreur Image:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ==========================================
-// 3. VIDÉO (accepte 1 OU N images de référence)
+// 3. VIDÉO — Via la file d'attente 5 RPM
 // ==========================================
 app.post("/api/generate-video", async (req, res) => {
   try {
     const { prompt, format, duration, imageBase64, images, seed } = req.body;
     if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
 
-    let seconds = String(parseInt(duration) || 8);
+    let seconds = String(parseInt(duration) || 4);
     if (parseInt(seconds) < 4) seconds = "4";
     if (parseInt(seconds) > 12) seconds = "12";
 
@@ -200,9 +265,8 @@ app.post("/api/generate-video", async (req, res) => {
       seed: typeof seed === "number" ? seed : Math.floor(Math.random() * 1000000),
     };
 
-    // Refs : tableau prioritaire (mode histoire), sinon image unique (mode vidéo simple)
     let refs = [];
-    if (Array.isArray(images) && images.length > 0) refs = images.filter(Boolean);
+    if (Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
@@ -212,19 +276,8 @@ app.post("/api/generate-video", async (req, res) => {
       body.mode = "text";
     }
 
-    const response = await apiFetch(`${API_BASE}/v1/videos`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${req.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur Vidéo");
-
-    res.json({ id: data.video_id || data.id, seed: body.seed });
+    const result = await enqueueVideoJob(req.apiKey, body);
+    res.json({ id: result.id, seed: result.seed });
   } catch (err) {
     console.error("Erreur Vidéo:", err);
     res.status(500).json({ error: err.message });
@@ -232,7 +285,7 @@ app.post("/api/generate-video", async (req, res) => {
 });
 
 // ==========================================
-// 4. HISTOIRE — Synopsis + persos → 10 prompts JSON
+// 4. HISTOIRE — Génération des 10 prompts
 // ==========================================
 app.post("/api/story/generate-prompts", async (req, res) => {
   try {
@@ -256,32 +309,16 @@ app.post("/api/story/generate-prompts", async (req, res) => {
 
     const systemPrompt = {
       role: "system",
-      content: `Tu es un storyboarder professionnel et réalisateur de cinéma de niveau hollywoodien. À partir du synopsis et des personnages fournis, tu crées EXACTEMENT 10 prompts vidéo cohérents qui racontent l'histoire scène par scène.
-
-RÈGLES STRICTES:
-- Chaque prompt = UNE scène distincte, cohérente, de 4 à 12 secondes de vidéo
-- Décris OBLIGATOIREMENT : les personnages présents (nommés par leur nom), l'action précise, le décor, l'éclairage, l'ambiance, l'angle/mouvement de caméra
-- Garde une cohérence visuelle ABSOLUE entre les scènes (même style, même époque, même palette)
-- Le style doit être cinématique (film-like, cinematic, atmospheric)
-- Les personnages doivent être nommés EXPLICITEMENT dans chaque prompt où ils apparaissent (pour déclencher les références visuelles)
-- Chaque prompt fait 80 à 150 mots
-- Les 10 scènes doivent couvrir le début, le développement et la fin de l'histoire
-
-Réponds UNIQUEMENT avec ce JSON valide, rien d'autre:
-{"prompts": ["prompt scène 1...", "prompt scène 2...", "... (exactement 10)"]}`,
+      content: `Tu es un storyboarder professionnel. À partir du synopsis et des personnages, tu crées EXACTEMENT 10 prompts vidéo cohérents (une scène par prompt). Chaque prompt doit décrire : les personnages (nommés), l'action, le décor, l'éclairage, l'ambiance, l'angle/mouvement de caméra. Les 10 scènes couvrent le début, le développement et la fin de l'histoire. Réponds UNIQUEMENT avec ce JSON valide : {"prompts": ["...", "...", "...", "...", "...", "...", "...", "...", "...", "..."]}`,
     };
 
     const userContent = [
       {
         type: "text",
-        text:
-          `SYNOPSIS:\n${synopsis}\n\n` +
-          `PERSONNAGES (${charList.length}/5):\n${charText || "(aucun personnage spécifié)"}\n\n` +
-          `Génère exactement 10 prompts vidéo racontant cette histoire scène par scène.`,
+        text: `SYNOPSIS:\n${synopsis}\n\nPERSONNAGES:\n${charText || "(aucun)"}\n\nGénère exactement 10 prompts vidéo.`,
       },
     ];
 
-    // Envoie les images au modèle vision pour qu'il les "voie"
     charList.forEach((c) => {
       if (c.imageBase64) {
         userContent.push({
@@ -306,7 +343,7 @@ Réponds UNIQUEMENT avec ce JSON valide, rien d'autre:
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur API Story");
+    if (!response.ok) throw new Error(data.error?.message || "Erreur Story");
 
     const raw = data.choices[0].message.content;
     let parsed;
@@ -341,6 +378,7 @@ app.get("/api/status/:id", async (req, res) => {
     res.json({
       status: data.status || "processing",
       url: data.url || data.metadata?.url,
+      progress: data.progress,
     });
   } catch (err) {
     res.status(500).json({ error: "Erreur statut" });
@@ -353,7 +391,6 @@ app.get("/api/download/:id", async (req, res) => {
     const { url } = req.query;
     let fileUrl = url;
 
-    // Si pas d'URL fournie et ce n'est pas une image → on interroge l'API vidéo
     if (!fileUrl && !id.startsWith("img_")) {
       const key = getApiKey(req);
       if (!key) return res.status(401).send("Clé API manquante");
@@ -366,10 +403,8 @@ app.get("/api/download/:id", async (req, res) => {
     }
 
     if (!fileUrl) return res.status(404).send("Fichier introuvable");
-
     const ext = id.startsWith("img_") ? "jpg" : "mp4";
 
-    // Cas base64
     if (fileUrl.startsWith("data:")) {
       const base64Data = fileUrl.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
@@ -377,19 +412,17 @@ app.get("/api/download/:id", async (req, res) => {
       return res.send(buffer);
     }
 
-    // Cas URL http(s)
     const fileRes = await fetch(fileUrl);
     const buffer = await fileRes.arrayBuffer();
     res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
     res.send(Buffer.from(buffer));
   } catch (err) {
-    console.error("Erreur download:", err);
     res.status(500).send("Erreur download");
   }
 });
 
 // ==========================================
-// FALLBACK SPA
+// FALLBACK
 // ==========================================
 app.get("/", (_req, res) =>
   res.sendFile(path.join(__dirname, "Public", "index.html"))
@@ -397,5 +430,5 @@ app.get("/", (_req, res) =>
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
-  console.log(`✅ VideoAI Pro démarré sur http://localhost:${PORT}`)
+  console.log(`✅ VideoAI Pro (queue ${SUBMIT_INTERVAL_MS / 1000}s / 5 RPM) démarré sur ${PORT}`)
 );
