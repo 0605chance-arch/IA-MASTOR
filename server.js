@@ -29,7 +29,7 @@ function getApiKey(req) {
   return DEFAULT_KEY;
 }
 
-async function apiFetch(url, options = {}, timeoutMs = 120000) { // Timeout augmenté à 120s
+async function apiFetch(url, options = {}, timeoutMs = 120000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -51,7 +51,7 @@ app.use("/api", (req, res, next) => {
 // ==========================================
 // FILE D'ATTENTE VIDÉO (Priorité Token Plan - 5 RPM)
 // ==========================================
-const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute
+const SUBMIT_INTERVAL_MS = 12500; // 12.5s = 5 requêtes / minute
 const videoQueues = new Map();
 
 function queueKey(apiKey) {
@@ -148,7 +148,7 @@ app.post("/api/health", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const { messages, imageBase64 } = req.body;
-    const systemPrompt = { role: "system", content: `Tu es une IA de production audiovisuelle. Réponds en français. Formate en Markdown.` };
+    const systemPrompt = { role: "system", content: `Tu es une IA. Réponds en français. Formate en Markdown.` };
     let finalMessages = messages.map((m) => ({ ...m }));
     if (imageBase64) {
       const last = finalMessages[finalMessages.length - 1];
@@ -174,7 +174,7 @@ app.post("/api/generate-image", async (req, res) => {
   try {
     const { prompt, format, imageBase64 } = req.body;
     const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
-    // On utilise size: "1K" pour une génération rapide (Token Plan : 100 RPM)
+    // Size 1K pour la rapidité (Token Plan : 100 RPM)
     const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
     if (imageBase64) {
       body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
@@ -285,7 +285,7 @@ app.get("/api/download/:id", async (req, res) => {
 });
 
 // ==========================================
-// NOUVELLE ROUTE : STUDIO (Superviseur IA de Préproduction)
+// ROUTE STUDIO (Superviseur IA de Préproduction)
 // ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
@@ -293,9 +293,7 @@ app.post("/api/studio/generate-storyboard", async (req, res) => {
     if (!projectIdea) return res.status(400).json({ error: "L'idée du projet est manquante." });
 
     const count = parseInt(sceneCount) || 5;
-    const totalDuration = count * 12;
 
-    // Prompt système ultra-optimisé pour un JSON rapide et cohérent
     const systemPrompt = {
       role: "system",
       content: `Tu es un superviseur de production audiovisuelle IA. Génère un storyboard complet en JSON.
@@ -329,7 +327,7 @@ AMBIANCE : ${mood || "Dramatique"}`;
         temperature: 0.7,
         max_tokens: 4096,
       }),
-    }, 120000); // Timeout étendu pour le storyboard
+    }, 120000);
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur de génération du storyboard.");
@@ -356,4 +354,4 @@ AMBIANCE : ${mood || "Dramatique"}`;
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Studio prêt sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Studio Premium prêt sur le port ${PORT}`));
