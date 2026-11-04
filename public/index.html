@@ -8,6 +8,7 @@
 </head>
 <body>
 
+  <!-- VERROUILLAGE -->
   <div id="lock-screen" class="lock-screen">
     <div class="lock-card">
       <div class="logo">✨ Video<em>AI</em></div>
@@ -18,6 +19,7 @@
     </div>
   </div>
 
+  <!-- APPLICATION -->
   <div class="app" id="main-app" style="display: none;">
     <header class="header">
       <div class="logo">✨ Video<em>AI</em></div>
@@ -127,8 +129,10 @@
           <option value="8" selected>8s</option>
           <option value="12">12s</option>
         </select>
-        <input type="hidden" class="slot-quality" value="720P">
-        <div style="flex: 1; min-width: 100px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 15px; text-align: center; color: var(--text-dim);">Standard (720p)</div>
+        <select class="slot-quality input-field">
+          <option value="720P">Standard (720p)</option>
+          <option value="1080P">HD (1080p)</option>
+        </select>
       </div>
       <div class="slot-actions">
         <button class="slot-gen-btn btn-primary">Générer</button>
