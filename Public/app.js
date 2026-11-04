@@ -58,7 +58,7 @@
       a.style.display = "none"; a.href = blobUrl; a.download = filename;
       document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(blobUrl); a.remove();
     } catch (e) {
-      alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer.");
+      alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer manuellement.");
     }
   }
 
@@ -122,7 +122,7 @@
   }));
 
   // ============================================
-  // CHAT LOGIC
+  // CHAT LOGIC (Inchangé)
   // ============================================
   const chatHistory = document.getElementById("chat-history");
   const chatInput = document.getElementById("chat-input");
@@ -216,7 +216,7 @@
   });
 
   // ============================================
-  // IMAGE LOGIC
+  // IMAGE LOGIC (Inchangé)
   // ============================================
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
@@ -275,32 +275,7 @@
   renderImageHistory();
 
   // ============================================
-  // HISTORIQUE VIDÉO (Onglet Vidéo)
-  // ============================================
-  function saveVideoToHistory(prompt, url, id) {
-    const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
-    h.unshift({ prompt, url, id, date: new Date().toLocaleDateString("fr-FR") });
-    localStorage.setItem("adopte_video_history", JSON.stringify(h.slice(0, 20)));
-    renderVideoHistory();
-  }
-
-  function renderVideoHistory() {
-    const el = document.getElementById("video-history");
-    const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
-    if (h.length === 0) { el.innerHTML = "<p style='color:gray;'>Aucune vidéo.</p>"; return; }
-    el.innerHTML = h.map((i) => `
-      <div class="history-item">
-        <span class="history-prompt">${escapeHtml(i.prompt)}</span>
-        <div class="history-actions">
-          <a href="${i.url}" target="_blank" class="history-btn">Voir</a>
-          <button class="history-btn dl-vid-btn" data-url="${i.url}" data-id="${i.id}">⬇ Télécharger</button>
-        </div>
-      </div>`).join("");
-    el.querySelectorAll(".dl-vid-btn").forEach(btn => btn.addEventListener("click", (e) => downloadFile(e.target.dataset.url, `video-${e.target.dataset.id}.mp4`, e.target.dataset.id)));
-  }
-
-  // ============================================
-  // FACTORY SLOT VIDÉO (Partagé)
+  // FACTORY SLOT VIDÉO (Onglet Vidéo)
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
   const activePolls = new Map();
@@ -314,20 +289,9 @@
     const statusEl = node.querySelector(".slot-status");
     const player = node.querySelector(".slot-player");
     const video = node.querySelector("video");
-    const uploadBtn = node.querySelector(".slot-upload-btn");
-    const imgInput = node.querySelector(".slot-img-input");
 
     const state = { base64: null, id: null, url: null };
     const slotId = "slot_" + Math.random().toString(36).substr(2, 9);
-
-    uploadBtn.addEventListener("click", () => imgInput.click());
-    imgInput.addEventListener("change", (e) => {
-      const f = e.target.files[0];
-      if (!f) return;
-      const r = new FileReader();
-      r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; };
-      r.readAsDataURL(f);
-    });
 
     function setStatus(s, txt) {
       statusEl.dataset.state = s;
@@ -362,6 +326,13 @@
       return false;
     }
 
+    // Fonction pour pré-remplir le slot depuis le Studio
+    node.fillSlot = (promptText, base64Img) => {
+      promptEl.value = promptText;
+      state.base64 = base64Img || null;
+      // On pourrait aussi afficher une petite vignette, mais on garde ça simple
+    };
+
     genBtn.addEventListener("click", async () => {
       if (!promptEl.value.trim()) return;
       genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; video.src = "";
@@ -388,203 +359,245 @@
     dlBtn.addEventListener("click", () => { if (state.url) downloadFile(state.url, `video-${state.id}.mp4`, state.id); });
   }
 
-  // Initialisation de l'onglet Vidéo
+  // Historique Vidéo
+  function saveVideoToHistory(prompt, url, id) {
+    const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
+    h.unshift({ prompt, url, id, date: new Date().toLocaleDateString("fr-FR") });
+    localStorage.setItem("adopte_video_history", JSON.stringify(h.slice(0, 20)));
+    renderVideoHistory();
+  }
+  function renderVideoHistory() {
+    const el = document.getElementById("video-history");
+    const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
+    if (h.length === 0) { el.innerHTML = "<p style='color:gray;'>Aucune vidéo.</p>"; return; }
+    el.innerHTML = h.map((i) => `
+      <div class="history-item">
+        <span class="history-prompt">${escapeHtml(i.prompt)}</span>
+        <div class="history-actions">
+          <a href="${i.url}" target="_blank" class="history-btn">Voir</a>
+          <button class="history-btn dl-vid-btn" data-url="${i.url}" data-id="${i.id}">⬇ Télécharger</button>
+        </div>
+      </div>`).join("");
+    el.querySelectorAll(".dl-vid-btn").forEach(btn => btn.addEventListener("click", (e) => downloadFile(e.target.dataset.url, `video-${e.target.dataset.id}.mp4`, e.target.dataset.id)));
+  }
+
+  // Init Onglet Vidéo (10 Slots)
   const videoSlotsContainer = document.getElementById("video-slots");
+  const videoSlotsArray = []; // Permet de retrouver les slots pour l'envoi depuis le Studio
+  
   for (let i = 0; i < 10; i++) {
     const node = slotTemplate.content.firstElementChild.cloneNode(true);
     node.querySelector(".slot-num").textContent = `#${i + 1}`;
     videoSlotsContainer.appendChild(node);
     createSlot(node, saveVideoToHistory);
+    videoSlotsArray.push(node);
   }
   renderVideoHistory();
 
   // ============================================
-  // STUDIO DE PRODUCTION LOGIC
+  // STUDIO DE PRÉPRODUCTION (Superviseur IA)
   // ============================================
-  let wizardData = { type: "", idea: "", format: "16:9", duration: 30, style: "Cinématographique", mood: "Dramatique" };
+  const studioHome = document.getElementById("studio-home");
+  const studioWizard = document.getElementById("studio-wizard");
+  const studioWorkspace = document.getElementById("studio-workspace");
+  
+  let wizardData = { idea: "", sceneCount: 5, format: "16:9", style: "Cinématographique", mood: "Dramatique" };
   let currentWizardStep = 1;
-  let currentProject = JSON.parse(localStorage.getItem("adopte_current_project") || "null");
+  let currentProject = JSON.parse(localStorage.getItem("adopte_studio_project") || "null");
 
-  const viewHome = document.getElementById("studio-home");
-  const viewWizard = document.getElementById("studio-wizard");
-  const viewWorkspace = document.getElementById("studio-workspace");
-
-  function showStudioView(view) {
-    viewHome.hidden = view !== "home";
-    viewWizard.hidden = view !== "wizard";
-    viewWorkspace.hidden = view !== "workspace";
-    viewHome.classList.toggle("active", view === "home");
-    viewWizard.classList.toggle("active", view === "wizard");
-    viewWorkspace.classList.toggle("active", view === "workspace");
+  function showScreen(screenId) {
+    [studioHome, studioWizard, studioWorkspace].forEach(el => el.hidden = true);
+    if (screenId === "home") studioHome.hidden = false;
+    if (screenId === "wizard") studioWizard.hidden = false;
+    if (screenId === "workspace") studioWorkspace.hidden = false;
   }
 
-  // Navigation interne du Studio
-  document.getElementById("studio-btn-new").addEventListener("click", () => { currentWizardStep = 1; renderWizard(); showStudioView("wizard"); });
+  document.getElementById("studio-btn-new").addEventListener("click", () => { currentWizardStep = 1; updateWizardUI(); showScreen("wizard"); });
   document.getElementById("studio-btn-continue").addEventListener("click", () => {
-    if (currentProject) loadWorkspace(currentProject);
-    else alert("Aucun projet en cours. Créez-en un nouveau !");
-  });
-  document.getElementById("studio-btn-templates").addEventListener("click", () => {
-    alert("Les modèles seront bientôt disponibles ! Utilisez 'Créer un projet' pour commencer.");
+    if (currentProject) { renderWorkspace(currentProject); showScreen("workspace"); }
+    else alert("Aucun projet sauvegardé. Créez-en un nouveau !");
   });
 
-  // Wizard Navigation
-  const btnNext = document.getElementById("wizard-next");
-  const btnPrev = document.getElementById("wizard-prev");
-  const btnBackHome = document.getElementById("wizard-back-to-home");
+  // Wizard Logic
+  const wizNextBtn = document.getElementById("wizard-next");
+  const wizPrevBtn = document.getElementById("wizard-prev");
+  const wizGenBtn = document.getElementById("wizard-generate-btn");
 
-  btnBackHome.addEventListener("click", () => showStudioView("home"));
+  document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
 
-  function renderWizard() {
-    document.querySelectorAll(".wizard-step").forEach((el, i) => el.hidden = (i + 1) !== currentWizardStep);
-    document.getElementById("wizard-progress").textContent = `Étape ${currentWizardStep} sur 4`;
-    btnPrev.hidden = currentWizardStep === 1;
-    btnNext.textContent = currentWizardStep === 4 ? "Lancer la production" : "Suivant";
-
-    if (currentWizardStep === 4) {
-      document.getElementById("wizard-summary").innerHTML = `
-        <div style="padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-          <p><strong>Type :</strong> ${wizardData.type}</p>
-          <p><strong>Idée :</strong> ${wizardData.idea}</p>
-          <p><strong>Format :</strong> ${wizardData.format} | <strong>Durée :</strong> ${wizardData.duration}s</p>
-          <p><strong>Style :</strong> ${wizardData.style} | <strong>Ambiance :</strong> ${wizardData.mood}</p>
-        </div>
-      `;
-    }
+  function updateWizardUI() {
+    document.querySelectorAll(".wizard-step").forEach(el => {
+      el.hidden = parseInt(el.dataset.step, 10) !== currentWizardStep;
+    });
+    document.getElementById("wizard-progress-text").textContent = `Étape ${currentWizardStep} sur 2`;
+    wizPrevBtn.hidden = currentWizardStep === 1;
+    wizNextBtn.hidden = currentWizardStep === 2;
   }
 
-  document.querySelectorAll(".wizard-option-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".wizard-option-btn").forEach(b => b.classList.remove("selected"));
-      btn.classList.add("selected");
-      wizardData.type = btn.dataset.type;
-    });
-  });
-
-  btnPrev.addEventListener("click", () => { if (currentWizardStep > 1) { currentWizardStep--; renderWizard(); } });
-
-  btnNext.addEventListener("click", async () => {
+  wizNextBtn.addEventListener("click", () => {
     if (currentWizardStep === 1) {
-      if (!wizardData.type) return alert("Veuillez sélectionner un type de vidéo.");
-    } else if (currentWizardStep === 2) {
       wizardData.idea = document.getElementById("wizard-idea").value.trim();
       if (!wizardData.idea) return alert("Veuillez décrire votre idée.");
-    } else if (currentWizardStep === 3) {
-      wizardData.format = document.getElementById("wizard-format").value;
-      wizardData.duration = parseInt(document.getElementById("wizard-duration").value, 10);
-      wizardData.style = document.getElementById("wizard-style").value;
-      wizardData.mood = document.getElementById("wizard-mood").value;
-    } else if (currentWizardStep === 4) {
-      // Lancement de la génération
-      btnNext.disabled = true;
-      btnNext.textContent = "L'IA écrit le scénario... ⏳";
-      try {
-        const res = await apiFetch("/api/studio/generate-plan", { method: "POST", body: JSON.stringify(wizardData) });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Erreur de génération.");
-        
-        currentProject = data;
-        localStorage.setItem("adopte_current_project", JSON.stringify(currentProject));
-        loadWorkspace(currentProject);
-      } catch (e) {
-        alert("Erreur : " + e.message);
-      } finally {
-        btnNext.disabled = false;
-        btnNext.textContent = "Lancer la production";
-      }
-      return;
     }
     currentWizardStep++;
-    renderWizard();
+    updateWizardUI();
   });
 
-  // Workspace Logic
-  const wsNavBtns = document.querySelectorAll(".ws-nav-btn");
-  wsNavBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-      wsNavBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      document.querySelectorAll(".ws-tab").forEach(t => t.hidden = true);
-      document.getElementById(btn.dataset.target).hidden = false;
-    });
+  wizPrevBtn.addEventListener("click", () => {
+    if (currentWizardStep > 1) { currentWizardStep--; updateWizardUI(); }
   });
 
-  document.getElementById("workspace-back-btn").addEventListener("click", () => showStudioView("home"));
+  wizGenBtn.addEventListener("click", async () => {
+    wizardData.sceneCount = parseInt(document.getElementById("wizard-scene-count").value, 10);
+    wizardData.format = document.getElementById("wizard-format").value;
+    wizardData.style = document.getElementById("wizard-style").value;
+    wizardData.mood = document.getElementById("wizard-mood").value;
 
-  function loadWorkspace(project) {
-    showStudioView("workspace");
-    document.getElementById("workspace-title").textContent = project.titre;
-    document.getElementById("workspace-synopsis").textContent = project.synopsis;
-    document.getElementById("ws-synopsis-text").textContent = project.synopsis;
+    wizGenBtn.disabled = true; wizGenBtn.textContent = "L'IA écrit votre histoire... ⏳";
+    try {
+      const res = await apiFetch("/api/studio/generate-storyboard", { method: "POST", body: JSON.stringify(wizardData) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur de génération.");
+      
+      currentProject = data;
+      localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
+      renderWorkspace(currentProject);
+      showScreen("workspace");
+    } catch (e) {
+      alert("Erreur : " + e.message);
+    } finally {
+      wizGenBtn.disabled = false; wizGenBtn.textContent = "🎬 Générer le Storyboard";
+    }
+  });
 
+  // Workspace Logic (Studio)
+  function renderWorkspace(project) {
+    document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
+    document.getElementById("workspace-synopsis").textContent = project.synopsis || "";
+    document.getElementById("ws-script-synopsis").textContent = project.synopsis || "";
+    
     // Direction Artistique
     const da = project.direction_artistique || {};
-    document.getElementById("ws-da-info").innerHTML = `
-      <p><strong>Palette :</strong> ${da.palette || "Standard"}</p>
-      <p><strong>Lumière :</strong> ${da.lumiere || "Cinématographique"}</p>
-      <p><strong>Ambiance :</strong> ${da.ambiance || "Standard"}</p>
+    document.getElementById("ws-script-da").innerHTML = `
+      <p><strong>Palette :</strong> ${da.palette || "-"}</p>
+      <p><strong>Lumière :</strong> ${da.lumiere || "-"}</p>
+      <p><strong>Ambiance :</strong> ${da.ambiance || "-"}</p>
     `;
 
-    // Personnages
-    const charsContainer = document.getElementById("ws-characters-list");
+    // Onglets
+    const tabBtns = document.querySelectorAll(".ws-tab-btn");
+    const tabContents = document.querySelectorAll(".ws-tab-content");
+    tabBtns.forEach(btn => {
+      btn.onclick = () => {
+        tabBtns.forEach(b => b.classList.remove("active"));
+        tabContents.forEach(c => c.hidden = true);
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.target).hidden = false;
+      };
+    });
+
+    // 1. Personnages
+    const charsContainer = document.getElementById("ws-characters-container");
     charsContainer.innerHTML = "";
-    (project.personnages || []).forEach(p => {
+
+    (project.personnages || []).forEach((p) => {
       const charNode = document.getElementById("char-template").content.firstElementChild.cloneNode(true);
       charNode.querySelector(".char-name").value = p.nom;
-      charNode.querySelector(".char-desc").value = p.description_reference;
+      charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "";
+      
+      const thumb = charNode.querySelector(".char-thumb");
+      const fileInput = charNode.querySelector(".char-img-input");
+      
+      thumb.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = () => { thumb.innerHTML = `<img src="${r.result}" alt="${p.nom}">`; };
+        r.readAsDataURL(f);
+      });
       charsContainer.appendChild(charNode);
     });
 
-    // Scènes & Vidéos
-    const scenesContainer = document.getElementById("ws-scenes-list");
+    // 2. Scènes
+    const scenesContainer = document.getElementById("ws-scenes-container");
     scenesContainer.innerHTML = "";
+    const sceneTemplate = document.getElementById("studio-scene-template");
+
     (project.scenes || []).forEach(scene => {
-      const node = slotTemplate.content.firstElementChild.cloneNode(true);
-      node.querySelector(".slot-num").textContent = `Scène ${scene.numero}`;
-      node.querySelector(".slot-prompt").value = scene.prompt_video;
-      node.querySelector(".slot-duration").value = scene.duree || 4;
+      const node = sceneTemplate.content.firstElementChild.cloneNode(true);
+      node.querySelector(".studio-scene-title").textContent = `Scène ${scene.numero} : ${scene.titre}`;
+      node.querySelector(".studio-scene-badge").textContent = "12s";
+      node.querySelector(".studio-scene-action").textContent = scene.description_action;
+      node.querySelector(".studio-scene-prompt").value = scene.prompt_video;
+
+      // Copier le prompt
+      node.querySelector(".studio-scene-copy-btn").addEventListener("click", () => {
+        navigator.clipboard.writeText(scene.prompt_video).then(() => {
+          alert("Prompt copié dans le presse-papiers !");
+        });
+      });
+
+      // Générer l'image de la scène
+      let currentSceneImgBase64 = null;
+      const imgPlaceholder = node.querySelector(".studio-scene-img-placeholder");
+      const imgEl = node.querySelector(".studio-scene-img");
+      const imgBtn = node.querySelector(".studio-scene-img-btn");
+
+      imgBtn.addEventListener("click", async () => {
+        imgBtn.disabled = true; imgBtn.textContent = "Génération…";
+        try {
+          const res = await apiFetch("/api/generate-image", { 
+            method: "POST", 
+            body: JSON.stringify({ prompt: scene.prompt_video, format: wizardData.format || "16:9" }) 
+          });
+          const data = await res.json();
+          if (data.url) {
+            imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
+            currentSceneImgBase64 = data.url; 
+            imgBtn.textContent = "🔄 Régénérer l'image";
+          }
+        } catch (e) { alert("Erreur de génération."); }
+        imgBtn.disabled = false;
+      });
+
+      // NOUVEAU : Envoyer vers l'onglet Vidéo
+      const sendToVideoBtn = document.createElement("button");
+      sendToVideoBtn.className = "btn-primary btn-small";
+      sendToVideoBtn.style.width = "100%";
+      sendToVideoBtn.style.marginTop = "8px";
+      sendToVideoBtn.textContent = "🚀 Envoyer vers l'onglet Vidéo";
+      sendToVideoBtn.addEventListener("click", () => {
+        // Trouver le premier slot vide dans l'onglet vidéo
+        let targetSlot = null;
+        for (const slot of videoSlotsArray) {
+          const promptVal = slot.querySelector(".slot-prompt").value.trim();
+          const isGenerating = slot.querySelector(".slot-status").dataset.state === "loading";
+          if (!promptVal && !isGenerating) { targetSlot = slot; break; }
+        }
+        
+        if (targetSlot) {
+          targetSlot.fillSlot(scene.prompt_video, currentSceneImgBase64);
+          // Basculer sur l'onglet Vidéo
+          document.getElementById("tab-video").click();
+          targetSlot.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          alert("L'onglet Vidéo est plein (10 slots utilisés).");
+        }
+      });
+      
+      node.querySelector(".studio-scene-prompt-container").appendChild(sendToVideoBtn);
       scenesContainer.appendChild(node);
-      createSlot(node, () => {}); // Callback d'historique vide pour le studio
     });
+
+    document.getElementById("workspace-back-btn").onclick = () => showScreen("home");
   }
-
-  // Reprise auto au démarrage si un projet est en cours
-  if (currentProject) document.getElementById("studio-projects-list").hidden = false;
-
-  // Exportation
-  document.getElementById("export-json").addEventListener("click", () => {
-    if (!currentProject) return;
-    const blob = new Blob([JSON.stringify(currentProject, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `dossier-production-${currentProject.titre.replace(/\s+/g, '_')}.json`;
-    a.click(); URL.revokeObjectURL(url);
-  });
-
-  document.getElementById("export-txt").addEventListener("click", () => {
-    if (!currentProject) return;
-    let txt = `=== DOSSIER DE PRODUCTION : ${currentProject.titre} ===\n\n`;
-    txt += `SYNOPSIS:\n${currentProject.synopsis}\n\n`;
-    txt += `--- PERSONNAGES ---\n`;
-    (currentProject.personnages || []).forEach(p => txt += `[${p.nom}] ${p.description_reference}\n`);
-    txt += `\n--- SCÈNES & PROMPTS ---\n`;
-    (currentProject.scenes || []).forEach(s => {
-      txt += `\nSCÈNE ${s.numero} (${s.duree}s):\n`;
-      txt += `Action: ${s.description_action}\n`;
-      txt += `Prompt: ${s.prompt_video}\n`;
-    });
-    const blob = new Blob([txt], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `script-${currentProject.titre.replace(/\s+/g, '_')}.txt`;
-    a.click(); URL.revokeObjectURL(url);
-  });
 
   // ============================================
   // REPRISE AUTOMATIQUE (Anti Load Failed iOS)
   // ============================================
   function resumePendingJobs() {
-    // Parcourt les slots qui pourraient avoir un job en cours
-    const allSlots = document.querySelectorAll(".slot");
-    allSlots.forEach(node => {
+    document.querySelectorAll(".slot").forEach(node => {
       const promptVal = node.querySelector(".slot-prompt").value.trim();
       if (!promptVal) return;
       
@@ -620,12 +633,9 @@
   }
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      resumePendingJobs();
-    }
+    if (document.visibilityState === "visible") resumePendingJobs();
   });
 
-  // Lancement au démarrage
   resumePendingJobs();
 
 })();
