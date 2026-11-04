@@ -5,11 +5,12 @@ const app = express();
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
-app.use(express.json({ limit: "60mb" }));
+// Augmentation de la limite pour les images de référence (storyboard/personnages)
+app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // ==========================================
-// KEEP-ALIVE (Anti-endormissement Render)
+// KEEP-ALIVE (Empêche Render de s'endormir)
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
@@ -39,7 +40,7 @@ async function apiFetch(url, options = {}, timeoutMs = 90000) {
   }
 }
 
-// Middleware Auth
+// Middleware d'authentification
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
   const key = getApiKey(req);
@@ -49,9 +50,9 @@ app.use("/api", (req, res, next) => {
 });
 
 // ==========================================
-// FILE D'ATTENTE VIDÉO (Token Plan 5 RPM)
+// FILE D'ATTENTE VIDÉO (Priorité Token Plan - 5 RPM)
 // ==========================================
-const SUBMIT_INTERVAL_MS = 12500; // 12.5s entre chaque soumission = 5 RPM
+const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute
 const videoQueues = new Map();
 
 function queueKey(apiKey) {
@@ -65,7 +66,9 @@ function queueKey(apiKey) {
 
 function getOrCreateQueue(apiKey) {
   const k = queueKey(apiKey);
-  if (!videoQueues.has(k)) videoQueues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
+  if (!videoQueues.has(k)) {
+    videoQueues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
+  }
   return videoQueues.get(k);
 }
 
@@ -89,24 +92,27 @@ async function processQueue(apiKey) {
         body: JSON.stringify(job.body),
       }, 30000);
 
-      if (r.status === 429) {
-        // Si rate limit, on attend 15s et on réessaie le MÊME job
-        await new Promise((resolve) => setTimeout(resolve, 15000));
-        continue;
+      // Gestion des limites de débit et files pleines
+      if (r.status === 429 || r.status === 503) {
+        const retryAfter = 15000 + Math.random() * 5000;
+        await new Promise((resolve) => setTimeout(resolve, retryAfter));
+        continue; // On réessaie le même job
       }
 
       const contentType = r.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) throw new Error(`Serveur Agnes indisponible (${r.status})`);
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(`Serveur Agnes indisponible (${r.status}).`);
+      }
 
       const data = await r.json();
       if (!r.ok) throw new Error(data.error?.message || "Erreur soumission");
 
       q.lastSubmit = Date.now();
-      q.jobs.shift(); // Succès : on retire le job
+      q.jobs.shift();
       job.resolve({ id: data.video_id || data.id });
 
     } catch (err) {
-      q.jobs.shift(); // Échec : on retire le job pour ne pas bloquer la file
+      q.jobs.shift();
       job.reject(err);
     }
   }
@@ -122,7 +128,7 @@ function enqueueVideoJob(apiKey, body) {
 }
 
 // ==========================================
-// ROUTES
+// ROUTES EXISTANTES (Optimisées)
 // ==========================================
 
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
@@ -144,7 +150,7 @@ app.post("/api/health", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const { messages, imageBase64 } = req.body;
-    const systemPrompt = { role: "system", content: `Tu es une IA. Réponds en français. Formate en Markdown.` };
+    const systemPrompt = { role: "system", content: `Tu es une IA de production audiovisuelle. Réponds en français. Formate en Markdown.` };
     let finalMessages = messages.map((m) => ({ ...m }));
     if (imageBase64) {
       const last = finalMessages[finalMessages.length - 1];
@@ -236,7 +242,9 @@ app.get("/api/status/:id", async (req, res) => {
       20000
     );
     const contentType = r.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) return res.status(502).json({ error: "Réponse invalide d'Agnes." });
+    if (!contentType || !contentType.includes("application/json")) {
+      return res.status(502).json({ error: "Réponse invalide du serveur Agnes." });
+    }
     const data = await r.json();
     res.json({ status: data.status || "processing", url: data.url || data.metadata?.url });
   } catch (err) {
@@ -277,7 +285,101 @@ app.get("/api/download/:id", async (req, res) => {
   }
 });
 
+// ==========================================
+// NOUVELLES ROUTES : STUDIO DE PRODUCTION IA
+// ==========================================
+
+/**
+ * Génération d'un plan de production complet à partir des paramètres du projet.
+ * L'IA agit comme un réalisateur/scénariste et renvoie un JSON structuré.
+ */
+app.post("/api/studio/generate-plan", async (req, res) => {
+  try {
+    const { projectIdea, format, duration, style, mood, targetAudience } = req.body;
+    if (!projectIdea) return res.status(400).json({ error: "Idée du projet manquante." });
+
+    const systemPrompt = {
+      role: "system",
+      content: `Tu es un studio de production audiovisuelle de classe mondiale (réalisateur, scénariste, directeur artistique). 
+À partir des informations fournies, tu dois générer un dossier de production COMPLET et COHÉRENT au format JSON.
+
+RÈGLES STRICTES :
+1. La structure narrative doit être solide (introduction, élément déclencheur, développement, climax, résolution).
+2. Les personnages doivent avoir une description physique IMMUABLE (visage, cheveux, vêtements, accessoires) pour garantir la continuité.
+3. Chaque scène doit avoir un prompt vidéo autonome, descriptif et détaillé (incluant le décor, l'action, la lumière, le mouvement de caméra, et la description complète des personnages présents).
+4. Le nombre de scènes doit être adapté à la durée totale (ex: ~4-8 secondes par scène).
+5. Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après.
+
+Structure JSON attendue :
+{
+  "titre": "Titre du projet",
+  "synopsis": "Résumé de l'histoire",
+  "direction_artistique": {
+    "palette": "Description des couleurs",
+    "lumiere": "Style d'éclairage",
+    "ambiance": "Ambiance générale"
+  },
+  "personnages": [
+    {
+      "nom": "Nom",
+      "description_reference": "Description physique complète et immuable (âge, visage, cheveux, vêtements, accessoires)",
+      "role": "Rôle dans l'histoire"
+    }
+  ],
+  "scenes": [
+    {
+      "numero": 1,
+      "titre": "Titre de la scène",
+      "duree": 8,
+      "description_action": "Ce qui se passe",
+      "personnages_presents": ["Nom1", "Nom2"],
+      "prompt_video": "Prompt complet et autonome pour le générateur vidéo (incluant descriptions physiques, décor, action, caméra, lumière)"
+    }
+  ]
+}`
+    };
+
+    const userContent = `IDÉE DU PROJET : ${projectIdea}
+FORMAT : ${format || "16:9"}
+DURÉE TOTALE SOUHAITÉE : ${duration || 30} secondes
+STYLE VISUEL : ${style || "Cinématographique"}
+AMBIANCE : ${mood || "Dramatique"}
+PUBLIC CIBLE : ${targetAudience || "Grand public"}`;
+
+    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "agnes-3.0-flash",
+        messages: [systemPrompt, { role: "user", content: userContent }],
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur de génération du plan.");
+
+    const rawContent = data.choices[0].message.content;
+    let parsedPlan;
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      parsedPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(rawContent);
+    } catch (e) {
+      throw new Error("L'IA n'a pas renvoyé un format JSON valide.");
+    }
+
+    res.json(parsedPlan);
+  } catch (err) {
+    console.error("Erreur Studio Plan:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// FALLBACK SPA
+// ==========================================
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Serveur prêt sur ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Studio de production prêt sur le port ${PORT}`));
