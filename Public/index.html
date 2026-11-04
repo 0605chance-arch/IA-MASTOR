@@ -98,7 +98,7 @@
           <span class="info-icon">💡</span>
           <p>
             <strong>Astuce :</strong> Utilisez les prompts générés dans l'onglet <strong>Studio</strong> pour créer vos vidéos ici.<br>
-            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer. Restez actif sur l'app (Render s'éteint après 10 min d'inactivité).
+            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer (file d'attente). Restez actif sur l'app.
           </p>
         </div>
         <div class="video-slots" id="video-slots"></div>
@@ -138,61 +138,60 @@
         <div id="studio-wizard" class="studio-view" hidden>
           <div class="wizard-header">
             <button class="btn-secondary btn-small" id="wizard-back-to-home">← Retour</button>
-            <div class="wizard-progress" id="wizard-progress-text">Étape 1 sur 2</div>
           </div>
           
           <div class="wizard-container card">
-            <!-- Étape 1 : L'Idée -->
-            <div class="wizard-step" data-step="1">
-              <h2>1. Quelle est votre idée de départ ?</h2>
-              <p style="color:var(--text-dim); margin-bottom:15px;">Décrivez votre projet en quelques mots (même flous). L'IA structurera l'histoire, les personnages et les plans.</p>
-              <textarea id="wizard-idea" class="input-field" rows="4" placeholder="Ex: Une publicité pour une montre de luxe, ambiance nocturne, un homme élégant, mystère..."></textarea>
+            <h2 style="margin-bottom: 20px;">Créer votre storyboard</h2>
+            
+            <div class="input-group" style="margin-bottom: 15px;">
+              <label>Quelle est votre idée de départ ?</label>
+              <textarea id="wizard-idea" class="input-field" rows="3" placeholder="Ex: Une publicité pour une montre de luxe, ambiance nocturne, un homme élégant, mystère..."></textarea>
             </div>
 
-            <!-- Étape 2 : Paramètres -->
-            <div class="wizard-step" data-step="2" hidden>
-              <h2>2. Paramètres de l'histoire</h2>
-              <div class="wizard-params">
-                <div class="input-group">
-                  <label>Nombre de clips (12s par clip)</label>
-                  <select id="wizard-scene-count" class="input-field">
-                    <option value="5">5 clips (~1 minute)</option>
-                    <option value="10">10 clips (~2 minutes)</option>
-                  </select>
-                </div>
-                <div class="input-group">
-                  <label>Format des vidéos</label>
-                  <select id="wizard-format" class="input-field">
-                    <option value="16:9">16:9 (Cinéma)</option>
-                    <option value="9:16">9:16 (TikTok / Reels)</option>
-                    <option value="1:1">1:1 (Carré)</option>
-                  </select>
-                </div>
-                <div class="input-group">
-                  <label>Style visuel</label>
-                  <select id="wizard-style" class="input-field">
-                    <option value="Cinématographique">Cinématographique</option>
-                    <option value="Publicité haut de gamme">Publicité haut de gamme</option>
-                    <option value="Photoréaliste">Photoréaliste</option>
-                    <option value="Animation 3D">Animation 3D</option>
-                  </select>
-                </div>
-                <div class="input-group">
-                  <label>Ambiance</label>
-                  <select id="wizard-mood" class="input-field">
-                    <option value="Dramatique">Dramatique</option>
-                    <option value="Mystérieuse">Mystérieuse</option>
-                    <option value="Émotionnelle">Émotionnelle</option>
-                    <option value="Épique">Épique</option>
-                  </select>
-                </div>
+            <div class="wizard-params" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+              <div class="input-group">
+                <label>Nombre de scènes</label>
+                <select id="wizard-scene-count" class="input-field">
+                  <option value="5">5 clips (~1 min)</option>
+                  <option value="10">10 clips (~2 min)</option>
+                </select>
               </div>
-              <button id="wizard-generate-btn" class="btn-primary" style="margin-top: 20px; width: 100%; padding: 15px; font-size: 16px;">🎬 Générer le Storyboard</button>
+              <div class="input-group">
+                <label>Format</label>
+                <select id="wizard-format" class="input-field">
+                  <option value="16:9">16:9 (Cinéma)</option>
+                  <option value="9:16">9:16 (Mobile)</option>
+                  <option value="1:1">1:1 (Carré)</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label>Style visuel</label>
+                <select id="wizard-style" class="input-field">
+                  <option value="Cinématographique">Cinématographique</option>
+                  <option value="Publicité haut de gamme">Publicité</option>
+                  <option value="Photoréaliste">Photoréaliste</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label>Ambiance</label>
+                <select id="wizard-mood" class="input-field">
+                  <option value="Dramatique">Dramatique</option>
+                  <option value="Mystérieuse">Mystérieuse</option>
+                  <option value="Émotionnelle">Émotionnelle</option>
+                  <option value="Épique">Épique</option>
+                </select>
+              </div>
             </div>
 
-            <div class="wizard-footer">
-              <button id="wizard-prev" class="btn-secondary" hidden>Précédent</button>
-              <button id="wizard-next" class="btn-primary">Suivant</button>
+            <button id="wizard-generate-btn" class="btn-primary" style="margin-top: 20px; width: 100%; padding: 15px; font-size: 16px;">
+              🎬 Générer le Storyboard
+            </button>
+            
+            <!-- Écran de chargement animé -->
+            <div id="wizard-loading" hidden style="text-align: center; padding: 30px 0;">
+              <div class="spinner" style="border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto;"></div>
+              <p style="color: var(--accent); font-weight: bold;">L'IA écrit votre histoire...</p>
+              <p style="color: var(--text-dim); font-size: 13px;">Cela peut prendre 15 à 30 secondes.</p>
             </div>
           </div>
         </div>
@@ -211,7 +210,7 @@
           <div class="workspace-nav-tabs">
             <button class="ws-tab-btn active" data-target="ws-tab-scenes">🎬 Scènes & Prompts</button>
             <button class="ws-tab-btn" data-target="ws-tab-characters">🎭 Personnages</button>
-            <button class="ws-tab-btn" data-target="ws-tab-script">📖 Synopsis & Direction</button>
+            <button class="ws-tab-btn" data-target="ws-tab-script">📖 Synopsis</button>
           </div>
 
           <div class="workspace-content">
@@ -219,7 +218,7 @@
             <!-- Onglet Scènes -->
             <div id="ws-tab-scenes" class="ws-tab-content active">
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">
-                Générez une image de référence pour chaque scène, puis copiez le prompt pour l'utiliser dans l'onglet Vidéo.
+                Générez une image de référence pour chaque scène, puis envoyez le tout vers l'onglet Vidéo.
               </p>
               <div id="ws-scenes-container" class="scenes-list"></div>
             </div>
@@ -227,7 +226,7 @@
             <!-- Onglet Personnages -->
             <div id="ws-tab-characters" class="ws-tab-content" hidden>
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">
-                Ajoutez une photo de référence pour chaque personnage. Ces images vous serviront lors de la génération des vidéos pour garder une cohérence.
+                Voici la bible des personnages générée par l'IA. Vous pouvez ajouter des photos de référence.
               </p>
               <div id="ws-characters-container" class="chars-grid"></div>
             </div>
@@ -235,10 +234,8 @@
             <!-- Onglet Script -->
             <div id="ws-tab-script" class="ws-tab-content" hidden>
               <div class="card">
-                <h3>Synopsis</h3>
+                <h3>Synopsis complet</h3>
                 <p id="ws-script-synopsis" style="white-space: pre-wrap; line-height: 1.6; font-size: 15px;"></p>
-                <h3 style="margin-top:20px;">Direction Artistique</h3>
-                <div id="ws-script-da" style="font-size: 14px; line-height: 1.6;"></div>
               </div>
             </div>
 
@@ -298,26 +295,36 @@
 
   <!-- Carte Scène (Studio) -->
   <template id="studio-scene-template">
-    <div class="studio-scene-card card">
+    <div class="studio-scene-card card" style="margin-bottom: 15px;">
       <div class="studio-scene-header">
-        <h3 class="studio-scene-title">Scène 1</h3>
-        <span class="studio-scene-badge">12s</span>
+        <h3 class="studio-scene-title" style="font-size: 16px;">Scène 1</h3>
+        <span class="studio-scene-badge" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px;">12s</span>
       </div>
-      <p class="studio-scene-action" style="font-size: 13px; color: var(--text-dim); margin-bottom: 10px;"></p>
+      <p class="studio-scene-action" style="font-size: 13px; color: var(--text-dim); margin: 10px 0;"></p>
       
-      <div class="studio-scene-image-container">
-        <div class="studio-scene-img-placeholder"><span>🖼️ Aucune image de référence</span></div>
-        <img class="studio-scene-img" src="" alt="" hidden>
-        <button class="btn-secondary btn-small studio-scene-img-btn" style="margin-top:8px; width:100%;">Générer l'image de la scène</button>
+      <!-- Image de scène -->
+      <div class="studio-scene-image-container" style="background: var(--bg); padding: 10px; border-radius: 12px; text-align: center; border: 1px dashed var(--border);">
+        <div class="studio-scene-img-placeholder" style="color: var(--text-dim); font-size: 13px; padding: 20px 0;">🖼️ Aucune image</div>
+        <img class="studio-scene-img" src="" alt="" hidden style="width: 100%; border-radius: 8px; margin-bottom: 10px;">
+        <button class="btn-secondary btn-small studio-scene-img-btn" style="width:100%;">Générer l'image de la scène</button>
       </div>
 
-      <div class="studio-scene-prompt-container" style="margin-top: 12px;">
+      <!-- Prompt Vidéo -->
+      <div class="studio-scene-prompt-container" style="margin-top: 15px;">
         <label style="font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; display: block;">Prompt Vidéo</label>
-        <textarea class="studio-scene-prompt input-field" rows="4" readonly></textarea>
-        <button class="btn-primary btn-small studio-scene-copy-btn" style="margin-top:8px; width:100%;">📋 Copier le prompt</button>
+        <textarea class="studio-scene-prompt input-field" rows="4" readonly style="font-size: 13px; background: rgba(0,0,0,0.2);"></textarea>
+        
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+          <button class="btn-secondary btn-small studio-scene-copy-btn" style="flex: 1;">📋 Copier</button>
+          <button class="btn-primary btn-small studio-scene-send-btn" style="flex: 2;">🚀 Envoyer vers Vidéo</button>
+        </div>
       </div>
     </div>
   </template>
+
+  <style>
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
 
   <script src="app.js"></script>
 </body>
