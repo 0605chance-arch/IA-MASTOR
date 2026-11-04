@@ -8,96 +8,43 @@
   const lockError = document.getElementById("lock-error");
 
   function checkLock() {
-    if (window.userApiKey) { 
-      lockScreen.style.display = "none"; 
-      mainApp.style.display = "flex"; 
-    } else { 
-      lockScreen.style.display = "flex"; 
-      mainApp.style.display = "none"; 
-    }
+    if (window.userApiKey) { lockScreen.style.display = "none"; mainApp.style.display = "flex"; }
+    else { lockScreen.style.display = "flex"; mainApp.style.display = "none"; }
   }
 
   unlockBtn.addEventListener("click", () => {
     const key = apiKeyInput.value.trim();
-    if (key.length < 5) { 
-      lockError.textContent = "Clé invalide."; 
-      lockError.style.display = "block"; 
-      return; 
-    }
-    window.userApiKey = key; 
-    sessionStorage.setItem("agnes_api_key", key); 
-    lockError.style.display = "none"; 
-    checkLock();
+    if (key.length < 5) { lockError.textContent = "Clé invalide."; lockError.style.display = "block"; return; }
+    window.userApiKey = key; sessionStorage.setItem("agnes_api_key", key); lockError.style.display = "none"; checkLock();
   });
-  
   checkLock();
 
   async function apiFetch(endpoint, options = {}) {
     if (!window.userApiKey) throw new Error("Non autorisé");
-    const headers = { 
-      "Content-Type": "application/json", 
-      ...options.headers, 
-      "x-api-key": window.userApiKey 
-    };
+    const headers = { "Content-Type": "application/json", ...options.headers, "x-api-key": window.userApiKey };
     const response = await fetch(endpoint, { ...options, headers });
     const data = await response.json().catch(()=>({}));
-    
-    if (!response.ok) { 
-      const err = new Error(data.error || "Erreur"); 
-      err.status = response.status; 
-      err.code = data.code; 
-      throw err; 
-    }
+    if (!response.ok) { const err = new Error(data.error || "Erreur"); err.status = response.status; err.code = data.code; throw err; }
     return data;
   }
 
-  // --- NAVIGATION ONGLETS ---
-  const tabs = document.querySelectorAll(".tab-btn");
-  const sections = document.querySelectorAll(".section");
-  tabs.forEach(t => t.addEventListener("click", () => { 
-    tabs.forEach(b => b.classList.remove("active")); 
-    sections.forEach(s => s.classList.remove("active")); 
-    t.classList.add("active"); 
-    document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active"); 
-  }));
+  const tabs = document.querySelectorAll(".tab-btn"), sections = document.querySelectorAll(".section");
+  tabs.forEach(t => t.addEventListener("click", () => { tabs.forEach(b => b.classList.remove("active")); sections.forEach(s => s.classList.remove("active")); t.classList.add("active"); document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active"); }));
 
-  // ==========================================
-  // 1. CHAT
-  // ==========================================
-  const chatHistory = document.getElementById("chat-history");
-  const chatInput = document.getElementById("chat-input");
-  const chatSend = document.getElementById("chat-send");
-  const chatImageUpload = document.getElementById("chat-image-upload");
-  const chatImageBtn = document.getElementById("chat-image-btn");
-  const sessionsList = document.getElementById("chat-sessions-list");
-  const newChatBtn = document.getElementById("new-chat-btn");
-  let chatImageBase64 = null;
-  let allSessions = JSON.parse(localStorage.getItem("iamastor_chat_sessions") || "[]");
-  let currentSessionId = null;
-
+  // CHAT
+  const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
+  let chatImageBase64 = null, allSessions = JSON.parse(localStorage.getItem("iamastor_chat_sessions") || "[]"), currentSessionId = null;
   chatImageBtn.addEventListener("click", () => chatImageUpload.click());
   chatImageUpload.addEventListener("change", (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { chatImageBase64 = r.result.split(",")[1]; chatImageBtn.textContent = "✅"; }; r.readAsDataURL(f); });
-
   function saveSessions() { localStorage.setItem("iamastor_chat_sessions", JSON.stringify(allSessions)); }
   function createNewSession() { const n = { id: Date.now().toString(), title: "Discussion", messages: [{ role: "assistant", content: "Bonjour !" }] }; allSessions.unshift(n); currentSessionId = n.id; saveSessions(); renderSessions(); renderChat(); }
   function renderSessions() { sessionsList.innerHTML = ""; allSessions.forEach(s => { const div = document.createElement("div"); div.className = `session-item ${s.id === currentSessionId ? 'active' : ''}`; div.innerHTML = `<span>${s.title}</span><button class="session-del" data-id="${s.id}">×</button>`; div.addEventListener("click", (e) => { if (e.target.classList.contains('session-del')) { allSessions = allSessions.filter(x => x.id !== e.target.dataset.id); if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null; saveSessions(); renderSessions(); renderChat(); return; } currentSessionId = s.id; renderSessions(); renderChat(); }); sessionsList.appendChild(div); }); }
   function renderChat() { chatHistory.innerHTML = ""; if (!currentSessionId) return; const s = allSessions.find(x => x.id === currentSessionId); if (!s) return; s.messages.forEach(m => { chatHistory.innerHTML += `<div class="message ${m.role === 'user' ? 'user' : 'assistant'}">${m.role === 'user' ? m.content : m.content}</div>`; }); chatHistory.scrollTop = chatHistory.scrollHeight; }
-  
   newChatBtn.addEventListener("click", createNewSession);
   if (allSessions.length === 0) createNewSession(); else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
+  chatSend.addEventListener("click", async () => { const text = chatInput.value.trim(); if (!text || !currentSessionId) return; const s = allSessions.find(x => x.id === currentSessionId); chatInput.value = ""; chatSend.disabled = true; s.messages.push({ role: "user", content: text }); if (s.title === "Discussion") { s.title = text.slice(0, 30); renderSessions(); } saveSessions(); renderChat(); try { const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content })), imageBase64: chatImageBase64 }) }); if (data.content) { s.messages.push({ role: "assistant", content: data.content }); saveSessions(); renderChat(); } } catch (e) { alert(e.message); } chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false; });
 
-  chatSend.addEventListener("click", async () => { 
-    const text = chatInput.value.trim(); if (!text || !currentSessionId) return; 
-    const s = allSessions.find(x => x.id === currentSessionId); chatInput.value = ""; chatSend.disabled = true; 
-    s.messages.push({ role: "user", content: text }); if (s.title === "Discussion") { s.title = text.slice(0, 30); renderSessions(); } 
-    saveSessions(); renderChat(); 
-    try { const data = await apiFetch("/api/chat", { method: "POST", body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content })), imageBase64: chatImageBase64 }) }); if (data.content) { s.messages.push({ role: "assistant", content: data.content }); saveSessions(); renderChat(); } } catch (e) { alert(e.message); } 
-    chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false; 
-  });
-
-  // ==========================================
-  // 2. IMAGES
-  // ==========================================
+  // IMAGES
   const imgPrompt = document.getElementById("image-prompt"), imgFormat = document.getElementById("image-format"), imgBtn = document.getElementById("image-generate"), imgArea = document.getElementById("image-result-area"), imgResult = document.getElementById("image-result"), imgDownload = document.getElementById("image-download"), imgUploadInput = document.getElementById("image-upload"), imgUploadBtn = document.getElementById("image-upload-btn"), imgPreview = document.getElementById("image-preview"), imageHistoryEl = document.getElementById("image-history");
   let imgBase64 = null;
   imgUploadBtn.addEventListener("click", () => imgUploadInput.click());
@@ -106,11 +53,8 @@
   function renderImageHistory() { const h = JSON.parse(localStorage.getItem("iamastor_image_history") || "[]"); imageHistoryEl.innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="${i.url}" class="history-btn" download>⬇</a></div></div>`).join(""); }
   renderImageHistory();
 
-  // ==========================================
-  // 3. VIDÉO & HISTOIRE (Burst Parallèle + Polling Groupé)
-  // ==========================================
+  // VIDÉO & HISTOIRE (Burst + Retry Silencieux)
   let activeVideoTasks = [], pollingInterval = null;
-
   function startGlobalPolling() {
     if (pollingInterval) return;
     pollingInterval = setInterval(async () => {
@@ -135,14 +79,12 @@
     
     if (uploadBtn) { uploadBtn.addEventListener("click", () => imgInput.click()); imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); }); }
     
-    // LE BURST PARALLÈLE (Envoi immédiat, retry silencieux)
     const sendVideoRequest = async (attempt = 1) => {
       try {
         const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
         if (isStory) { payload.storyCharacters = window.storyCharactersData || []; }
         
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(payload) });
-        
         status.innerHTML = `<span class="dot"></span> En cours...`;
         
         activeVideoTasks.push({ 
@@ -153,10 +95,10 @@
         startGlobalPolling();
 
       } catch (err) {
-        // Si Agnes bloque, on attend 3s en silence et on réessaie
-        if (err.status === 429 || err.code === "rate_limit") { 
+        // Si Agnes est bloqué (429) ou si la file est pleine (503), on attend et on réessaie
+        if (err.status === 429 || err.code === "rate_limit" || err.status === 503 || err.code === "queue_full") { 
           if (attempt <= 10) { 
-            setTimeout(() => sendVideoRequest(attempt + 1), 3000); 
+            setTimeout(() => sendVideoRequest(attempt + 1), 5000); 
             return; 
           }
         }
@@ -168,7 +110,7 @@
       if (!prompt.value.trim()) return; 
       genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; 
       status.innerHTML = `<span class="dot"></span> En cours...`; 
-      sendVideoRequest(); // Envoi instantané
+      sendVideoRequest(); 
     });
     
     dlBtn.addEventListener("click", () => { if (video.src) window.open(video.src, '_blank'); });
@@ -186,12 +128,4 @@
   renderVideoHistory();
 
   document.getElementById('change-key-btn').onclick = () => { if(confirm("Changer de clé API ?")) { sessionStorage.removeItem("agnes_api_key"); window.location.reload(); } };
-
-  // ==========================================
-  // 4. KEEP-ALIVE (Empêche Render de s'endormir)
-  // ==========================================
-  setInterval(() => {
-    fetch('/api/health', { method: 'HEAD' }).catch(() => {});
-  }, 5 * 60 * 1000); // Toutes les 5 minutes
-
 })();
