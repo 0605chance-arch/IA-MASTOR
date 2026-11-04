@@ -1,7 +1,7 @@
 {
   "name": "videoai-pro",
-  "version": "2.0.0",
-  "description": "VideoAI Pro — Chat, Image, Vidéo & Mode Histoire propulsé par Agnes AI",
+  "version": "3.0.0",
+  "description": "VideoAI Pro — Chat, Image, Vidéo & Mode Histoire optimisé pour Agnes AI Starter Plan",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,6 +13,6 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["ai", "video", "image", "chat", "agnes", "storyboard"],
+  "keywords": ["ai", "video", "image", "chat", "agnes", "storyboard", "starter-plan"],
   "license": "MIT"
 }
