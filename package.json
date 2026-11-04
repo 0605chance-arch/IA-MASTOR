@@ -1,13 +1,13 @@
 {
-  "name": "ia-mastor",
+  "name": "videoai-pro",
   "version": "2.0.0",
-  "description": "IA MASTOR - Studio de génération IA",
+  "description": "Studio de création vidéo et image IA professionnel",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18"
   },
   "dependencies": {
     "express": "^4.19.2"
