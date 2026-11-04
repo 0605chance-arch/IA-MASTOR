@@ -39,6 +39,7 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
   }
 }
 
+// Middleware Auth
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
   const key = getApiKey(req);
@@ -50,7 +51,7 @@ app.use("/api", (req, res, next) => {
 // ==========================================
 // FILE D'ATTENTE VIDÉO (5 RPM) + MÉMOIRE
 // ==========================================
-const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute
+const SUBMIT_INTERVAL_MS = 12500; // 12.5s = 5 requêtes / minute
 const queues = new Map(); // Une file par clé API
 const activeTasks = new Map(); // Stocke l'état de toutes les tâches
 
@@ -74,7 +75,11 @@ async function processQueue(apiKey) {
   while (q.jobs.length > 0) {
     const job = q.jobs[0];
     const elapsed = Date.now() - q.lastSubmit;
-    if (elapsed < SUBMIT_INTERVAL_MS) await new Promise(r => setTimeout(r, SUBMIT_INTERVAL_MS - elapsed));
+    
+    // Respect du Token Plan (5 RPM)
+    if (elapsed < SUBMIT_INTERVAL_MS) {
+      await new Promise(r => setTimeout(r, SUBMIT_INTERVAL_MS - elapsed));
+    }
 
     try {
       const r = await apiFetch(`${API_BASE}/v1/videos`, {
@@ -84,7 +89,7 @@ async function processQueue(apiKey) {
       }, 30000);
 
       if (r.status === 429 || r.status === 503) {
-        await new Promise(r => setTimeout(r, 15000)); // Backoff
+        await new Promise(r => setTimeout(r, 15000)); // Backoff si surcharge
         continue;
       }
 
@@ -94,23 +99,23 @@ async function processQueue(apiKey) {
       q.lastSubmit = Date.now();
       q.jobs.shift();
       
-      // Enregistrement dans la mémoire serveur
       const videoId = data.video_id || data.id;
       activeTasks.set(job.taskId, { status: "processing", videoId, url: null });
       
-      // Démarrer la surveillance de cette vidéo
+      // Lancement de la surveillance arrière-plan
       pollVideoStatus(apiKey, job.taskId, videoId);
       job.resolve({ id: videoId });
 
     } catch (err) {
       q.jobs.shift();
       job.reject(err);
+      activeTasks.set(job.taskId, { status: "failed", videoId: null, url: null });
     }
   }
   q.processing = false;
 }
 
-// Surveillance automatique côté serveur
+// Surveillance automatique côté serveur (ne dépend pas du téléphone)
 async function pollVideoStatus(apiKey, taskId, videoId) {
   const interval = setInterval(async () => {
     try {
@@ -127,9 +132,9 @@ async function pollVideoStatus(apiKey, taskId, videoId) {
         activeTasks.set(taskId, { status: "failed", videoId, url: null });
       }
     } catch (e) {
-      // Erreur réseau transitoire, on continue de surveiller
+      // Erreur réseau transitoire, on réessaie au prochain tick
     }
-  }, 5000); // Vérification toutes les 5s
+  }, 5000); 
 }
 
 function enqueueVideoJob(apiKey, body, taskId) {
@@ -141,7 +146,7 @@ function enqueueVideoJob(apiKey, body, taskId) {
 }
 
 // ==========================================
-// SERVER-SENT EVENTS (SSE) POUR LE TEMPS RÉEL
+// SERVER-SENT EVENTS (SSE) - TEMPS RÉEL
 // ==========================================
 const sseClients = new Set();
 
@@ -155,7 +160,7 @@ app.get("/api/events", (req, res) => {
   req.on("close", () => sseClients.delete(res));
 });
 
-// Diffuser l'état des tâches toutes les 2 secondes
+// Diffusion de l'état à toutes les 2 secondes
 setInterval(() => {
   if (sseClients.size === 0) return;
   const tasks = {};
@@ -167,10 +172,74 @@ setInterval(() => {
 }, 2000);
 
 // ==========================================
-// ROUTES
+// ROUTES EXISTANTES
 // ==========================================
 
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
+
+app.post("/api/health", async (req, res) => {
+  try {
+    const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+    }, 15000);
+    if (r.ok) return res.json({ valid: true });
+    return res.status(401).json({ valid: false, error: "Clé invalide" });
+  } catch (err) {
+    res.status(500).json({ valid: false, error: err.message });
+  }
+});
+
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages, imageBase64 } = req.body;
+    const systemPrompt = { role: "system", content: `Tu es une IA. Réponds en français. Formate en Markdown.` };
+    let finalMessages = messages.map((m) => ({ ...m }));
+    if (imageBase64) {
+      const last = finalMessages[finalMessages.length - 1];
+      last.content = [
+        { type: "text", text: last.content },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+      ];
+    }
+    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, ...finalMessages], temperature: 0.6, max_tokens: 4096 }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur API");
+    res.json({ content: data.choices[0].message.content });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/generate-image", async (req, res) => {
+  try {
+    const { prompt, format, imageBase64 } = req.body;
+    const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
+    const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
+    if (imageBase64) {
+      body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
+      body.prompt = `Transform the reference image with this style: ${cinematicPrompt}`;
+    }
+    const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
+    let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
+    if (!finalUrl) throw new Error("Aucune image renvoyée.");
+    if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
+    res.json({ id: "img_" + Date.now(), url: finalUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post("/api/generate-video", async (req, res) => {
   try {
@@ -197,9 +266,7 @@ app.post("/api/generate-video", async (req, res) => {
       body.mode = "text";
     }
 
-    // On initialise la tâche dans la mémoire
     activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
-
     const result = await enqueueVideoJob(req.apiKey, body, taskId);
     res.json({ id: result.id, taskId });
   } catch (err) {
@@ -207,4 +274,90 @@ app.post("/api/generate-video", async (req, res) => {
   }
 });
 
-// ... (Garder les routes /api/health POST, /api/chat, /api/generate-image, /api/studio/generate-storyboard, /api/download/:id inchangées)
+app.get("/api/download/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { url } = req.query;
+    let fileUrl = url;
+
+    if (!fileUrl && !id.startsWith("img_")) {
+      const s = await apiFetch(
+        `${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`,
+        { headers: { "Authorization": `Bearer ${req.apiKey}` } }
+      );
+      const d = await s.json();
+      fileUrl = d.url || d.metadata?.url;
+    }
+
+    if (!fileUrl) return res.status(404).send("Fichier introuvable");
+    const ext = id.startsWith("img_") ? "jpg" : "mp4";
+
+    if (fileUrl.startsWith("data:")) {
+      const buffer = Buffer.from(fileUrl.split(",")[1], "base64");
+      res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
+      return res.send(buffer);
+    }
+
+    const fileRes = await fetch(fileUrl);
+    const buffer = await fileRes.arrayBuffer();
+    res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).send("Erreur download");
+  }
+});
+
+app.post("/api/studio/generate-storyboard", async (req, res) => {
+  try {
+    const { projectIdea, sceneCount, format, style, mood } = req.body;
+    if (!projectIdea) return res.status(400).json({ error: "L'idée du projet est manquante." });
+
+    const count = parseInt(sceneCount) || 5;
+    const systemPrompt = {
+      role: "system",
+      content: `Tu es un superviseur de production audiovisuelle IA. Génère un storyboard complet en JSON.
+RÈGLES :
+1. Histoire fluide (début, milieu, fin).
+2. Bible des personnages IMMUABLE (vêtements, visage).
+3. ${count} scènes de 12s. Chaque scène a un prompt_video AUTONOME.
+4. Réponds UNIQUEMENT avec le JSON valide.
+
+Structure JSON :
+{
+  "titre": "...",
+  "synopsis": "...",
+  "personnages": [{"nom": "...", "description_physique": "...", "role": "..."}],
+  "scenes": [{"numero": 1, "titre": "...", "description_action": "...", "personnages_presents": ["..."], "prompt_video": "..."}]
+}`
+    };
+
+    const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count} (Clips de 12s)\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
+
+    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.7, max_tokens: 4096 }),
+    }, 120000);
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur de génération du storyboard.");
+
+    const rawContent = data.choices[0].message.content;
+    let parsedPlan;
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      parsedPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(rawContent);
+    } catch (e) {
+      throw new Error("L'IA n'a pas renvoyé un format JSON valide.");
+    }
+
+    res.json(parsedPlan);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`✅ Moteur SSE et File d'attente prêts sur le port ${PORT}`));
