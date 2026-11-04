@@ -47,25 +47,46 @@
   }
 
   /**
-   * CORRECTION IPHONE/ANDROID : Téléchargement robuste via Blob
-   * Safari sur iOS ne gère pas l'attribut "download" sur les balises <a> distantes.
+   * Téléchargement universel (iOS/Android/PC) avec feuille de partage native
    */
-  async function downloadFile(url, filename) {
+  async function downloadFile(url, filename, id) {
     try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.style.display = "none";
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(blobUrl);
-      a.remove();
+      let blob;
+      if (url.startsWith("data:")) {
+        const res = await fetch(url);
+        blob = await res.blob();
+      } else {
+        const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error("Erreur serveur lors du téléchargement");
+        blob = await res.blob();
+      }
+
+      const file = new File([blob], filename, { type: blob.type });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename,
+        });
+      } else {
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.style.display = "none";
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(blobUrl);
+        a.remove();
+      }
     } catch (e) {
-      // Fallback : ouvre dans un nouvel onglet si le fetch échoue
-      window.open(url, "_blank");
+      console.error("Erreur de téléchargement:", e);
+      if (!url.startsWith("data:")) {
+        window.location.href = `/api/download/${id}?url=${encodeURIComponent(url)}`;
+      } else {
+        alert("Le téléchargement a échoué. Veuillez réessayer.");
+      }
     }
   }
 
@@ -337,11 +358,9 @@
       if (data.url) {
         imgResult.src = data.url;
         
-        // Nouveau système de téléchargement universel (iOS/Android)
         imgDownload.onclick = (e) => {
           e.preventDefault();
-          const ext = data.url.startsWith("data:") ? "jpg" : "jpg";
-          downloadFile(data.url, `videoai-${data.id}.${ext}`);
+          downloadFile(data.url, `videoai-${data.id}.jpg`, data.id);
         };
         
         imgArea.hidden = false;
@@ -374,10 +393,9 @@
         </div>
       </div>`).join("");
 
-    // Attacher l'événement de téléchargement aux boutons historiques
     imageHistoryEl.querySelectorAll(".dl-img-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
-        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.jpg`);
+        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.jpg`, e.target.dataset.id);
       });
     });
   }
@@ -412,10 +430,9 @@
         </div>
       </div>`).join("");
 
-    // Attacher l'événement de téléchargement aux boutons historiques
     el.querySelectorAll(".dl-vid-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
-        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.mp4`);
+        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.mp4`, e.target.dataset.id);
       });
     });
   }
@@ -465,15 +482,12 @@
       video.src = "";
       setStatus("queued", "En file d'attente…");
 
-      // Collecte des images
       const refs = [];
-      if (state.base64) refs.push(state.base64); // Image propre au slot
+      if (state.base64) refs.push(state.base64);
       
-      // Si mode Studio, on ajoute les images des personnages
       if (context === "story") {
         const charImgs = getSharedImages();
         charImgs.forEach(img => {
-          // On évite les doublons et on s'assure de ne pas dépasser 5 au total
           if (img && !refs.includes(img) && refs.length < 5) refs.push(img);
         });
       }
@@ -496,7 +510,6 @@
         state.id = data.id;
         setStatus("loading", "Génération…");
         
-        // Polling toutes les 2s
         state.poll = setInterval(async () => {
           try {
             const s = await apiFetch(`/api/status/${state.id}`);
@@ -530,7 +543,7 @@
 
     dlBtn.addEventListener("click", () => {
       if (!state.url) return;
-      downloadFile(state.url, `videoai-${state.id}.mp4`);
+      downloadFile(state.url, `videoai-${state.id}.mp4`, state.id);
     });
   }
 
@@ -591,25 +604,21 @@
     updateCharUI();
   }
 
-  // Fonction appelée par le slot pour récupérer les images des personnages
   function getCurrentCharacterImages() {
     const imgs = [];
     charsContainer.querySelectorAll(".char-card").forEach((card) => {
       if (card._imageBase64) imgs.push(card._imageBase64);
     });
-    return imgs; // Le serveur s'occupe de couper à 5
+    return imgs;
   }
 
   addCharBtn.addEventListener("click", addCharCard);
-  addCharCard(); // Ajouter un premier perso vide par défaut
+  addCharCard();
 
-  // Créer les 10 slots du Studio au chargement
   for (let i = 0; i < 10; i++) {
     const node = slotTemplate.content.firstElementChild.cloneNode(true);
     node.querySelector(".slot-num").textContent = `Scène ${i + 1}`;
     storySlotsContainer.appendChild(node);
-    // On passe getCurrentCharacterImages en paramètre pour que chaque génération 
-    // prenne en compte les images actuelles des personnages.
     createSlot(node, "story", getCurrentCharacterImages);
   }
   renderHistory("story");
