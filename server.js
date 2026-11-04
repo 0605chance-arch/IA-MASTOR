@@ -52,7 +52,7 @@ app.post("/api/generate-image", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 3. VIDÉO (Envoi direct pour le Smart Queue)
+// 3. VIDÉO
 app.post("/api/generate-video", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -83,7 +83,7 @@ app.post("/api/generate-video", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 4. STATUT GROUPÉ + HACK DE RÉCUPÉRATION
+// 4. STATUT GROUPÉ (Le Hack)
 app.post("/api/status-batch", async (req, res) => {
   try {
     const apiKey = getApiKey(req);
@@ -94,16 +94,12 @@ app.post("/api/status-batch", async (req, res) => {
         const response = await fetch(`https://apihub.agnes-ai.com/agnesapi?video_id=${id}&model_name=agnes-video-2.5-flash`, { 
           headers: { "Authorization": `Bearer ${apiKey}` } 
         });
-        
         if (response.status === 429) return { id, status: "processing", url: null };
         
         const data = await response.json();
-        
         // HACK : On récupère l'URL dès qu'elle existe, peu importe ce que dit Agnes
         const forcedUrl = data.url || data.video_url || data.metadata?.url;
-        if (forcedUrl) {
-            return { id, status: "completed", url: forcedUrl };
-        }
+        if (forcedUrl) return { id, status: "completed", url: forcedUrl };
 
         return { id, status: data.status || "processing", url: null };
       } catch (e) { 
