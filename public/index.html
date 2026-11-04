@@ -13,8 +13,8 @@
   <div id="lock-screen" class="lock-screen">
     <div class="lock-card">
       <div class="logo">🚀 IA <em>MASTOR</em></div>
-      <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 14px;">Entrez votre clé API Agnes pour déverrouiller le studio.</p>
-      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre clé API ici..." style="margin-bottom: 15px;">
+      <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 14px;">Entrez votre clé API Agnes.</p>
+      <input type="password" id="api-key-input" class="input-field" placeholder="Clé API..." style="margin-bottom: 15px;">
       <button id="unlock-btn" class="btn-primary" style="width: 100%;">Déverrouiller</button>
       <p id="lock-error" style="color: #ff453a; font-size: 12px; margin-top: 10px; display: none;"></p>
     </div>
@@ -28,7 +28,6 @@
       <button id="change-key-btn" style="background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:6px 12px; border-radius:6px; font-size:12px; margin-top:10px; cursor:pointer;">🔑 Changer de clé</button>
     </header>
 
-    <!-- ONGLETS -->
     <div class="tabs">
       <button id="tab-chat" class="tab-btn active">💬 Chat</button>
       <button id="tab-image" class="tab-btn">🖼️ Image</button>
@@ -37,11 +36,9 @@
     </div>
 
     <main class="main">
-      
-      <!-- SECTION CHAT -->
       <section id="section-chat" class="section active">
         <div class="chat-layout">
-          <aside class="chat-sidebar" id="chat-sidebar">
+          <aside class="chat-sidebar">
             <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
             <div id="chat-sessions-list" class="sessions-list"></div>
           </aside>
@@ -57,10 +54,9 @@
         </div>
       </section>
 
-      <!-- SECTION IMAGE -->
       <section id="section-image" class="section">
         <div class="card">
-          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image à générer..."></textarea>
+          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image..."></textarea>
           <div class="upload-area">
             <input type="file" id="image-upload" accept="image/*" hidden>
             <button id="image-upload-btn" class="btn-secondary">📷 Image de référence</button>
@@ -77,64 +73,43 @@
           <img id="image-result" src="" alt="Résultat">
           <a id="image-download" class="btn-download" download>Télécharger</a>
         </div>
-        <div class="history-section">
-          <h3>Historique des images</h3>
-          <div id="image-history" class="history-grid"></div>
-        </div>
+        <div class="history-section"><h3>Historique des images</h3><div id="image-history" class="history-grid"></div></div>
       </section>
 
-      <!-- SECTION VIDÉO CLASSIQUE -->
       <section id="section-video" class="section">
         <div class="video-slots" id="video-slots"></div>
-        <div class="history-section">
-          <h3>Bibliothèque vidéo</h3>
-          <div id="video-history" class="history-grid"></div>
-        </div>
+        <div class="history-section"><h3>Bibliothèque vidéo</h3><div id="video-history" class="history-grid"></div></div>
       </section>
 
-      <!-- SECTION HISTOIRE -->
       <section id="section-story" class="section">
         <div class="card" style="margin-bottom: 16px;">
-          <h3 style="margin-bottom: 10px; font-size: 16px;">📝 Synopsis de l'histoire</h3>
-          <textarea id="story-synopsis" class="input-field" rows="3" placeholder="Résumez l'histoire globale..."></textarea>
-        </div>
-
-        <div class="card" style="margin-bottom: 16px;">
-          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages principaux (Max 3)</h3>
-          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">Ces visages seront appliqués aux scènes où le prénom est mentionné.</p>
-          <div class="char-grid">
-            <div class="char-col">
-              <input type="text" id="char1-name" class="input-field" placeholder="Prénom 1" style="margin-bottom: 5px; text-align: center;">
+          <h3 style="margin-bottom: 10px; font-size: 16px;">👥 Personnages</h3>
+          <div style="display: flex; gap: 10px;">
+            <div style="flex: 1; text-align: center;">
+              <input type="text" id="char1-name" class="input-field" placeholder="Nom 1" style="margin-bottom:5px; text-align:center;">
               <input type="file" id="char1-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()" style="width: 100%; padding: 15px 0; font-size: 12px;">📷 Visage 1</button>
+              <button class="btn-secondary" onclick="document.getElementById('char1-file').click()" style="width: 100%; padding: 10px 0;">📷 1</button>
               <div id="char1-prev" class="preview"></div>
             </div>
-            <div class="char-col">
-              <input type="text" id="char2-name" class="input-field" placeholder="Prénom 2" style="margin-bottom: 5px; text-align: center;">
+            <div style="flex: 1; text-align: center;">
+              <input type="text" id="char2-name" class="input-field" placeholder="Nom 2" style="margin-bottom:5px; text-align:center;">
               <input type="file" id="char2-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()" style="width: 100%; padding: 15px 0; font-size: 12px;">📷 Visage 2</button>
+              <button class="btn-secondary" onclick="document.getElementById('char2-file').click()" style="width: 100%; padding: 10px 0;">📷 2</button>
               <div id="char2-prev" class="preview"></div>
             </div>
-            <div class="char-col">
-              <input type="text" id="char3-name" class="input-field" placeholder="Prénom 3" style="margin-bottom: 5px; text-align: center;">
+            <div style="flex: 1; text-align: center;">
+              <input type="text" id="char3-name" class="input-field" placeholder="Nom 3" style="margin-bottom:5px; text-align:center;">
               <input type="file" id="char3-file" accept="image/*" hidden>
-              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()" style="width: 100%; padding: 15px 0; font-size: 12px;">📷 Visage 3</button>
+              <button class="btn-secondary" onclick="document.getElementById('char3-file').click()" style="width: 100%; padding: 10px 0;">📷 3</button>
               <div id="char3-prev" class="preview"></div>
             </div>
           </div>
         </div>
-        
         <div class="video-slots" id="story-slots"></div>
-        <div class="history-section">
-          <h3>Historique de l'histoire</h3>
-          <div id="story-history" class="history-grid"></div>
-        </div>
       </section>
-
     </main>
   </div>
 
-  <!-- TEMPLATE POUR LES SLOTS VIDÉO (Utilisé 20 fois par le JS) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
@@ -144,19 +119,11 @@
       <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène..."></textarea>
       <div class="slot-upload">
         <input type="file" class="slot-img-input" accept="image/*" hidden>
-        <button class="slot-upload-btn btn-secondary">📷 Image de scène (Optionnel)</button>
+        <button class="slot-upload-btn btn-secondary">📷 Image de scène</button>
       </div>
       <div class="slot-options">
-        <select class="slot-format input-field">
-          <option value="9:16">9:16</option>
-          <option value="16:9">16:9</option>
-          <option value="1:1">1:1</option>
-        </select>
-        <select class="slot-duration input-field">
-          <option value="4">4s</option>
-          <option value="8" selected>8s</option>
-          <option value="12">12s</option>
-        </select>
+        <select class="slot-format input-field"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select>
+        <select class="slot-duration input-field"><option value="4">4s</option><option value="8" selected>8s</option><option value="12">12s</option></select>
       </div>
       <div class="slot-actions">
         <button class="slot-gen-btn btn-primary">Générer</button>
@@ -165,7 +132,6 @@
       <div class="slot-player" hidden><video controls playsinline></video></div>
     </div>
   </template>
-
   <script src="app.js"></script>
 </body>
 </html>
