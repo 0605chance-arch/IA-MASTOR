@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>VideoAI Pro</title>
+  <title>VideoAI Pro — Studio Créatif</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -45,14 +45,14 @@
           <span class="api-dot" id="api-dot"></span> 🔑
         </button>
       </div>
-      <p class="tagline">Chat • Image • Vidéo • Histoire</p>
+      <p class="tagline">Chat • Image • Vidéo • Studio</p>
     </header>
 
     <div class="tabs">
       <button id="tab-chat"  class="tab-btn active">💬 Chat</button>
       <button id="tab-image" class="tab-btn">🖼️ Image</button>
       <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
-      <button id="tab-story" class="tab-btn">📖 Histoire</button>
+      <button id="tab-story" class="tab-btn">📖 Studio</button>
     </div>
 
     <main class="main">
@@ -109,10 +109,22 @@
       </section>
 
       <!-- =========================================
-           VIDÉO — 10 slots + historique
+           VIDÉO
            ========================================= -->
       <section id="section-video" class="section">
+        
+        <!-- Bannière d'information -->
+        <div class="info-banner">
+          <span class="info-icon">⏳</span>
+          <p>
+            <strong>Temps de génération :</strong> Une vidéo met généralement <strong>10 à 30 minutes</strong> à se générer (selon la charge des serveurs). 
+            <br>
+            <strong>Important :</strong> Restez actif sur l'application pendant la génération, car le serveur Render s'éteint automatiquement au bout de 10 minutes d'inactivité.
+          </p>
+        </div>
+
         <div class="video-slots" id="video-slots"></div>
+        
         <div class="history-section">
           <h3>Bibliothèque vidéo</h3>
           <div id="video-history" class="history-grid"></div>
@@ -120,47 +132,45 @@
       </section>
 
       <!-- =========================================
-           HISTOIRE — Setup + 10 slots + historique
+           HISTOIRE / STUDIO
            ========================================= -->
       <section id="section-story" class="section">
+        
+        <!-- En-tête Premium -->
+        <div class="story-premium-header">
+          <h2>🎬 Studio Cinématographique IA</h2>
+          <p>
+            Créez des vidéos IA de <strong>1 à 2 minutes</strong>. 
+            Notre système d'intelligence mémorise vos personnages et vos prompts pour générer une histoire cinématographique premium, scène par scène.
+          </p>
+        </div>
 
-        <!-- ÉTAPE 1 : Synopsis + personnages -->
+        <!-- Étape 1 : Personnages de référence -->
         <div class="card story-setup">
-          <label class="field-label" for="story-synopsis">📝 Synopsis de l'histoire</label>
-          <textarea
-            id="story-synopsis"
-            class="input-field"
-            rows="4"
-            placeholder="Racontez votre histoire en quelques phrases. L'IA en déduira 10 scènes cohérentes, avec les mêmes paramètres que l'onglet Vidéo…"
-          ></textarea>
-
           <div class="story-chars-header">
-            <span class="field-label">🎭 Personnages de référence (5 max)</span>
-            <span class="char-count" id="char-count">0 / 5</span>
+            <span class="field-label">🎭 Personnages de référence (10 max)</span>
+            <span class="char-count" id="char-count">0 / 10</span>
           </div>
+          <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px;">
+            L'IA s'en souviendra pour chaque scène. (Les 5 premières images seront utilisées par l'API pour garantir la cohérence).
+          </p>
 
           <div id="story-characters" class="chars-grid"></div>
 
-          <button id="add-char-btn" class="btn-secondary" type="button" hidden>
+          <button id="add-char-btn" class="btn-secondary" type="button">
             + Ajouter un personnage
           </button>
-
-          <button id="story-gen-prompts" class="btn-primary story-gen-btn">
-            🎬 Générer les 10 prompts
-          </button>
-          <div id="story-gen-status" class="story-status"></div>
         </div>
 
-        <!-- ÉTAPE 2 : Les 10 scènes modifiables -->
+        <!-- Étape 2 : Les 10 scènes (mêmes paramètres que Vidéo) -->
         <div class="story-slots-header">
-          <h3>🎞️ Scènes (modifiables)</h3>
-          <button id="story-clear" class="btn-secondary btn-small" hidden>Effacer</button>
+          <h3>🎞️ Vos 10 scènes</h3>
+          <button id="story-clear" class="btn-secondary btn-small" hidden>Effacer tout</button>
         </div>
         <div class="video-slots" id="story-slots"></div>
 
-        <!-- Historique dédié à l'onglet Histoire -->
         <div class="history-section">
-          <h3>Bibliothèque histoire</h3>
+          <h3>Bibliothèque Studio</h3>
           <div id="story-history" class="history-grid"></div>
         </div>
       </section>
@@ -169,7 +179,7 @@
   </div>
 
   <!-- ============================================
-       TEMPLATE SLOT (partagé Vidéo + Histoire)
+       TEMPLATE SLOT (Partagé Vidéo + Studio)
        ============================================ -->
   <template id="slot-template">
     <div class="slot card">
@@ -177,7 +187,7 @@
         <span class="slot-num">#1</span>
         <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
       </div>
-      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la vidéo…"></textarea>
+      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la scène…"></textarea>
       <div class="slot-upload">
         <input type="file" class="slot-img-input" accept="image/*" hidden>
         <button class="slot-upload-btn btn-secondary" type="button">📷 Image</button>
@@ -203,7 +213,7 @@
   </template>
 
   <!-- ============================================
-       TEMPLATE PERSONNAGE
+       TEMPLATE PERSONNAGE (Pour le Studio)
        ============================================ -->
   <template id="char-template">
     <div class="char-card">
