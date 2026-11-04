@@ -5,7 +5,6 @@ const app = express();
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
-// Augmentation de la limite pour les images de référence (storyboard/personnages)
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
@@ -40,7 +39,7 @@ async function apiFetch(url, options = {}, timeoutMs = 90000) {
   }
 }
 
-// Middleware d'authentification
+// Middleware Auth
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
   const key = getApiKey(req);
@@ -92,11 +91,10 @@ async function processQueue(apiKey) {
         body: JSON.stringify(job.body),
       }, 30000);
 
-      // Gestion des limites de débit et files pleines
       if (r.status === 429 || r.status === 503) {
         const retryAfter = 15000 + Math.random() * 5000;
         await new Promise((resolve) => setTimeout(resolve, retryAfter));
-        continue; // On réessaie le même job
+        continue;
       }
 
       const contentType = r.headers.get("content-type");
@@ -128,7 +126,7 @@ function enqueueVideoJob(apiKey, body) {
 }
 
 // ==========================================
-// ROUTES EXISTANTES (Optimisées)
+// ROUTES EXISTANTES (Chat, Image, Vidéo)
 // ==========================================
 
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
@@ -286,43 +284,36 @@ app.get("/api/download/:id", async (req, res) => {
 });
 
 // ==========================================
-// NOUVELLES ROUTES : STUDIO DE PRODUCTION IA
+// NOUVELLE ROUTE : STUDIO (Superviseur IA de Préproduction)
 // ==========================================
-
-/**
- * Génération d'un plan de production complet à partir des paramètres du projet.
- * L'IA agit comme un réalisateur/scénariste et renvoie un JSON structuré.
- */
-app.post("/api/studio/generate-plan", async (req, res) => {
+app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
-    const { projectIdea, format, duration, style, mood, targetAudience } = req.body;
-    if (!projectIdea) return res.status(400).json({ error: "Idée du projet manquante." });
+    const { projectIdea, sceneCount, format, style, mood } = req.body;
+    if (!projectIdea) return res.status(400).json({ error: "L'idée du projet est manquante." });
+
+    const count = parseInt(sceneCount) || 5;
+    const totalDuration = count * 12; // On base sur des clips de 12s
 
     const systemPrompt = {
       role: "system",
-      content: `Tu es un studio de production audiovisuelle de classe mondiale (réalisateur, scénariste, directeur artistique). 
-À partir des informations fournies, tu dois générer un dossier de production COMPLET et COHÉRENT au format JSON.
+      content: `Tu es un superviseur de production audiovisuelle IA. Ton rôle est de transformer une idée en un storyboard complet et cohérent pour des générateurs vidéo IA.
+L'utilisateur va générer ${count} clips vidéo de 12 secondes chacun, soit une histoire d'environ ${totalDuration} secondes au total.
 
 RÈGLES STRICTES :
-1. La structure narrative doit être solide (introduction, élément déclencheur, développement, climax, résolution).
-2. Les personnages doivent avoir une description physique IMMUABLE (visage, cheveux, vêtements, accessoires) pour garantir la continuité.
-3. Chaque scène doit avoir un prompt vidéo autonome, descriptif et détaillé (incluant le décor, l'action, la lumière, le mouvement de caméra, et la description complète des personnages présents).
-4. Le nombre de scènes doit être adapté à la durée totale (ex: ~4-8 secondes par scène).
+1. L'histoire doit être fluide et avoir un début, un développement et une fin.
+2. Crée une "Bible des Personnages" avec des descriptions physiques IMMUABLES (vêtements, visage, coiffure) pour garantir la cohérence entre les clips.
+3. Pour chaque scène (${count} au total), écris un "prompt_video" TRÈS détaillé. Ce prompt doit être autonome : il doit re-décrire les personnages présents, le décor, l'action, la lumière, et le mouvement de caméra. Ne dis jamais "comme dans la scène précédente".
+4. Adapte l'action à la durée de 12 secondes (une action principale claire, pas de scènes trop complexes).
 5. Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après.
 
 Structure JSON attendue :
 {
-  "titre": "Titre du projet",
+  "titre": "Titre de l'histoire",
   "synopsis": "Résumé de l'histoire",
-  "direction_artistique": {
-    "palette": "Description des couleurs",
-    "lumiere": "Style d'éclairage",
-    "ambiance": "Ambiance générale"
-  },
   "personnages": [
     {
       "nom": "Nom",
-      "description_reference": "Description physique complète et immuable (âge, visage, cheveux, vêtements, accessoires)",
+      "description_physique": "Description complète et immuable (âge, visage, cheveux, vêtements, accessoires)",
       "role": "Rôle dans l'histoire"
     }
   ],
@@ -330,21 +321,19 @@ Structure JSON attendue :
     {
       "numero": 1,
       "titre": "Titre de la scène",
-      "duree": 8,
-      "description_action": "Ce qui se passe",
+      "description_action": "Ce qui se passe dans cette scène (12s)",
       "personnages_presents": ["Nom1", "Nom2"],
-      "prompt_video": "Prompt complet et autonome pour le générateur vidéo (incluant descriptions physiques, décor, action, caméra, lumière)"
+      "prompt_video": "Prompt complet et autonome pour le générateur vidéo"
     }
   ]
 }`
     };
 
     const userContent = `IDÉE DU PROJET : ${projectIdea}
+NOMBRE DE SCÈNES SOUHAITÉ : ${count} (Clips de 12 secondes chacun)
 FORMAT : ${format || "16:9"}
-DURÉE TOTALE SOUHAITÉE : ${duration || 30} secondes
 STYLE VISUEL : ${style || "Cinématographique"}
-AMBIANCE : ${mood || "Dramatique"}
-PUBLIC CIBLE : ${targetAudience || "Grand public"}`;
+AMBIANCE : ${mood || "Dramatique"}`;
 
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
       method: "POST",
@@ -358,7 +347,7 @@ PUBLIC CIBLE : ${targetAudience || "Grand public"}`;
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur de génération du plan.");
+    if (!response.ok) throw new Error(data.error?.message || "Erreur de génération du storyboard.");
 
     const rawContent = data.choices[0].message.content;
     let parsedPlan;
@@ -371,7 +360,7 @@ PUBLIC CIBLE : ${targetAudience || "Grand public"}`;
 
     res.json(parsedPlan);
   } catch (err) {
-    console.error("Erreur Studio Plan:", err);
+    console.error("Erreur Studio:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -382,4 +371,4 @@ PUBLIC CIBLE : ${targetAudience || "Grand public"}`;
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Studio de production prêt sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Superviseur Studio prêt sur le port ${PORT}`));
