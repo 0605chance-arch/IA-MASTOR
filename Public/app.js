@@ -2,9 +2,8 @@
   "use strict";
 
   // ============================================
-  // UTILS
+  // UTILS & SÉCURITÉ
   // ============================================
-
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, "&amp;")
@@ -27,7 +26,6 @@
       .replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>")
       .replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
 
-    // Tableaux
     const lines = html.split("\n");
     let inTable = false, tableHtml = "";
     for (let i = 0; i < lines.length; i++) {
@@ -48,10 +46,27 @@
     return html.replace(/\n/g, "<br>");
   }
 
-  /** Construit un href de téléchargement robuste (data: direct, http: proxy serveur) */
-  function getDownloadHref(id, url) {
-    if (url && url.startsWith("data:")) return url;
-    return `/api/download/${encodeURIComponent(id)}?url=${encodeURIComponent(url || "")}`;
+  /**
+   * CORRECTION IPHONE/ANDROID : Téléchargement robuste via Blob
+   * Safari sur iOS ne gère pas l'attribut "download" sur les balises <a> distantes.
+   */
+  async function downloadFile(url, filename) {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      a.remove();
+    } catch (e) {
+      // Fallback : ouvre dans un nouvel onglet si le fetch échoue
+      window.open(url, "_blank");
+    }
   }
 
   // ============================================
@@ -106,14 +121,16 @@
     apiKeyStatus.textContent = "Validation…";
     apiKeyStatus.className = "api-status";
     apiKeySave.disabled = true;
+    
     const ok = await validateKey(key);
     apiKeySave.disabled = false;
+    
     if (ok) {
       setKey(key);
       apiDot.classList.add("ok");
       apiKeyStatus.textContent = "Clé validée ✓";
       apiKeyStatus.className = "api-status ok";
-      setTimeout(() => { apiModal.hidden = true; apiKeyStatus.textContent = ""; }, 400);
+      setTimeout(() => { apiModal.hidden = true; apiKeyStatus.textContent = ""; }, 500);
     } else {
       apiKeyStatus.textContent = "Clé invalide ou expirée.";
       apiKeyStatus.className = "api-status err";
@@ -127,16 +144,8 @@
     apiModal.hidden = false;
   });
 
-  // Fermer le modal si clé déjà valide + clic backdrop
-  apiModal.addEventListener("click", (e) => {
-    if (e.target === apiModal && getKey()) apiModal.hidden = true;
-  });
-
   bootApi();
 
-  // ============================================
-  // API FETCH (injecte la clé)
-  // ============================================
   async function apiFetch(url, options = {}) {
     const headers = { ...(options.headers || {}), "X-API-Key": getKey() };
     if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
@@ -193,9 +202,7 @@
     const n = {
       id: Date.now().toString(),
       title: "Nouvelle conversation",
-      messages: [
-        { role: "assistant", content: "Bonjour ! Comment puis-je vous aider aujourd'hui ?" },
-      ],
+      messages: [{ role: "assistant", content: "Bonjour ! Comment puis-je vous aider aujourd'hui ?" }],
     };
     allSessions.unshift(n);
     currentSessionId = n.id;
@@ -214,9 +221,7 @@
         if (e.target.classList.contains("session-del")) {
           e.stopPropagation();
           allSessions = allSessions.filter((x) => x.id !== e.target.dataset.id);
-          if (currentSessionId === e.target.dataset.id) {
-            currentSessionId = allSessions[0]?.id || null;
-          }
+          if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null;
           saveSessions();
           renderSessions();
           renderChat();
@@ -250,13 +255,8 @@
   }
 
   newChatBtn.addEventListener("click", createNewSession);
-
   if (allSessions.length === 0) createNewSession();
-  else {
-    currentSessionId = allSessions[0].id;
-    renderSessions();
-    renderChat();
-  }
+  else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
 
   chatSend.addEventListener("click", async () => {
     const text = chatInput.value.trim();
@@ -265,11 +265,7 @@
     chatInput.value = "";
     chatSend.disabled = true;
 
-    s.messages.push({
-      role: "user",
-      content: text,
-      imageBase64: chatImageBase64 || undefined,
-    });
+    s.messages.push({ role: "user", content: text, imageBase64: chatImageBase64 || undefined });
     if (s.title === "Nouvelle conversation") {
       s.title = text.slice(0, 30) + (text.length > 30 ? "…" : "");
       renderSessions();
@@ -281,27 +277,19 @@
       const apiMessages = s.messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await apiFetch("/api/chat", {
         method: "POST",
-        body: JSON.stringify({
-          messages: apiMessages,
-          imageBase64: chatImageBase64 || undefined,
-        }),
+        body: JSON.stringify({ messages: apiMessages, imageBase64: chatImageBase64 || undefined }),
       });
       const data = await res.json();
       if (data.content) {
         s.messages.push({ role: "assistant", content: data.content });
-        saveSessions();
-        renderChat();
       } else if (data.error) {
         s.messages.push({ role: "assistant", content: `⚠️ Erreur : ${data.error}` });
-        saveSessions();
-        renderChat();
       }
     } catch (e) {
       s.messages.push({ role: "assistant", content: "⚠️ Erreur réseau." });
-      saveSessions();
-      renderChat();
     }
-
+    saveSessions();
+    renderChat();
     chatImageBase64 = null;
     chatImageBtn.textContent = "📷";
     chatSend.disabled = false;
@@ -343,25 +331,22 @@
     try {
       const res = await apiFetch("/api/generate-image", {
         method: "POST",
-        body: JSON.stringify({
-          prompt: imgPrompt.value,
-          format: imgFormat.value,
-          imageBase64: imgBase64 || undefined,
-        }),
+        body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 || undefined }),
       });
       const data = await res.json();
       if (data.url) {
         imgResult.src = data.url;
-        imgDownload.href = getDownloadHref(data.id, data.url);
-        imgDownload.setAttribute("download", `videoai-${data.id}.jpg`);
+        
+        // Nouveau système de téléchargement universel (iOS/Android)
+        imgDownload.onclick = (e) => {
+          e.preventDefault();
+          const ext = data.url.startsWith("data:") ? "jpg" : "jpg";
+          downloadFile(data.url, `videoai-${data.id}.${ext}`);
+        };
+        
         imgArea.hidden = false;
         const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]");
-        h.unshift({
-          prompt: imgPrompt.value,
-          url: data.url,
-          id: data.id,
-          date: new Date().toLocaleDateString("fr-FR"),
-        });
+        h.unshift({ prompt: imgPrompt.value, url: data.url, id: data.id, date: new Date().toLocaleDateString("fr-FR") });
         localStorage.setItem("videoai_image_history", JSON.stringify(h.slice(0, 20)));
         renderImageHistory();
       } else {
@@ -380,25 +365,26 @@
       imageHistoryEl.innerHTML = "<p style='color:gray;'>Aucune image.</p>";
       return;
     }
-    imageHistoryEl.innerHTML = h
-      .map((i) => {
-        const href = getDownloadHref(i.id, i.url);
-        const viewHref = i.url.startsWith("data:") ? i.url : i.url;
-        return `
-        <div class="history-item">
-          <span class="history-prompt">${escapeHtml(i.prompt)}</span>
-          <div class="history-actions">
-            <a href="${viewHref}" target="_blank" class="history-btn">Voir</a>
-            <a href="${href}" class="history-btn" download="videoai-${i.id}.jpg">⬇ Télécharger</a>
-          </div>
-        </div>`;
-      })
-      .join("");
+    imageHistoryEl.innerHTML = h.map((i) => `
+      <div class="history-item">
+        <span class="history-prompt">${escapeHtml(i.prompt)}</span>
+        <div class="history-actions">
+          <a href="${i.url}" target="_blank" class="history-btn">Voir</a>
+          <button class="history-btn dl-img-btn" data-url="${i.url}" data-id="${i.id}">⬇ Télécharger</button>
+        </div>
+      </div>`).join("");
+
+    // Attacher l'événement de téléchargement aux boutons historiques
+    imageHistoryEl.querySelectorAll(".dl-img-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.jpg`);
+      });
+    });
   }
   renderImageHistory();
 
   // ============================================
-  // HISTORIQUES VIDÉO + HISTOIRE (générique)
+  // HISTORIQUES VIDÉO + STUDIO
   // ============================================
   function saveToHistory(type, prompt, url, id) {
     const key = type === "story" ? "videoai_story_history" : "videoai_video_history";
@@ -416,32 +402,29 @@
       el.innerHTML = "<p style='color:gray;'>Aucune vidéo.</p>";
       return;
     }
-    el.innerHTML = h
-      .map((i) => {
-        const href = getDownloadHref(i.id, i.url);
-        return `
-        <div class="history-item">
-          <span class="history-prompt">${escapeHtml(i.prompt)}</span>
-          <div class="history-actions">
-            <a href="${i.url}" target="_blank" class="history-btn">Voir</a>
-            <a href="${href}" class="history-btn" download>⬇ Télécharger</a>
-          </div>
-        </div>`;
-      })
-      .join("");
+    
+    el.innerHTML = h.map((i) => `
+      <div class="history-item">
+        <span class="history-prompt">${escapeHtml(i.prompt)}</span>
+        <div class="history-actions">
+          <a href="${i.url}" target="_blank" class="history-btn">Voir</a>
+          <button class="history-btn dl-vid-btn" data-url="${i.url}" data-id="${i.id}">⬇ Télécharger</button>
+        </div>
+      </div>`).join("");
+
+    // Attacher l'événement de téléchargement aux boutons historiques
+    el.querySelectorAll(".dl-vid-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        downloadFile(e.target.dataset.url, `videoai-${e.target.dataset.id}.mp4`);
+      });
+    });
   }
 
   // ============================================
-  // SLOT FACTORY (partagé Vidéo + Histoire)
+  // FACTORY SLOT (Vidéo & Studio)
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
 
-  /**
-   * Crée un slot fonctionnel.
-   * @param {HTMLElement} node
-   * @param {"video"|"story"} context
-   * @param {() => string[]} getSharedImages - fonction renvoyant les images de référence (histoire)
-   */
   function createSlot(node, context = "video", getSharedImages = () => []) {
     const promptEl = node.querySelector(".slot-prompt");
     const formatEl = node.querySelector(".slot-format");
@@ -482,13 +465,17 @@
       video.src = "";
       setStatus("queued", "En file d'attente…");
 
-      // Construction des images de référence
+      // Collecte des images
       const refs = [];
-      if (state.base64) refs.push(state.base64);
+      if (state.base64) refs.push(state.base64); // Image propre au slot
+      
+      // Si mode Studio, on ajoute les images des personnages
       if (context === "story") {
-        for (const b of getSharedImages()) {
-          if (b && !refs.includes(b) && refs.length < 5) refs.push(b);
-        }
+        const charImgs = getSharedImages();
+        charImgs.forEach(img => {
+          // On évite les doublons et on s'assure de ne pas dépasser 5 au total
+          if (img && !refs.includes(img) && refs.length < 5) refs.push(img);
+        });
       }
 
       const body = {
@@ -508,10 +495,13 @@
 
         state.id = data.id;
         setStatus("loading", "Génération…");
+        
+        // Polling toutes les 2s
         state.poll = setInterval(async () => {
           try {
             const s = await apiFetch(`/api/status/${state.id}`);
             const info = await s.json();
+            
             if (info.status === "completed" && info.url) {
               clearInterval(state.poll);
               state.poll = null;
@@ -529,7 +519,7 @@
               genBtn.disabled = false;
             }
           } catch {
-            // erreurs transitoires ignorées
+            // Ignore les erreurs transitoires
           }
         }, 2000);
       } catch (e) {
@@ -539,21 +529,13 @@
     });
 
     dlBtn.addEventListener("click", () => {
-      if (!state.id) return;
-      const href = getDownloadHref(state.id, state.url);
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = `videoai-${state.id}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      if (!state.url) return;
+      downloadFile(state.url, `videoai-${state.id}.mp4`);
     });
-
-    return { node, promptEl, state };
   }
 
   // ============================================
-  // VIDÉO — Init 10 slots
+  // INITIALISATION ONGLET VIDÉO
   // ============================================
   const videoSlotsContainer = document.getElementById("video-slots");
   for (let i = 0; i < 10; i++) {
@@ -565,41 +547,30 @@
   renderHistory("video");
 
   // ============================================
-  // HISTOIRE — Setup + génération des 10 prompts
+  // INITIALISATION ONGLET STUDIO (HISTOIRE)
   // ============================================
-  const synopsisEl = document.getElementById("story-synopsis");
   const charsContainer = document.getElementById("story-characters");
   const charTemplate = document.getElementById("char-template");
   const charCountEl = document.getElementById("char-count");
   const addCharBtn = document.getElementById("add-char-btn");
-  const genPromptsBtn = document.getElementById("story-gen-prompts");
-  const genStatusEl = document.getElementById("story-gen-status");
   const storySlotsContainer = document.getElementById("story-slots");
-  const clearBtn = document.getElementById("story-clear");
 
   function updateCharUI() {
     const n = charsContainer.querySelectorAll(".char-card").length;
-    charCountEl.textContent = `${n} / 5`;
-    addCharBtn.hidden = n >= 5;
+    charCountEl.textContent = `${n} / 10`;
+    addCharBtn.hidden = n >= 10;
   }
 
   function addCharCard() {
-    if (charsContainer.querySelectorAll(".char-card").length >= 5) return;
+    if (charsContainer.querySelectorAll(".char-card").length >= 10) return;
     const node = charTemplate.content.firstElementChild.cloneNode(true);
     const thumb = node.querySelector(".char-thumb");
     const fileInput = node.querySelector(".char-img-input");
     const delBtn = node.querySelector(".char-del");
 
-    // Stockage local du base64 sur l'élément
     node._imageBase64 = null;
 
     thumb.addEventListener("click", () => fileInput.click());
-    thumb.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        fileInput.click();
-      }
-    });
     fileInput.addEventListener("change", (e) => {
       const f = e.target.files[0];
       if (!f) return;
@@ -620,88 +591,27 @@
     updateCharUI();
   }
 
-  /** Récupère les images de référence des personnages actuels (max 5) */
+  // Fonction appelée par le slot pour récupérer les images des personnages
   function getCurrentCharacterImages() {
     const imgs = [];
     charsContainer.querySelectorAll(".char-card").forEach((card) => {
       if (card._imageBase64) imgs.push(card._imageBase64);
     });
-    return imgs.slice(0, 5);
-  }
-
-  /** Récupère les données texte des personnages */
-  function getCurrentCharacters() {
-    const list = [];
-    charsContainer.querySelectorAll(".char-card").forEach((card) => {
-      const name = card.querySelector(".char-name").value.trim();
-      const description = card.querySelector(".char-desc").value.trim();
-      const imageBase64 = card._imageBase64 || undefined;
-      if (name || description || imageBase64) {
-        list.push({ name, description, imageBase64 });
-      }
-    });
-    return list.slice(0, 5);
+    return imgs; // Le serveur s'occupe de couper à 5
   }
 
   addCharBtn.addEventListener("click", addCharCard);
+  addCharCard(); // Ajouter un premier perso vide par défaut
 
-  // Un personnage vide par défaut
-  addCharCard();
-
-  genPromptsBtn.addEventListener("click", async () => {
-    const synopsis = synopsisEl.value.trim();
-    if (!synopsis) {
-      genStatusEl.textContent = "Entrez un synopsis.";
-      genStatusEl.className = "story-status err";
-      return;
-    }
-
-    const characters = getCurrentCharacters();
-    genPromptsBtn.disabled = true;
-    genStatusEl.textContent = "Génération des prompts…";
-    genStatusEl.className = "story-status loading";
-
-    try {
-      const res = await apiFetch("/api/story/generate-prompts", {
-        method: "POST",
-        body: JSON.stringify({ synopsis, characters }),
-      });
-      const data = await res.json();
-      if (!data.prompts || data.prompts.length === 0) {
-        throw new Error(data.error || "Aucun prompt renvoyé");
-      }
-
-      // Reset slots
-      storySlotsContainer.innerHTML = "";
-
-      // Créer un slot modifiable par prompt
-      data.prompts.forEach((promptText, i) => {
-        const node = slotTemplate.content.firstElementChild.cloneNode(true);
-        node.querySelector(".slot-num").textContent = `Scène ${i + 1}`;
-        node.querySelector(".slot-prompt").value = promptText;
-        node.querySelector(".slot-duration").value = "4";
-        storySlotsContainer.appendChild(node);
-        // getCurrentCharacterImages est évalué À CHAQUE génération → si tu modifies un perso entre-temps, c'est pris en compte
-        createSlot(node, "story", getCurrentCharacterImages);
-      });
-
-      genStatusEl.textContent = `${data.prompts.length} prompts générés ! Modifiez-les si besoin, puis générez chaque scène.`;
-      genStatusEl.className = "story-status ok";
-      clearBtn.hidden = false;
-    } catch (e) {
-      genStatusEl.textContent = "Erreur : " + e.message;
-      genStatusEl.className = "story-status err";
-    } finally {
-      genPromptsBtn.disabled = false;
-    }
-  });
-
-  clearBtn.addEventListener("click", () => {
-    storySlotsContainer.innerHTML = "";
-    clearBtn.hidden = true;
-    genStatusEl.textContent = "";
-    genStatusEl.className = "story-status";
-  });
-
+  // Créer les 10 slots du Studio au chargement
+  for (let i = 0; i < 10; i++) {
+    const node = slotTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector(".slot-num").textContent = `Scène ${i + 1}`;
+    storySlotsContainer.appendChild(node);
+    // On passe getCurrentCharacterImages en paramètre pour que chaque génération 
+    // prenne en compte les images actuelles des personnages.
+    createSlot(node, "story", getCurrentCharacterImages);
+  }
   renderHistory("story");
+
 })();
