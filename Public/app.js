@@ -42,7 +42,7 @@
     return html.replace(/\n/g, "<br>");
   }
 
-  // Convertir une URL d'image en Base64 (nécessaire pour l'API Vidéo Agnes)
+  // Convertir une URL d'image (distante) en Base64 pour l'API Vidéo
   async function urlToBase64(url) {
     if (url.startsWith("data:image")) return url.split(",")[1];
     const proxyUrl = `/api/download/${Date.now()}?url=${encodeURIComponent(url)}`;
@@ -136,9 +136,8 @@
   }));
 
   // ============================================
-  // CHAT & IMAGE LOGIC
+  // CHAT & IMAGE LOGIC (Inchangé et stable)
   // ============================================
-  // (Code du Chat et de l'Image inchangé et fonctionnel)
   const chatHistory = document.getElementById("chat-history");
   const chatInput = document.getElementById("chat-input");
   const chatSend = document.getElementById("chat-send");
@@ -287,13 +286,13 @@
   renderImageHistory();
 
   // ============================================
-  // FACTORY SLOT VIDÉO (Onglet Vidéo)
+  // FACTORY SLOT VIDÉO (Connecté au SSE)
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
-  const activePolls = new Map();
   const videoSlotsArray = [];
+  const videoSlotsContainer = document.getElementById("video-slots");
 
-  function createSlot(node, saveHistoryCallback = null) {
+  function createSlot(node) {
     const promptEl = node.querySelector(".slot-prompt");
     const formatEl = node.querySelector(".slot-format");
     const durationEl = node.querySelector(".slot-duration");
@@ -303,21 +302,18 @@
     const player = node.querySelector(".slot-player");
     const video = node.querySelector("video");
     
-    // Nouveaux éléments d'image
     const imgBtn = node.querySelector(".slot-img-btn");
     const imgInput = node.querySelector(".slot-img-input");
     const imgPreviewContainer = node.querySelector(".slot-img-preview-container");
     const imgPreview = node.querySelector(".slot-img-preview");
 
-    const state = { base64: null, id: null, url: null };
-    const slotId = "slot_" + Math.random().toString(36).substr(2, 9);
+    const state = { base64: null, url: null };
 
     function setStatus(s, txt) {
       statusEl.dataset.state = s;
       statusEl.innerHTML = `<span class="dot"></span> ${txt}`;
     }
 
-    // Gestion de l'upload d'image
     imgBtn.addEventListener("click", () => imgInput.click());
     imgInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -332,35 +328,6 @@
       reader.readAsDataURL(file);
     });
 
-    async function checkStatus() {
-      if (!state.id) return;
-      try {
-        const s = await apiFetch(`/api/status/${state.id}`);
-        const info = await s.json();
-        
-        if (info.status === "completed" && info.url) {
-          state.url = info.url; video.src = info.url; player.hidden = false;
-          dlBtn.disabled = false; setStatus("ready", "Prête"); genBtn.disabled = false;
-          if (saveHistoryCallback) saveHistoryCallback(promptEl.value.trim(), info.url, state.id);
-          
-          const pollData = activePolls.get(slotId);
-          if (pollData) clearInterval(pollData.intervalId);
-          activePolls.delete(slotId);
-          localStorage.removeItem(`video_job_${slotId}`);
-          return true;
-        } else if (info.status === "failed") {
-          setStatus("error", "Échec"); genBtn.disabled = false;
-          const pollData = activePolls.get(slotId);
-          if (pollData) clearInterval(pollData.intervalId);
-          activePolls.delete(slotId);
-          localStorage.removeItem(`video_job_${slotId}`);
-          return true;
-        }
-      } catch (err) {}
-      return false;
-    }
-
-    // Fonction pour le transfert depuis le Studio
     node.fillSlot = (promptText, base64Img) => {
       promptEl.value = promptText;
       if (base64Img) {
@@ -374,16 +341,24 @@
         imgBtn.textContent = "📷 Ajouter une image";
       }
       setStatus("idle", "Prêt (Importé)");
-      // On remonte pour voir le slot
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     };
 
+    // Le clic "Générer" envoie au serveur et attend le SSE
     genBtn.addEventListener("click", async () => {
       if (!promptEl.value.trim()) return;
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; video.src = "";
+      
+      const taskId = "task_" + Date.now() + "_" + Math.floor(Math.random()*1000);
+      
+      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true;
       setStatus("queued", "En file d'attente…");
 
-      const body = { prompt: promptEl.value.trim(), format: formatEl.value, duration: parseInt(durationEl.value, 10) };
+      const body = {
+        prompt: promptEl.value.trim(),
+        format: formatEl.value,
+        duration: parseInt(durationEl.value, 10),
+        taskId: taskId
+      };
       if (state.base64) body.images = [state.base64];
 
       try {
@@ -391,26 +366,91 @@
         const data = await res.json();
         if (!data.id) throw new Error(data.error || "Pas d'ID");
         
-        state.id = data.id; setStatus("loading", "Génération…");
-        localStorage.setItem(`video_job_${slotId}`, JSON.stringify({ id: state.id, prompt: promptEl.value.trim() }));
+        // On lie le slot à la tâche pour que le SSE puisse le retrouver
+        node.dataset.taskId = taskId;
+        localStorage.setItem(`video_task_${taskId}`, JSON.stringify({ 
+          prompt: promptEl.value.trim(), 
+          slotIndex: Array.from(videoSlotsContainer.children).indexOf(node) 
+        }));
         
-        const intervalId = setInterval(checkStatus, 3000);
-        activePolls.set(slotId, { videoId: state.id, intervalId });
-        setTimeout(checkStatus, 1000);
+        setStatus("loading", "Génération…");
 
       } catch (e) { setStatus("error", "Erreur : " + e.message); genBtn.disabled = false; }
     });
 
-    dlBtn.addEventListener("click", () => { if (state.url) downloadFile(state.url, `video-${state.id}.mp4`, state.id); });
+    dlBtn.addEventListener("click", () => { if (state.url) downloadFile(state.url, `video-${node.dataset.taskId}.mp4`, node.dataset.taskId); });
   }
 
-  // Historique Vidéo
-  function saveVideoToHistory(prompt, url, id) {
-    const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
-    h.unshift({ prompt, url, id, date: new Date().toLocaleDateString("fr-FR") });
-    localStorage.setItem("adopte_video_history", JSON.stringify(h.slice(0, 20)));
-    renderVideoHistory();
+  // Initialisation des 10 slots
+  for (let i = 0; i < 10; i++) {
+    const node = slotTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector(".slot-num").textContent = `#${i + 1}`;
+    videoSlotsContainer.appendChild(node);
+    createSlot(node);
+    videoSlotsArray.push(node);
   }
+
+  // ============================================
+  // CONNEXION SSE (Server-Sent Events)
+  // ============================================
+  let sseConnection = null;
+
+  function connectSSE() {
+    if (sseConnection) sseConnection.close();
+    sseConnection = new EventSource("/api/events");
+
+    sseConnection.onmessage = (event) => {
+      const tasks = JSON.parse(event.data);
+      
+      for (const [taskId, info] of Object.entries(tasks)) {
+        let slotNode = document.querySelector(`[data-task-id="${taskId}"]`);
+        if (!slotNode) continue;
+
+        const statusEl = slotNode.querySelector(".slot-status");
+        const dlBtn = slotNode.querySelector(".slot-dl-btn");
+        const genBtn = slotNode.querySelector(".slot-gen-btn");
+        const player = slotNode.querySelector(".slot-player");
+        const video = slotNode.querySelector("video");
+
+        if (info.status === "completed") {
+          video.src = info.url; player.hidden = false;
+          dlBtn.disabled = false; genBtn.disabled = false;
+          statusEl.dataset.state = "ready"; statusEl.innerHTML = `<span class="dot"></span> Prête`;
+          // On sauvegarde dans l'historique
+          const saved = JSON.parse(localStorage.getItem(`video_task_${taskId}`) || "{}");
+          if (saved.prompt) {
+             const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
+             h.unshift({ prompt: saved.prompt, url: info.url, id: taskId, date: new Date().toLocaleDateString("fr-FR") });
+             localStorage.setItem("adopte_video_history", JSON.stringify(h.slice(0, 20)));
+             renderVideoHistory();
+          }
+          localStorage.removeItem(`video_task_${taskId}`);
+        } else if (info.status === "failed") {
+          statusEl.dataset.state = "error"; statusEl.innerHTML = `<span class="dot"></span> Échec`;
+          genBtn.disabled = false;
+          localStorage.removeItem(`video_task_${taskId}`);
+        } else if (info.status === "processing") {
+          statusEl.dataset.state = "loading"; statusEl.innerHTML = `<span class="dot"></span> Génération…`;
+        }
+      }
+    };
+
+    sseConnection.onerror = () => {
+      console.warn("SSE erreur, reconnexion...");
+      setTimeout(connectSSE, 5000);
+    };
+  }
+
+  connectSSE();
+
+  // Reconnexion forcée si iOS gèle l'app
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      connectSSE();
+    }
+  });
+
+  // Historique Vidéo
   function renderVideoHistory() {
     const el = document.getElementById("video-history");
     const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
@@ -424,16 +464,6 @@
         </div>
       </div>`).join("");
     el.querySelectorAll(".dl-vid-btn").forEach(btn => btn.addEventListener("click", (e) => downloadFile(e.target.dataset.url, `video-${e.target.dataset.id}.mp4`, e.target.dataset.id)));
-  }
-
-  // Init Onglet Vidéo (10 Slots)
-  const videoSlotsContainer = document.getElementById("video-slots");
-  for (let i = 0; i < 10; i++) {
-    const node = slotTemplate.content.firstElementChild.cloneNode(true);
-    node.querySelector(".slot-num").textContent = `#${i + 1}`;
-    videoSlotsContainer.appendChild(node);
-    createSlot(node, saveVideoToHistory);
-    videoSlotsArray.push(node);
   }
   renderVideoHistory();
 
@@ -461,7 +491,6 @@
 
   document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
 
-  // Génération du Storyboard
   const wizGenBtn = document.getElementById("wizard-generate-btn");
   const wizLoading = document.getElementById("wizard-loading");
 
@@ -498,13 +527,11 @@
     }
   });
 
-  // Rendu du Workspace (Storyboard)
   function renderWorkspace(project) {
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "";
 
-    // Onglets
     const tabBtns = document.querySelectorAll(".ws-tab-btn");
     const tabContents = document.querySelectorAll(".ws-tab-content");
     tabBtns.forEach(btn => {
@@ -516,7 +543,7 @@
       };
     });
 
-    // 1. Personnages
+    // Personnages
     const charsContainer = document.getElementById("ws-characters-container");
     charsContainer.innerHTML = "";
     (project.personnages || []).forEach(p => {
@@ -526,7 +553,7 @@
       charsContainer.appendChild(charNode);
     });
 
-    // 2. Scènes
+    // Scènes
     const scenesContainer = document.getElementById("ws-scenes-container");
     scenesContainer.innerHTML = "";
     const sceneTemplate = document.getElementById("studio-scene-template");
@@ -537,12 +564,10 @@
       node.querySelector(".studio-scene-action").textContent = scene.description_action;
       node.querySelector(".studio-scene-prompt").value = scene.prompt_video;
 
-      // Copier le prompt
       node.querySelector(".studio-scene-copy-btn").addEventListener("click", () => {
         navigator.clipboard.writeText(scene.prompt_video).then(() => alert("Prompt copié !"));
       });
 
-      // Générer l'image
       let currentImgBase64 = null;
       const imgPlaceholder = node.querySelector(".studio-scene-img-placeholder");
       const imgEl = node.querySelector(".studio-scene-img");
@@ -558,7 +583,7 @@
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
-            // Convertir l'URL en Base64 pour l'API Vidéo
+            // On convertit l'URL en base64 pour le transfert
             currentImgBase64 = await urlToBase64(data.url); 
             imgBtn.textContent = "🔄 Régénérer";
           }
@@ -566,7 +591,6 @@
         imgBtn.disabled = false;
       });
 
-      // Envoyer vers Vidéo
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
         let targetSlot = null;
         for (const slot of videoSlotsArray) {
@@ -586,50 +610,5 @@
 
     document.getElementById("workspace-back-btn").onclick = () => showScreen("home");
   }
-
-  // ============================================
-  // REPRISE AUTOMATIQUE (Anti Load Failed iOS)
-  // ============================================
-  function resumePendingJobs() {
-    document.querySelectorAll(".slot").forEach(node => {
-      const promptVal = node.querySelector(".slot-prompt").value.trim();
-      if (!promptVal) return;
-      
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith("video_job_")) {
-          const job = JSON.parse(localStorage.getItem(key));
-          if (job.prompt === promptVal) {
-            const statusEl = node.querySelector(".slot-status");
-            if (statusEl && statusEl.dataset.state !== "ready") {
-              statusEl.dataset.state = "loading";
-              statusEl.innerHTML = `<span class="dot"></span> Reprise…`;
-              
-              const intervalId = setInterval(async () => {
-                const res = await apiFetch(`/api/status/${job.id}`);
-                const info = await res.json();
-                if (info.status === "completed" && info.url) {
-                  clearInterval(intervalId); localStorage.removeItem(key);
-                  node.querySelector("video").src = info.url; node.querySelector(".slot-player").hidden = false;
-                  node.querySelector(".slot-dl-btn").disabled = false; statusEl.dataset.state = "ready";
-                  statusEl.innerHTML = `<span class="dot"></span> Prête`; node.querySelector(".slot-gen-btn").disabled = false;
-                } else if (info.status === "failed") {
-                  clearInterval(intervalId); localStorage.removeItem(key);
-                  statusEl.dataset.state = "error"; statusEl.innerHTML = `<span class="dot"></span> Échec`;
-                  node.querySelector(".slot-gen-btn").disabled = false;
-                }
-              }, 3000);
-            }
-          }
-        }
-      }
-    });
-  }
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") resumePendingJobs();
-  });
-
-  resumePendingJobs();
 
 })();
