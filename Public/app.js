@@ -42,6 +42,20 @@
     return html.replace(/\n/g, "<br>");
   }
 
+  // Convertir une URL d'image en Base64 (nécessaire pour l'API Vidéo Agnes)
+  async function urlToBase64(url) {
+    if (url.startsWith("data:image")) return url.split(",")[1];
+    const proxyUrl = `/api/download/${Date.now()}?url=${encodeURIComponent(url)}`;
+    const res = await apiFetch(proxyUrl);
+    const blob = await res.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
   async function downloadFile(url, filename, id) {
     try {
       let blob;
@@ -58,7 +72,7 @@
       a.style.display = "none"; a.href = blobUrl; a.download = filename;
       document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(blobUrl); a.remove();
     } catch (e) {
-      alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer manuellement.");
+      alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer.");
     }
   }
 
@@ -122,8 +136,9 @@
   }));
 
   // ============================================
-  // CHAT LOGIC
+  // CHAT & IMAGE LOGIC
   // ============================================
+  // (Code du Chat et de l'Image inchangé et fonctionnel)
   const chatHistory = document.getElementById("chat-history");
   const chatInput = document.getElementById("chat-input");
   const chatSend = document.getElementById("chat-send");
@@ -215,9 +230,6 @@
     chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
   });
 
-  // ============================================
-  // IMAGE LOGIC
-  // ============================================
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
   const imgBtn = document.getElementById("image-generate");
@@ -279,7 +291,7 @@
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
   const activePolls = new Map();
-  const videoSlotsArray = []; // Pour le transfert Studio -> Vidéo
+  const videoSlotsArray = [];
 
   function createSlot(node, saveHistoryCallback = null) {
     const promptEl = node.querySelector(".slot-prompt");
@@ -290,6 +302,12 @@
     const statusEl = node.querySelector(".slot-status");
     const player = node.querySelector(".slot-player");
     const video = node.querySelector("video");
+    
+    // Nouveaux éléments d'image
+    const imgBtn = node.querySelector(".slot-img-btn");
+    const imgInput = node.querySelector(".slot-img-input");
+    const imgPreviewContainer = node.querySelector(".slot-img-preview-container");
+    const imgPreview = node.querySelector(".slot-img-preview");
 
     const state = { base64: null, id: null, url: null };
     const slotId = "slot_" + Math.random().toString(36).substr(2, 9);
@@ -298,6 +316,21 @@
       statusEl.dataset.state = s;
       statusEl.innerHTML = `<span class="dot"></span> ${txt}`;
     }
+
+    // Gestion de l'upload d'image
+    imgBtn.addEventListener("click", () => imgInput.click());
+    imgInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.base64 = reader.result.split(",")[1];
+        imgPreview.src = reader.result;
+        imgPreviewContainer.style.display = "block";
+        imgBtn.textContent = "✅ Image prête";
+      };
+      reader.readAsDataURL(file);
+    });
 
     async function checkStatus() {
       if (!state.id) return;
@@ -330,8 +363,19 @@
     // Fonction pour le transfert depuis le Studio
     node.fillSlot = (promptText, base64Img) => {
       promptEl.value = promptText;
-      if (base64Img) state.base64 = base64Img.split(",")[1];
+      if (base64Img) {
+        state.base64 = base64Img;
+        imgPreview.src = `data:image/jpeg;base64,${base64Img}`;
+        imgPreviewContainer.style.display = "block";
+        imgBtn.textContent = "✅ Image importée";
+      } else {
+        state.base64 = null;
+        imgPreviewContainer.style.display = "none";
+        imgBtn.textContent = "📷 Ajouter une image";
+      }
       setStatus("idle", "Prêt (Importé)");
+      // On remonte pour voir le slot
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
     };
 
     genBtn.addEventListener("click", async () => {
@@ -514,7 +558,8 @@
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
-            currentImgBase64 = data.url; 
+            // Convertir l'URL en Base64 pour l'API Vidéo
+            currentImgBase64 = await urlToBase64(data.url); 
             imgBtn.textContent = "🔄 Régénérer";
           }
         } catch (e) { alert("Erreur d'image."); }
@@ -531,7 +576,6 @@
         if (targetSlot) {
           targetSlot.fillSlot(scene.prompt_video, currentImgBase64);
           document.getElementById("tab-video").click();
-          targetSlot.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
           alert("L'onglet Vidéo est plein (10 slots utilisés).");
         }
