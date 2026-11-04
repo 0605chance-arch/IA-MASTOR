@@ -1,15 +1,18 @@
 {
   "name": "videoai-pro",
   "version": "2.0.0",
-  "description": "Studio de création vidéo et image IA professionnel",
+  "description": "VideoAI Pro — Chat, Image, Vidéo & Mode Histoire propulsé par Agnes AI",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "express": "^4.19.2"
-  }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["ai", "video", "image", "chat", "agnes", "storyboard"],
+  "license": "MIT"
 }
