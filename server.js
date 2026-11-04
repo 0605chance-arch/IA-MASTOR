@@ -1,208 +1,195 @@
-(function () {
-  // MOTEUR MARKDOWN AVANCÉ (Gère correctement les tableaux)
-  function parseMarkdown(text) {
-    if (!text) return "";
-    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>").replace(/`([^`]+)`/g, "<code>$1</code>");
-    html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>");
-    html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>");
+const express = require("express");
+const path = require("path");
+const app = express();
 
-    // Gestion avancée des tableaux
-    let lines = html.split('\n');
-    let inTable = false;
-    let tableHtml = "";
-    let output = [];
+const AGNES_API_KEY = process.env.AGNES_API_KEY;
 
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i].trim();
-      if (line.startsWith('|') && line.endsWith('|')) {
-        if (!inTable) {
-          inTable = true;
-          tableHtml = "<div class='table-responsive'><table>";
-        }
-        // Ignorer la ligne de séparation |---|---|
-        if (line.match(/^\|[\s\-\|]+\|$/)) continue;
-        
-        let cells = line.split('|').filter(c => c.trim() !== '');
-        let tag = (i === 0 || lines[i-1].match(/^\|[\s\-\|]+\|$/)) ? 'th' : 'td';
-        tableHtml += '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
-      } else {
-        if (inTable) {
-          tableHtml += "</table></div>";
-          output.push(tableHtml);
-          inTable = false;
-        }
-        output.push(line);
-      }
+app.use(express.json({ limit: "50mb" }));
+app.use(express.static(path.join(__dirname, "Public")));
+
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages, imageBase64 } = req.body;
+    if (!messages) return res.status(400).json({ error: "Messages manquants" });
+
+    const systemPrompt = { 
+      role: "system", 
+      content: `Tu es une IA de très haut niveau (style GPT-4). Réponds TOUJOURS en français. 
+      Formate TOUJOURS ta réponse en Markdown valide. 
+      Pour les tableaux, utilise la syntaxe standard : | Titre 1 | Titre 2 | avec une ligne de séparation |---|---|.
+      Sois clair, précis et très bien structuré.` 
+    };
+
+    let finalMessages = [...messages];
+    if (imageBase64) {
+      const lastMsg = finalMessages[finalMessages.length - 1];
+      lastMsg.content = [
+        { type: "text", text: lastMsg.content },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+      ];
     }
-    if (inTable) {
-        tableHtml += "</table></div>";
-        output.push(tableHtml);
+    
+    const response = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${AGNES_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "agnes-3.0-flash",
+        messages: [systemPrompt, ...finalMessages],
+        temperature: 0.65,
+        max_tokens: 4096
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur API");
+
+    res.json({ content: data.choices[0].message.content });
+  } catch (err) {
+    console.error("Erreur Chat:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/generate-image", async (req, res) => {
+  try {
+    const { prompt, format, imageBase64 } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
+
+    const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, highly detailed, color graded like a movie scene`;
+
+    const body = {
+      model: "agnes-image-2.5-flash",
+      prompt: cinematicPrompt,
+      size: "4K",          
+      ratio: format,       
+      extra_body: { response_format: "url" }
+    };
+
+    if (imageBase64) {
+      body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
+      body.prompt = `Transform the reference image with this style: ${cinematicPrompt}`;
     }
 
-    html = output.join('\n');
-    html = html.replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>").replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
-    return html.replace(/\n/g, "<br>");
+    const response = await fetch("https://apihub.agnes-ai.com/v1/images/generations", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${AGNES_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
+
+    let finalUrl = null;
+    if (data.data && data.data[0]) finalUrl = data.data[0].url || data.data[0].b64_json;
+    else if (data.url) finalUrl = data.url;
+
+    if (!finalUrl) throw new Error("Aucune image renvoyée.");
+    if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
+
+    res.json({ id: "img_" + Date.now(), url: finalUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
+});
 
-  const tabs = document.querySelectorAll(".tab-btn");
-  const sections = document.querySelectorAll(".section");
-  tabs.forEach(t => t.addEventListener("click", () => {
-    tabs.forEach(b => b.classList.remove("active"));
-    sections.forEach(s => s.classList.remove("active"));
-    t.classList.add("active");
-    document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
-  }));
+app.post("/api/generate-video", async (req, res) => {
+  try {
+    const { prompt, format, duration, imageBase64, storyCharacters } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
 
-  // CHAT
-  const chatHistory = document.getElementById("chat-history"), chatInput = document.getElementById("chat-input"), chatSend = document.getElementById("chat-send"), chatImageUpload = document.getElementById("chat-image-upload"), chatImageBtn = document.getElementById("chat-image-btn"), sessionsList = document.getElementById("chat-sessions-list"), newChatBtn = document.getElementById("new-chat-btn");
-  let chatImageBase64 = null;
-  let allSessions = JSON.parse(localStorage.getItem("videoai_chat_sessions") || "[]");
-  let currentSessionId = null;
+    let seconds = String(duration);
+    if (parseInt(seconds) < 4) seconds = "4";
+    if (parseInt(seconds) > 12) seconds = "12";
 
-  chatImageBtn.addEventListener("click", () => chatImageUpload.click());
-  chatImageUpload.addEventListener("change", (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => { chatImageBase64 = reader.result.split(",")[1]; chatImageBtn.textContent = "✅"; };
-    reader.readAsDataURL(file);
-  });
+    const videoPrompt = `${prompt}, cinematic camera movement, smooth tracking shot, natural motion, filmic color grading, atmospheric lighting, high detail`;
+    
+    const body = {
+      model: "agnes-video-2.5-flash",
+      prompt: videoPrompt,
+      seconds: seconds,
+      size: "720P",        
+      aspect_ratio: format, 
+      seed: Math.floor(Math.random() * 1000000),
+      mode: "text"
+    };
 
-  function saveSessions() { localStorage.setItem("videoai_chat_sessions", JSON.stringify(allSessions)); }
-  function createNewSession() {
-    const n = { id: Date.now().toString(), title: "Nouvelle conversation", messages: [{ role: "assistant", content: "Bonjour !" }] };
-    allSessions.unshift(n); currentSessionId = n.id; saveSessions(); renderSessions(); renderChat();
-  }
-  function renderSessions() {
-    sessionsList.innerHTML = "";
-    allSessions.forEach(s => {
-      const div = document.createElement("div"); div.className = `session-item ${s.id === currentSessionId ? 'active' : ''}`;
-      div.innerHTML = `<span>${s.title}</span><button class="session-del" data-id="${s.id}">×</button>`;
-      div.addEventListener("click", (e) => {
-        if (e.target.classList.contains('session-del')) {
-          allSessions = allSessions.filter(x => x.id !== e.target.dataset.id);
-          if (currentSessionId === e.target.dataset.id) currentSessionId = allSessions[0]?.id || null;
-          saveSessions(); renderSessions(); renderChat(); return;
+    if (storyCharacters && storyCharacters.length > 0) {
+      body.mode = "reference";
+      let validImages = [];
+      storyCharacters.forEach(char => {
+        if (char.name && prompt.toLowerCase().includes(char.name.toLowerCase())) {
+          validImages.push(`data:image/jpeg;base64,${char.base64}`);
         }
-        currentSessionId = s.id; renderSessions(); renderChat();
       });
-      sessionsList.appendChild(div);
-    });
-  }
-  function renderChat() {
-    chatHistory.innerHTML = ""; if (!currentSessionId) return;
-    const s = allSessions.find(x => x.id === currentSessionId); if (!s) return;
-    s.messages.forEach(m => {
-      let content = m.role === 'user' ? m.content : parseMarkdown(m.content);
-      chatHistory.innerHTML += `<div class="message ${m.role === 'user' ? 'user' : 'assistant'}">${content}</div>`;
-    });
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-  }
-  newChatBtn.addEventListener("click", createNewSession);
-  if (allSessions.length === 0) createNewSession(); else { currentSessionId = allSessions[0].id; renderSessions(); renderChat(); }
-
-  chatSend.addEventListener("click", async () => {
-    const text = chatInput.value.trim(); if (!text || !currentSessionId) return;
-    const s = allSessions.find(x => x.id === currentSessionId);
-    chatInput.value = ""; chatSend.disabled = true;
-    let displayHtml = text;
-    if (chatImageBase64) displayHtml += `<br><img src="data:image/jpeg;base64,${chatImageBase64}" style="max-width:200px; border-radius:8px;">`;
-    s.messages.push({ role: "user", content: displayHtml });
-    if (s.title === "Nouvelle conversation") { s.title = text.slice(0, 30); renderSessions(); }
-    saveSessions(); renderChat();
-    try {
-      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: s.messages.map(m => ({ role: m.role, content: m.content.replace(/<br><img.*>/g, '') })), imageBase64: chatImageBase64 }) });
-      const data = await res.json();
-      if (data.content) { s.messages.push({ role: "assistant", content: data.content }); saveSessions(); renderChat(); }
-    } catch (e) {}
-    chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
-  });
-
-  // IMAGES (10 SLOTS)
-  const imgSlotsContainer = document.getElementById("image-slots"), imgTemplate = document.getElementById("img-slot-template"), imageHistoryEl = document.getElementById("image-history");
-  for (let i = 0; i < 10; i++) {
-    const node = imgTemplate.content.firstElementChild.cloneNode(true);
-    node.querySelector(".slot-num").textContent = `Image #${i + 1}`; 
-    imgSlotsContainer.appendChild(node); setupImageSlot(node);
-  }
-  function setupImageSlot(node) {
-    const prompt = node.querySelector(".img-prompt"), format = node.querySelector(".img-format"), genBtn = node.querySelector(".img-gen-btn"), dlBtn = node.querySelector(".img-dl-btn"), refInput = node.querySelector(".img-ref-input"), refBtn = node.querySelector(".img-ref-btn"), refPrev = node.querySelector(".img-ref-prev"), resArea = node.querySelector(".img-result-area"), resImg = node.querySelector(".img-result");
-    let base64 = null, id = null;
-    refBtn.addEventListener("click", () => refInput.click());
-    refInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { base64 = r.result.split(",")[1]; refPrev.innerHTML = `<img src="${r.result}">`; }; r.readAsDataURL(f); });
-    genBtn.addEventListener("click", async () => {
-      if (!prompt.value.trim()) return;
-      genBtn.disabled = true; genBtn.textContent = "Génération..."; resArea.hidden = true;
-      try {
-        const res = await fetch("/api/generate-image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: prompt.value, format: format.value, imageBase64: base64 }) });
-        const data = await res.json();
-        if (data.url) {
-          resImg.src = data.url; resArea.hidden = false; dlBtn.disabled = false; id = data.id;
-          dlBtn.onclick = () => { window.location.href = `/api/download/${id}?url=${encodeURIComponent(data.url)}`; };
-          const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]"); h.unshift({ prompt: prompt.value, url: data.url, id: data.id }); localStorage.setItem("videoai_image_history", JSON.stringify(h)); renderImageHistory();
-        }
-      } catch (e) {}
-      genBtn.disabled = false; genBtn.textContent = "Générer l'image";
-    });
-  }
-  function renderImageHistory() {
-    const h = JSON.parse(localStorage.getItem("videoai_image_history") || "[]");
-    imageHistoryEl.innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}?url=${encodeURIComponent(i.url)}" class="history-btn" download>⬇</a></div></div>`).join("");
-  }
-  renderImageHistory();
-
-  // VIDÉO & HISTOIRE
-  function setupVideoSlot(node, isStory = false) {
-    const prompt = node.querySelector(".slot-prompt"), format = node.querySelector(".slot-format"), duration = node.querySelector(".slot-duration"), genBtn = node.querySelector(".slot-gen-btn"), dlBtn = node.querySelector(".slot-dl-btn"), status = node.querySelector(".slot-status"), player = node.querySelector(".slot-player"), video = node.querySelector("video"), uploadBtn = node.querySelector(".slot-upload-btn"), imgInput = node.querySelector(".slot-img-input");
-    const state = { base64: null, id: null, poll: null };
-    if (uploadBtn) {
-      uploadBtn.addEventListener("click", () => imgInput.click());
-      imgInput.addEventListener("change", (e) => { const f = e.target.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { state.base64 = r.result.split(",")[1]; uploadBtn.textContent = "✅ Image"; }; r.readAsDataURL(f); });
+      if (imageBase64) validImages.push(`data:image/jpeg;base64,${imageBase64}`);
+      body.images = validImages.slice(0, 5);
+      if (body.images.length === 0 && imageBase64) body.images = [`data:image/jpeg;base64,${imageBase64}`];
+    } else if (imageBase64) {
+      body.mode = "reference"; 
+      body.images = [`data:image/jpeg;base64,${imageBase64}`]; 
     }
-    genBtn.addEventListener("click", async () => {
-      if (!prompt.value.trim()) return; if (state.poll) clearInterval(state.poll);
-      genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true; status.dataset.state = "loading"; status.innerHTML = `<span class="dot"></span> Génération...`;
-      try {
-        const payload = { prompt: prompt.value, format: format.value, duration: parseInt(duration.value), imageBase64: state.base64 };
-        if (isStory) payload.storyCharacters = window.storyCharactersData || [];
-        const res = await fetch("/api/generate-video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-        const data = await res.json(); if (!data.id) throw new Error(data.error);
-        state.id = data.id; status.innerHTML = `<span class="dot"></span> En cours...`;
-        state.poll = setInterval(async () => {
-          const s = await fetch(`/api/status/${state.id}`); const info = await s.json();
-          if (info.status === "completed") {
-            clearInterval(state.poll); video.src = info.url; player.hidden = false; dlBtn.disabled = false; status.dataset.state = "ready"; status.innerHTML = `<span class="dot"></span> Prête`; genBtn.disabled = false;
-            const h = JSON.parse(localStorage.getItem("videoai_video_history") || "[]"); h.unshift({ prompt: prompt.value, url: info.url, id: state.id }); localStorage.setItem("videoai_video_history", JSON.stringify(h)); renderVideoHistory();
-          } else if (info.status === "failed") { clearInterval(state.poll); status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Échec`; genBtn.disabled = false; }
-        }, 3000);
-      } catch (e) { status.dataset.state = "error"; status.innerHTML = `<span class="dot"></span> Erreur`; genBtn.disabled = false; }
+
+    const response = await fetch("https://apihub.agnes-ai.com/v1/videos", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${AGNES_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
-    dlBtn.addEventListener("click", () => { if (state.id) window.location.href = `/api/download/${state.id}`; });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur Vidéo");
+
+    res.json({ id: data.video_id || data.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
+});
 
-  const slotsContainer = document.getElementById("video-slots"), template = document.getElementById("slot-template");
-  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Vidéo #${i + 1}`; slotsContainer.appendChild(node); setupVideoSlot(node, false); }
-  const storySlotsContainer = document.getElementById("story-slots");
-  for (let i = 0; i < 10; i++) { const node = template.content.firstElementChild.cloneNode(true); node.querySelector(".slot-num").textContent = `Scène ${i + 1}`; storySlotsContainer.appendChild(node); setupVideoSlot(node, true); }
-
-  window.storyCharactersData = []; 
-  [1, 2, 3].forEach(num => {
-    const nameInput = document.getElementById(`char${num}-name`), fileInput = document.getElementById(`char${num}-file`), prev = document.getElementById(`char${num}-prev`);
-    fileInput.addEventListener("change", (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        window.storyCharactersData[num - 1] = { name: nameInput.value.trim() || `Personnage ${num}`, base64: reader.result.split(",")[1] };
-        prev.innerHTML = `<img src="${reader.result}">`;
-      };
-      reader.readAsDataURL(file);
-    });
-    nameInput.addEventListener("input", () => { if (window.storyCharactersData[num - 1]) window.storyCharactersData[num - 1].name = nameInput.value.trim() || `Personnage ${num}`; });
-  });
-
-  function renderVideoHistory() {
-    const h = JSON.parse(localStorage.getItem("videoai_video_history") || "[]");
-    document.getElementById("video-history").innerHTML = h.map(i => `<div class="history-item"><span class="history-prompt">${i.prompt}</span><div class="history-actions"><a href="${i.url}" target="_blank" class="history-btn">Voir</a><a href="/api/download/${i.id}" class="history-btn" download>⬇</a></div></div>`).join("");
+app.get("/api/status/:id", async (req, res) => {
+  try {
+    const response = await fetch(
+      `https://apihub.agnes-ai.com/agnesapi?video_id=${req.params.id}&model_name=agnes-video-2.5-flash`,
+      { headers: { "Authorization": `Bearer ${AGNES_API_KEY}` } }
+    );
+    const data = await response.json();
+    res.json({ status: data.status || "processing", url: data.url || data.metadata?.url });
+  } catch (err) {
+    res.status(500).json({ error: "Erreur statut" });
   }
-  renderVideoHistory();
-})();
+});
+
+app.get("/api/download/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { url } = req.query;
+    let fileUrl = url;
+
+    if (!fileUrl && !id.startsWith("img_")) {
+      const s = await fetch(`https://apihub.agnes-ai.com/agnesapi?video_id=${id}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${AGNES_API_KEY}` } });
+      const d = await s.json();
+      fileUrl = d.url || d.metadata?.url;
+    }
+
+    if (!fileUrl) return res.status(404).send("Fichier introuvable");
+
+    if (fileUrl.startsWith("data:")) {
+        const base64Data = fileUrl.split(',')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+        const ext = id.startsWith("img_") ? "jpg" : "mp4";
+        res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
+        return res.send(buffer);
+    }
+
+    const fileRes = await fetch(fileUrl);
+    const buffer = await fileRes.arrayBuffer();
+    const ext = id.startsWith("img_") ? "jpg" : "mp4";
+    res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).send("Erreur download");
+  }
+});
+
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Serveur démarré sur ${PORT}`));
