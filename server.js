@@ -9,19 +9,13 @@ app.use(express.json({ limit: "60mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // ==========================================
-// KEEP-ALIVE (Empêche Render de s'endormir)
+// KEEP-ALIVE (Anti-endormissement Render)
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
-  const pingInterval = 10 * 60 * 1000; // Toutes les 10 minutes
   setInterval(async () => {
-    try {
-      await fetch(`${RENDER_URL}/api/health`, { method: "GET" });
-      console.log("💓 Keep-Alive envoyé.");
-    } catch (e) {
-      console.log("⚠️ Keep-Alive échoué.");
-    }
-  }, pingInterval);
+    try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {}
+  }, 10 * 60 * 1000);
 }
 
 // ==========================================
@@ -55,9 +49,9 @@ app.use("/api", (req, res, next) => {
 });
 
 // ==========================================
-// FILE D'ATTENTE VIDÉO (Optimisée Token Plan 5 RPM)
+// FILE D'ATTENTE VIDÉO (Token Plan 5 RPM)
 // ==========================================
-const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute pour le Token Plan
+const SUBMIT_INTERVAL_MS = 12500; // 12.5s entre chaque soumission = 5 RPM
 const videoQueues = new Map();
 
 function queueKey(apiKey) {
@@ -71,9 +65,7 @@ function queueKey(apiKey) {
 
 function getOrCreateQueue(apiKey) {
   const k = queueKey(apiKey);
-  if (!videoQueues.has(k)) {
-    videoQueues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
-  }
+  if (!videoQueues.has(k)) videoQueues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
   return videoQueues.get(k);
 }
 
@@ -93,33 +85,28 @@ async function processQueue(apiKey) {
     try {
       const r = await apiFetch(`${API_BASE}/v1/videos`, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(job.body),
       }, 30000);
 
       if (r.status === 429) {
-        // Si l'API renvoie 429 (Rate Limit), on attend et on réessaie le MÊME job
-        await new Promise((r) => setTimeout(r, 15000));
-        continue; 
+        // Si rate limit, on attend 15s et on réessaie le MÊME job
+        await new Promise((resolve) => setTimeout(resolve, 15000));
+        continue;
       }
 
       const contentType = r.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-         throw new Error(`Serveur Agnes indisponible (Erreur ${r.status}).`);
-      }
+      if (!contentType || !contentType.includes("application/json")) throw new Error(`Serveur Agnes indisponible (${r.status})`);
 
       const data = await r.json();
       if (!r.ok) throw new Error(data.error?.message || "Erreur soumission");
 
       q.lastSubmit = Date.now();
-      q.jobs.shift();
+      q.jobs.shift(); // Succès : on retire le job
       job.resolve({ id: data.video_id || data.id });
 
     } catch (err) {
-      q.jobs.shift();
+      q.jobs.shift(); // Échec : on retire le job pour ne pas bloquer la file
       job.reject(err);
     }
   }
@@ -138,10 +125,8 @@ function enqueueVideoJob(apiKey, body) {
 // ROUTES
 // ==========================================
 
-// GET /api/health (Pour le Keep-Alive)
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 
-// POST /api/health (Validation clé API depuis l'interface)
 app.post("/api/health", async (req, res) => {
   try {
     const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
@@ -250,12 +235,8 @@ app.get("/api/status/:id", async (req, res) => {
       { headers: { "Authorization": `Bearer ${req.apiKey}` } },
       20000
     );
-    
     const contentType = r.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-        return res.status(502).json({ error: "Réponse invalide du serveur Agnes." });
-    }
-
+    if (!contentType || !contentType.includes("application/json")) return res.status(502).json({ error: "Réponse invalide d'Agnes." });
     const data = await r.json();
     res.json({ status: data.status || "processing", url: data.url || data.metadata?.url });
   } catch (err) {
@@ -282,8 +263,7 @@ app.get("/api/download/:id", async (req, res) => {
     const ext = id.startsWith("img_") ? "jpg" : "mp4";
 
     if (fileUrl.startsWith("data:")) {
-      const base64Data = fileUrl.split(",")[1];
-      const buffer = Buffer.from(base64Data, "base64");
+      const buffer = Buffer.from(fileUrl.split(",")[1], "base64");
       res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
       return res.send(buffer);
     }
@@ -300,4 +280,4 @@ app.get("/api/download/:id", async (req, res) => {
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Serveur prêt sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Serveur prêt sur ${PORT}`));
