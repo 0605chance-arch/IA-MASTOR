@@ -9,20 +9,19 @@ app.use(express.json({ limit: "60mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // ==========================================
-// KEEP-ALIVE (Anti-endormissement Render)
+// KEEP-ALIVE (Empêche Render de s'endormir)
 // ==========================================
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL; // Render fournit cette variable automatiquement
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
-  const pingInterval = 10 * 60 * 1000; // 10 minutes
+  const pingInterval = 10 * 60 * 1000; // Toutes les 10 minutes
   setInterval(async () => {
     try {
       await fetch(`${RENDER_URL}/api/health`, { method: "GET" });
-      console.log("💓 Keep-Alive ping envoyé.");
+      console.log("💓 Keep-Alive envoyé.");
     } catch (e) {
       console.log("⚠️ Keep-Alive échoué.");
     }
   }, pingInterval);
-  console.log(`Keep-Alive activé pour ${RENDER_URL}`);
 }
 
 // ==========================================
@@ -46,10 +45,9 @@ async function apiFetch(url, options = {}, timeoutMs = 90000) {
   }
 }
 
+// Middleware Auth
 app.use("/api", (req, res, next) => {
-  // Exception pour le keep-alive qui n'a pas besoin de clé API
   if (req.path === "/health" && req.method === "GET") return next();
-  
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKey = key;
@@ -57,9 +55,9 @@ app.use("/api", (req, res, next) => {
 });
 
 // ==========================================
-// FILE D'ATTENTE VIDÉO (5 RPM)
+// FILE D'ATTENTE VIDÉO (Optimisée Token Plan 5 RPM)
 // ==========================================
-const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute
+const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute pour le Token Plan
 const videoQueues = new Map();
 
 function queueKey(apiKey) {
@@ -86,12 +84,10 @@ async function processQueue(apiKey) {
 
   while (q.jobs.length > 0) {
     const job = q.jobs[0];
-    const now = Date.now();
-    const elapsed = now - q.lastSubmit;
+    const elapsed = Date.now() - q.lastSubmit;
 
     if (elapsed < SUBMIT_INTERVAL_MS) {
-      const wait = SUBMIT_INTERVAL_MS - elapsed;
-      await new Promise((r) => setTimeout(r, wait));
+      await new Promise((r) => setTimeout(r, SUBMIT_INTERVAL_MS - elapsed));
     }
 
     try {
@@ -105,19 +101,18 @@ async function processQueue(apiKey) {
       }, 30000);
 
       if (r.status === 429) {
-        const retryAfter = 15000 + Math.random() * 5000;
-        await new Promise((r) => setTimeout(r, retryAfter));
-        continue;
+        // Si l'API renvoie 429 (Rate Limit), on attend et on réessaie le MÊME job
+        await new Promise((r) => setTimeout(r, 15000));
+        continue; 
       }
 
-      // Sécurité : vérifier que la réponse est du JSON
       const contentType = r.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
          throw new Error(`Serveur Agnes indisponible (Erreur ${r.status}).`);
       }
 
       const data = await r.json();
-      if (!r.ok) throw new Error(data.error?.message || "Erreur soumission vidéo");
+      if (!r.ok) throw new Error(data.error?.message || "Erreur soumission");
 
       q.lastSubmit = Date.now();
       q.jobs.shift();
@@ -143,10 +138,10 @@ function enqueueVideoJob(apiKey, body) {
 // ROUTES
 // ==========================================
 
-// Route GET pour le Keep-Alive
+// GET /api/health (Pour le Keep-Alive)
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 
-// Route POST pour la validation de la clé par l'interface
+// POST /api/health (Validation clé API depuis l'interface)
 app.post("/api/health", async (req, res) => {
   try {
     const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
@@ -164,7 +159,7 @@ app.post("/api/health", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const { messages, imageBase64 } = req.body;
-    const systemPrompt = { role: "system", content: `Tu es une IA de haut niveau. Réponds toujours en français. Formate TOUJOURS en Markdown.` };
+    const systemPrompt = { role: "system", content: `Tu es une IA. Réponds en français. Formate en Markdown.` };
     let finalMessages = messages.map((m) => ({ ...m }));
     if (imageBase64) {
       const last = finalMessages[finalMessages.length - 1];
@@ -256,7 +251,6 @@ app.get("/api/status/:id", async (req, res) => {
       20000
     );
     
-    // Sécurité : vérifier que la réponse est du JSON
     const contentType = r.headers.get("content-type");
     if (!contentType || !contentType.includes("application/json")) {
         return res.status(502).json({ error: "Réponse invalide du serveur Agnes." });
