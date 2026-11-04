@@ -122,7 +122,7 @@
   }));
 
   // ============================================
-  // CHAT LOGIC (Inchangé)
+  // CHAT LOGIC
   // ============================================
   const chatHistory = document.getElementById("chat-history");
   const chatInput = document.getElementById("chat-input");
@@ -216,7 +216,7 @@
   });
 
   // ============================================
-  // IMAGE LOGIC (Inchangé)
+  // IMAGE LOGIC
   // ============================================
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
@@ -279,6 +279,7 @@
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
   const activePolls = new Map();
+  const videoSlotsArray = []; // Pour le transfert Studio -> Vidéo
 
   function createSlot(node, saveHistoryCallback = null) {
     const promptEl = node.querySelector(".slot-prompt");
@@ -326,11 +327,11 @@
       return false;
     }
 
-    // Fonction pour pré-remplir le slot depuis le Studio
+    // Fonction pour le transfert depuis le Studio
     node.fillSlot = (promptText, base64Img) => {
       promptEl.value = promptText;
-      state.base64 = base64Img || null;
-      // On pourrait aussi afficher une petite vignette, mais on garde ça simple
+      if (base64Img) state.base64 = base64Img.split(",")[1];
+      setStatus("idle", "Prêt (Importé)");
     };
 
     genBtn.addEventListener("click", async () => {
@@ -383,8 +384,6 @@
 
   // Init Onglet Vidéo (10 Slots)
   const videoSlotsContainer = document.getElementById("video-slots");
-  const videoSlotsArray = []; // Permet de retrouver les slots pour l'envoi depuis le Studio
-  
   for (let i = 0; i < 10; i++) {
     const node = slotTemplate.content.firstElementChild.cloneNode(true);
     node.querySelector(".slot-num").textContent = `#${i + 1}`;
@@ -401,8 +400,6 @@
   const studioWizard = document.getElementById("studio-wizard");
   const studioWorkspace = document.getElementById("studio-workspace");
   
-  let wizardData = { idea: "", sceneCount: 5, format: "16:9", style: "Cinématographique", mood: "Dramatique" };
-  let currentWizardStep = 1;
   let currentProject = JSON.parse(localStorage.getItem("adopte_studio_project") || "null");
 
   function showScreen(screenId) {
@@ -412,77 +409,56 @@
     if (screenId === "workspace") studioWorkspace.hidden = false;
   }
 
-  document.getElementById("studio-btn-new").addEventListener("click", () => { currentWizardStep = 1; updateWizardUI(); showScreen("wizard"); });
+  document.getElementById("studio-btn-new").addEventListener("click", () => showScreen("wizard"));
   document.getElementById("studio-btn-continue").addEventListener("click", () => {
     if (currentProject) { renderWorkspace(currentProject); showScreen("workspace"); }
     else alert("Aucun projet sauvegardé. Créez-en un nouveau !");
   });
 
-  // Wizard Logic
-  const wizNextBtn = document.getElementById("wizard-next");
-  const wizPrevBtn = document.getElementById("wizard-prev");
-  const wizGenBtn = document.getElementById("wizard-generate-btn");
-
   document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
 
-  function updateWizardUI() {
-    document.querySelectorAll(".wizard-step").forEach(el => {
-      el.hidden = parseInt(el.dataset.step, 10) !== currentWizardStep;
-    });
-    document.getElementById("wizard-progress-text").textContent = `Étape ${currentWizardStep} sur 2`;
-    wizPrevBtn.hidden = currentWizardStep === 1;
-    wizNextBtn.hidden = currentWizardStep === 2;
-  }
-
-  wizNextBtn.addEventListener("click", () => {
-    if (currentWizardStep === 1) {
-      wizardData.idea = document.getElementById("wizard-idea").value.trim();
-      if (!wizardData.idea) return alert("Veuillez décrire votre idée.");
-    }
-    currentWizardStep++;
-    updateWizardUI();
-  });
-
-  wizPrevBtn.addEventListener("click", () => {
-    if (currentWizardStep > 1) { currentWizardStep--; updateWizardUI(); }
-  });
+  // Génération du Storyboard
+  const wizGenBtn = document.getElementById("wizard-generate-btn");
+  const wizLoading = document.getElementById("wizard-loading");
 
   wizGenBtn.addEventListener("click", async () => {
-    wizardData.sceneCount = parseInt(document.getElementById("wizard-scene-count").value, 10);
-    wizardData.format = document.getElementById("wizard-format").value;
-    wizardData.style = document.getElementById("wizard-style").value;
-    wizardData.mood = document.getElementById("wizard-mood").value;
+    const idea = document.getElementById("wizard-idea").value.trim();
+    if (!idea) return alert("Veuillez décrire votre idée.");
 
-    wizGenBtn.disabled = true; wizGenBtn.textContent = "L'IA écrit votre histoire... ⏳";
+    const sceneCount = parseInt(document.getElementById("wizard-scene-count").value, 10);
+    const format = document.getElementById("wizard-format").value;
+    const style = document.getElementById("wizard-style").value;
+    const mood = document.getElementById("wizard-mood").value;
+
+    wizGenBtn.hidden = true;
+    wizLoading.hidden = false;
+
     try {
-      const res = await apiFetch("/api/studio/generate-storyboard", { method: "POST", body: JSON.stringify(wizardData) });
+      const res = await apiFetch("/api/studio/generate-storyboard", {
+        method: "POST",
+        body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood })
+      });
+      
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur de génération.");
-      
-      currentProject = data;
+
+      currentProject = { ...data, format };
       localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
       renderWorkspace(currentProject);
       showScreen("workspace");
     } catch (e) {
-      alert("Erreur : " + e.message);
+      alert("Erreur de génération : " + e.message);
     } finally {
-      wizGenBtn.disabled = false; wizGenBtn.textContent = "🎬 Générer le Storyboard";
+      wizGenBtn.hidden = false;
+      wizLoading.hidden = true;
     }
   });
 
-  // Workspace Logic (Studio)
+  // Rendu du Workspace (Storyboard)
   function renderWorkspace(project) {
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "";
-    
-    // Direction Artistique
-    const da = project.direction_artistique || {};
-    document.getElementById("ws-script-da").innerHTML = `
-      <p><strong>Palette :</strong> ${da.palette || "-"}</p>
-      <p><strong>Lumière :</strong> ${da.lumiere || "-"}</p>
-      <p><strong>Ambiance :</strong> ${da.ambiance || "-"}</p>
-    `;
 
     // Onglets
     const tabBtns = document.querySelectorAll(".ws-tab-btn");
@@ -499,23 +475,10 @@
     // 1. Personnages
     const charsContainer = document.getElementById("ws-characters-container");
     charsContainer.innerHTML = "";
-
-    (project.personnages || []).forEach((p) => {
+    (project.personnages || []).forEach(p => {
       const charNode = document.getElementById("char-template").content.firstElementChild.cloneNode(true);
       charNode.querySelector(".char-name").value = p.nom;
       charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "";
-      
-      const thumb = charNode.querySelector(".char-thumb");
-      const fileInput = charNode.querySelector(".char-img-input");
-      
-      thumb.addEventListener("click", () => fileInput.click());
-      fileInput.addEventListener("change", (e) => {
-        const f = e.target.files[0];
-        if (!f) return;
-        const r = new FileReader();
-        r.onload = () => { thumb.innerHTML = `<img src="${r.result}" alt="${p.nom}">`; };
-        r.readAsDataURL(f);
-      });
       charsContainer.appendChild(charNode);
     });
 
@@ -527,19 +490,16 @@
     (project.scenes || []).forEach(scene => {
       const node = sceneTemplate.content.firstElementChild.cloneNode(true);
       node.querySelector(".studio-scene-title").textContent = `Scène ${scene.numero} : ${scene.titre}`;
-      node.querySelector(".studio-scene-badge").textContent = "12s";
       node.querySelector(".studio-scene-action").textContent = scene.description_action;
       node.querySelector(".studio-scene-prompt").value = scene.prompt_video;
 
       // Copier le prompt
       node.querySelector(".studio-scene-copy-btn").addEventListener("click", () => {
-        navigator.clipboard.writeText(scene.prompt_video).then(() => {
-          alert("Prompt copié dans le presse-papiers !");
-        });
+        navigator.clipboard.writeText(scene.prompt_video).then(() => alert("Prompt copié !"));
       });
 
-      // Générer l'image de la scène
-      let currentSceneImgBase64 = null;
+      // Générer l'image
+      let currentImgBase64 = null;
       const imgPlaceholder = node.querySelector(".studio-scene-img-placeholder");
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
@@ -549,44 +509,34 @@
         try {
           const res = await apiFetch("/api/generate-image", { 
             method: "POST", 
-            body: JSON.stringify({ prompt: scene.prompt_video, format: wizardData.format || "16:9" }) 
+            body: JSON.stringify({ prompt: scene.prompt_video, format: project.format || "16:9" }) 
           });
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
-            currentSceneImgBase64 = data.url; 
-            imgBtn.textContent = "🔄 Régénérer l'image";
+            currentImgBase64 = data.url; 
+            imgBtn.textContent = "🔄 Régénérer";
           }
-        } catch (e) { alert("Erreur de génération."); }
+        } catch (e) { alert("Erreur d'image."); }
         imgBtn.disabled = false;
       });
 
-      // NOUVEAU : Envoyer vers l'onglet Vidéo
-      const sendToVideoBtn = document.createElement("button");
-      sendToVideoBtn.className = "btn-primary btn-small";
-      sendToVideoBtn.style.width = "100%";
-      sendToVideoBtn.style.marginTop = "8px";
-      sendToVideoBtn.textContent = "🚀 Envoyer vers l'onglet Vidéo";
-      sendToVideoBtn.addEventListener("click", () => {
-        // Trouver le premier slot vide dans l'onglet vidéo
+      // Envoyer vers Vidéo
+      node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
         let targetSlot = null;
         for (const slot of videoSlotsArray) {
-          const promptVal = slot.querySelector(".slot-prompt").value.trim();
-          const isGenerating = slot.querySelector(".slot-status").dataset.state === "loading";
-          if (!promptVal && !isGenerating) { targetSlot = slot; break; }
+          if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         
         if (targetSlot) {
-          targetSlot.fillSlot(scene.prompt_video, currentSceneImgBase64);
-          // Basculer sur l'onglet Vidéo
+          targetSlot.fillSlot(scene.prompt_video, currentImgBase64);
           document.getElementById("tab-video").click();
           targetSlot.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
           alert("L'onglet Vidéo est plein (10 slots utilisés).");
         }
       });
-      
-      node.querySelector(".studio-scene-prompt-container").appendChild(sendToVideoBtn);
+
       scenesContainer.appendChild(node);
     });
 
@@ -609,7 +559,7 @@
             const statusEl = node.querySelector(".slot-status");
             if (statusEl && statusEl.dataset.state !== "ready") {
               statusEl.dataset.state = "loading";
-              statusEl.innerHTML = `<span class="dot"></span> Reprise du suivi…`;
+              statusEl.innerHTML = `<span class="dot"></span> Reprise…`;
               
               const intervalId = setInterval(async () => {
                 const res = await apiFetch(`/api/status/${job.id}`);
