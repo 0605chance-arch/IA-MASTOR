@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>AdopteTonIA — Studio de Préproduction</title>
+  <title>AdopteTonIA — Studio Premium</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -91,14 +91,14 @@
       </section>
 
       <!-- =========================================
-           VIDÉO
+           VIDÉO (Optimisé et complet)
            ========================================= -->
       <section id="section-video" class="section">
         <div class="info-banner">
           <span class="info-icon">💡</span>
           <p>
             <strong>Astuce :</strong> Utilisez les prompts générés dans l'onglet <strong>Studio</strong> pour créer vos vidéos ici.<br>
-            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer (file d'attente). Restez actif sur l'app.
+            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer. Restez actif sur l'app.
           </p>
         </div>
         <div class="video-slots" id="video-slots"></div>
@@ -145,7 +145,7 @@
             
             <div class="input-group" style="margin-bottom: 15px;">
               <label>Quelle est votre idée de départ ?</label>
-              <textarea id="wizard-idea" class="input-field" rows="3" placeholder="Ex: Une publicité pour une montre de luxe, ambiance nocturne, un homme élégant, mystère..."></textarea>
+              <textarea id="wizard-idea" class="input-field" rows="3" placeholder="Ex: Une publicité pour une montre de luxe, ambiance nocturne, un homme élégant..."></textarea>
             </div>
 
             <div class="wizard-params" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -187,7 +187,6 @@
               🎬 Générer le Storyboard
             </button>
             
-            <!-- Écran de chargement animé -->
             <div id="wizard-loading" hidden style="text-align: center; padding: 30px 0;">
               <div class="spinner" style="border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto;"></div>
               <p style="color: var(--accent); font-weight: bold;">L'IA écrit votre histoire...</p>
@@ -206,7 +205,6 @@
             <button class="btn-secondary btn-small" id="workspace-back-btn">← Accueil Studio</button>
           </div>
 
-          <!-- Navigation Interne -->
           <div class="workspace-nav-tabs">
             <button class="ws-tab-btn active" data-target="ws-tab-scenes">🎬 Scènes & Prompts</button>
             <button class="ws-tab-btn" data-target="ws-tab-characters">🎭 Personnages</button>
@@ -214,7 +212,6 @@
           </div>
 
           <div class="workspace-content">
-            
             <!-- Onglet Scènes -->
             <div id="ws-tab-scenes" class="ws-tab-content active">
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">
@@ -226,7 +223,7 @@
             <!-- Onglet Personnages -->
             <div id="ws-tab-characters" class="ws-tab-content" hidden>
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">
-                Voici la bible des personnages générée par l'IA. Vous pouvez ajouter des photos de référence.
+                Voici la bible des personnages générée par l'IA.
               </p>
               <div id="ws-characters-container" class="chars-grid"></div>
             </div>
@@ -238,7 +235,6 @@
                 <p id="ws-script-synopsis" style="white-space: pre-wrap; line-height: 1.6; font-size: 15px;"></p>
               </div>
             </div>
-
           </div>
         </div>
 
@@ -251,7 +247,7 @@
        TEMPLATES
        ============================================ -->
   
-  <!-- Slot Vidéo (Onglet Vidéo) -->
+  <!-- Slot Vidéo (Onglet Vidéo - Bouton Image Restauré) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
@@ -259,6 +255,16 @@
         <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
       </div>
       <textarea class="slot-prompt input-field" rows="3" placeholder="Prompt vidéo…"></textarea>
+      
+      <!-- Zone Image (Restaurée et avec Aperçu) -->
+      <div class="slot-image-area" style="display: flex; gap: 10px; align-items: center; margin: 10px 0;">
+        <input type="file" class="slot-img-input" accept="image/*" hidden>
+        <button class="slot-img-btn btn-secondary btn-small" type="button">📷 Ajouter une image</button>
+        <div class="slot-img-preview-container" style="display: none; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border);">
+          <img class="slot-img-preview" src="" style="width: 100%; height: 100%; object-fit: cover;">
+        </div>
+      </div>
+
       <div class="slot-options">
         <select class="slot-format input-field">
           <option value="9:16">9:16</option>
@@ -271,11 +277,11 @@
           <option value="12" selected>12s</option>
         </select>
       </div>
-      <div class="slot-actions">
+      <div class="slot-actions" style="margin-top: 10px;">
         <button class="slot-gen-btn btn-primary" type="button">Générer</button>
         <button class="slot-dl-btn btn-download" type="button" disabled>Télécharger</button>
       </div>
-      <div class="slot-player" hidden><video controls playsinline></video></div>
+      <div class="slot-player" hidden style="margin-top: 10px;"><video controls playsinline style="width: 100%; border-radius: 8px;"></video></div>
     </div>
   </template>
 
