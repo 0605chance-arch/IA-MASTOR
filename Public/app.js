@@ -47,48 +47,37 @@
   }
 
   // ============================================
-  // TÉLÉCHARGEMENT UNIVERSEL (iOS / ANDROID / PC)
+  // TÉLÉCHARGEMENT UNIVERSEL (iOS / ANDROID)
   // ============================================
-  /**
-   * Cette fonction utilise apiFetch pour inclure la clé API,
-   * récupère le fichier en tant que Blob, puis déclenche le téléchargement natif.
-   */
   async function downloadFile(url, filename, id) {
     try {
       let blob;
 
-      // 1. Récupération du fichier avec la clé API
+      // On utilise apiFetch pour passer la clé API au serveur proxy
       if (url.startsWith("data:")) {
         const res = await fetch(url);
         blob = await res.blob();
       } else {
-        // On utilise apiFetch pour passer le header X-API-Key
         const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
         const res = await apiFetch(proxyUrl);
         if (!res.ok) throw new Error("Erreur serveur lors du téléchargement");
         blob = await res.blob();
       }
 
-      // 2. Création du fichier virtuel et déclenchement du téléchargement natif
-      // C'est la méthode la plus fiable pour iOS Safari et Android.
+      // Création du fichier local pour forcer le téléchargement
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.style.display = "none";
       a.href = blobUrl;
-      a.download = filename; // Attribut "download" pour forcer la sauvegarde
+      a.download = filename; 
       document.body.appendChild(a);
-      a.click(); // Simule le clic
+      a.click(); 
       window.URL.revokeObjectURL(blobUrl);
       a.remove();
 
     } catch (e) {
       console.error("Erreur de téléchargement:", e);
-      // Fallback ultime : ouvre la page du proxy (qui forcera le téléchargement via les headers)
-      if (!url.startsWith("data:")) {
-        window.location.href = `/api/download/${id}?url=${encodeURIComponent(url)}`;
-      } else {
-        alert("Le téléchargement a échoué. Veuillez réessayer.");
-      }
+      alert("Le téléchargement a échoué. Si vous êtes sur iPhone, ouvrez la vidéo avec 'Voir' et utilisez le bouton de partage pour l'enregistrer dans vos fichiers.");
     }
   }
 
@@ -360,7 +349,6 @@
       if (data.url) {
         imgResult.src = data.url;
         
-        // Nouveau système de téléchargement universel
         imgDownload.onclick = (e) => {
           e.preventDefault();
           downloadFile(data.url, `videoai-${data.id}.jpg`, data.id);
@@ -507,12 +495,22 @@
           method: "POST",
           body: JSON.stringify(body),
         });
-        const data = await res.json();
+        
+        // Sécurité Anti-Crash Safari
+        const contentType = res.headers.get("content-type");
+        let data;
+        if (contentType && contentType.includes("application/json")) {
+            data = await res.json();
+        } else {
+            throw new Error(`Erreur serveur (${res.status}). Veuillez réessayer.`);
+        }
+
         if (!data.id) throw new Error(data.error || "Pas d'ID renvoyé");
 
         state.id = data.id;
         setStatus("loading", "Génération…");
         
+        // Polling toutes les 3 secondes
         state.poll = setInterval(async () => {
           try {
             const s = await apiFetch(`/api/status/${state.id}`);
@@ -534,10 +532,12 @@
               setStatus("error", "Échec");
               genBtn.disabled = false;
             }
-          } catch {
-            // Ignore les erreurs transitoires
+          } catch (pollErr) {
+            // On ignore les erreurs de réseau transitoires
+            console.warn("Erreur polling:", pollErr);
           }
-        }, 2000);
+        }, 3000); 
+
       } catch (e) {
         setStatus("error", "Erreur : " + e.message);
         genBtn.disabled = false;
