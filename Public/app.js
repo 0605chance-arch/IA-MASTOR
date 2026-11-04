@@ -46,42 +46,44 @@
     return html.replace(/\n/g, "<br>");
   }
 
+  // ============================================
+  // TÉLÉCHARGEMENT UNIVERSEL (iOS / ANDROID / PC)
+  // ============================================
   /**
-   * Téléchargement universel (iOS/Android/PC) avec feuille de partage native
+   * Cette fonction utilise apiFetch pour inclure la clé API,
+   * récupère le fichier en tant que Blob, puis déclenche le téléchargement natif.
    */
   async function downloadFile(url, filename, id) {
     try {
       let blob;
+
+      // 1. Récupération du fichier avec la clé API
       if (url.startsWith("data:")) {
         const res = await fetch(url);
         blob = await res.blob();
       } else {
+        // On utilise apiFetch pour passer le header X-API-Key
         const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
-        const res = await fetch(proxyUrl);
+        const res = await apiFetch(proxyUrl);
         if (!res.ok) throw new Error("Erreur serveur lors du téléchargement");
         blob = await res.blob();
       }
 
-      const file = new File([blob], filename, { type: blob.type });
+      // 2. Création du fichier virtuel et déclenchement du téléchargement natif
+      // C'est la méthode la plus fiable pour iOS Safari et Android.
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = blobUrl;
+      a.download = filename; // Attribut "download" pour forcer la sauvegarde
+      document.body.appendChild(a);
+      a.click(); // Simule le clic
+      window.URL.revokeObjectURL(blobUrl);
+      a.remove();
 
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: filename,
-        });
-      } else {
-        const blobUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.style.display = "none";
-        a.href = blobUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(blobUrl);
-        a.remove();
-      }
     } catch (e) {
       console.error("Erreur de téléchargement:", e);
+      // Fallback ultime : ouvre la page du proxy (qui forcera le téléchargement via les headers)
       if (!url.startsWith("data:")) {
         window.location.href = `/api/download/${id}?url=${encodeURIComponent(url)}`;
       } else {
@@ -358,6 +360,7 @@
       if (data.url) {
         imgResult.src = data.url;
         
+        // Nouveau système de téléchargement universel
         imgDownload.onclick = (e) => {
           e.preventDefault();
           downloadFile(data.url, `videoai-${data.id}.jpg`, data.id);
