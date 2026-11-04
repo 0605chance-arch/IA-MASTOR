@@ -7,24 +7,65 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+  <!-- ============================================
+       MODAL CLÉ API
+       ============================================ -->
+  <div id="api-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>🔑 Clé API Agnes</h2>
+      <p class="modal-desc">
+        Collez votre token Agnes (plan Starter 4$). Il est stocké
+        <strong>uniquement en sessionStorage</strong> — effacé à la fermeture de
+        l'onglet, jamais écrit sur disque, jamais envoyé à un tiers.
+      </p>
+      <input
+        type="password"
+        id="api-key-input"
+        class="input-field"
+        placeholder="Votre token Agnes…"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <div id="api-key-status" class="api-status"></div>
+      <div class="modal-actions">
+        <button id="api-key-save" class="btn-primary">Valider &amp; continuer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       APPLICATION
+       ============================================ -->
   <div class="app">
     <header class="header">
-      <div class="logo">✨ Video<em>AI</em></div>
-      <p class="tagline">Chat • Image • Vidéo</p>
+      <div class="header-top">
+        <div class="logo">✨ Video<em>AI</em></div>
+        <button id="api-key-btn" class="api-btn" title="Changer la clé API">
+          <span class="api-dot" id="api-dot"></span> 🔑
+        </button>
+      </div>
+      <p class="tagline">Chat • Image • Vidéo • Histoire</p>
     </header>
 
     <div class="tabs">
-      <button id="tab-chat" class="tab-btn active">💬 Chat</button>
-      <button id="tab-image" class="tab-btn">🖼️ Image</button>
-      <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
+      <button id="tab-chat"   class="tab-btn active">💬 Chat</button>
+      <button id="tab-image"  class="tab-btn">🖼️ Image</button>
+      <button id="tab-video"  class="tab-btn">🎬 Vidéo</button>
+      <button id="tab-story"  class="tab-btn">📖 Histoire</button>
     </div>
 
     <main class="main">
-      <!-- CHAT -->
+
+      <!-- =========================================
+           CHAT
+           ========================================= -->
       <section id="section-chat" class="section active">
         <div class="chat-layout">
           <aside class="chat-sidebar" id="chat-sidebar">
-            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
+            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">
+              + Nouvelle conversation
+            </button>
             <div id="chat-sessions-list" class="sessions-list"></div>
           </aside>
           <div class="chat-main">
@@ -32,17 +73,19 @@
             <div class="chat-input-area">
               <input type="file" id="chat-image-upload" accept="image/*" hidden>
               <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;">📷</button>
-              <textarea id="chat-input" placeholder="Envoyez un message..." rows="1"></textarea>
+              <textarea id="chat-input" placeholder="Envoyez un message…" rows="1"></textarea>
               <button id="chat-send" class="btn-primary">⬆️</button>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- IMAGE -->
+      <!-- =========================================
+           IMAGE
+           ========================================= -->
       <section id="section-image" class="section">
         <div class="card">
-          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image..."></textarea>
+          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image…"></textarea>
           <div class="upload-area">
             <input type="file" id="image-upload" accept="image/*" hidden>
             <button id="image-upload-btn" class="btn-secondary">📷 Image de référence</button>
@@ -65,7 +108,9 @@
         </div>
       </section>
 
-      <!-- VIDÉO -->
+      <!-- =========================================
+           VIDÉO
+           ========================================= -->
       <section id="section-video" class="section">
         <div class="video-slots" id="video-slots"></div>
         <div class="history-section">
@@ -73,16 +118,64 @@
           <div id="video-history" class="history-grid"></div>
         </div>
       </section>
+
+      <!-- =========================================
+           HISTOIRE
+           ========================================= -->
+      <section id="section-story" class="section">
+
+        <!-- ÉTAPE 1 : Synopsis + personnages -->
+        <div class="card story-setup">
+          <label class="field-label" for="story-synopsis">
+            📝 Synopsis de l'histoire
+          </label>
+          <textarea
+            id="story-synopsis"
+            class="input-field"
+            rows="4"
+            placeholder="Racontez votre histoire en quelques phrases. L'IA en déduira 10 scènes cohérentes, avec les mêmes paramètres que l'onglet Vidéo…"
+          ></textarea>
+
+          <div class="story-chars-header">
+            <span class="field-label">🎭 Personnages de référence (5 max)</span>
+            <span class="char-count" id="char-count">0 / 5</span>
+          </div>
+          <div id="story-characters" class="chars-grid"></div>
+
+          <button id="story-gen-prompts" class="btn-primary story-gen-btn">
+            🎬 Générer les 10 scènes
+          </button>
+          <div id="story-gen-status" class="story-status"></div>
+        </div>
+
+        <!-- ÉTAPE 2 : Les 10 scènes -->
+        <div class="story-slots-header">
+          <h3>🎞️ Scènes générées</h3>
+          <button id="story-clear" class="btn-secondary btn-small" hidden>Effacer les scènes</button>
+        </div>
+        <div class="video-slots" id="story-slots"></div>
+
+        <div class="history-section">
+          <h3>Bibliothèque histoire</h3>
+          <div id="story-history" class="history-grid"></div>
+        </div>
+      </section>
+
     </main>
   </div>
 
+  <!-- ============================================
+       TEMPLATES
+       ============================================ -->
+
+  <!-- Slot vidéo / scène histoire (design identique) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
         <span class="slot-num">#1</span>
         <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
       </div>
-      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la vidéo..."></textarea>
+      <textarea class="slot-prompt input-field" rows="2" placeholder="Décrivez la vidéo…"></textarea>
       <div class="slot-upload">
         <input type="file" class="slot-img-input" accept="image/*" hidden>
         <button class="slot-upload-btn btn-secondary">📷 Image</button>
@@ -104,6 +197,21 @@
         <button class="slot-dl-btn btn-download" disabled>Télécharger</button>
       </div>
       <div class="slot-player" hidden><video controls playsinline></video></div>
+    </div>
+  </template>
+
+  <!-- Carte personnage (mode histoire) -->
+  <template id="char-template">
+    <div class="char-card">
+      <input type="file" class="char-img-input" accept="image/*" hidden>
+      <div class="char-thumb" title="Cliquer pour ajouter une photo de référence">
+        <span class="char-plus">+</span>
+      </div>
+      <div class="char-fields">
+        <input type="text" class="char-name input-field" placeholder="Nom du personnage" maxlength="40">
+        <textarea class="char-desc input-field" rows="2" placeholder="Description physique / rôle…" maxlength="200"></textarea>
+      </div>
+      <button class="char-del btn-secondary" title="Retirer ce personnage">×</button>
     </div>
   </template>
 
