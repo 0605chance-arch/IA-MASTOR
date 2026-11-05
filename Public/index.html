@@ -94,14 +94,19 @@
            VIDÉO
            ========================================= -->
       <section id="section-video" class="section">
+        
+        <!-- Bannière d'information avec tes phrases -->
         <div class="info-banner">
           <span class="info-icon">💡</span>
           <p>
-            <strong>Astuce :</strong> Utilisez les prompts générés dans l'onglet <strong>Studio</strong> pour créer vos vidéos ici.<br>
-            <strong>Note :</strong> Une vidéo met 10 à 30 min à se générer. Grâce au serveur, vous pouvez quitter l'app, la génération continue !
+            <strong>Astuce :</strong> Utilisez les prompts du <strong>Studio</strong> pour créer vos vidéos ici.<br>
+            <strong>Limite de l'API :</strong> Agnès autorise <strong>5 requêtes par minute</strong> (soit 5 "clics" par minute). Si Agnès prévient que cette limite est dépassée, l'application vous le signalera et attendra automatiquement la minute suivante.<br>
+            <strong>Arrière-plan :</strong> Vous pouvez quitter l'app en toute sécurité. Le serveur envoie un signal de vie toutes les 5 minutes pour maintenir la génération active et surveiller vos vidéos.
           </p>
         </div>
+
         <div class="video-slots" id="video-slots"></div>
+        
         <div class="history-section">
           <h3>Bibliothèque vidéo</h3>
           <div id="video-history" class="history-grid"></div>
