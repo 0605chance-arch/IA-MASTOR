@@ -8,6 +8,9 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
+// ==========================================
+// KEEP-ALIVE INTERNE (Toutes les 5 minutes)
+// ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
   setInterval(async () => {
@@ -15,6 +18,9 @@ if (RENDER_URL) {
   }, 5 * 60 * 1000);
 }
 
+// ==========================================
+// HELPERS
+// ==========================================
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) return h.trim();
@@ -41,29 +47,99 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// SSE + Mémoire
-const activeTasks = new Map();
-const sseClients = new Set();
+// ==========================================
+// FILE D'ATTENTE ET MÉMOIRE (Retour aux sources)
+// ==========================================
+const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute
+const queues = new Map();
+const activeTasks = new Map(); // Stocke taskId -> { status, videoId, url }
 
-app.get("/api/events", (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
+function queueKey(apiKey) {
+  let h = 0;
+  for (let i = 0; i < apiKey.length; i++) { h = (h << 5) - h + apiKey.charCodeAt(i); h |= 0; }
+  return "q_" + Math.abs(h);
+}
 
-  sseClients.add(res);
-  req.on("close", () => sseClients.delete(res));
-});
+function getOrCreateQueue(apiKey) {
+  const k = queueKey(apiKey);
+  if (!queues.has(k)) queues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
+  return queues.get(k);
+}
 
-setInterval(() => {
-  if (sseClients.size === 0) return;
-  const tasks = {};
-  for (const [id, data] of activeTasks.entries()) tasks[id] = data;
-  const payload = `data: ${JSON.stringify(tasks)}\n\n: keep-alive\n\n`;
-  sseClients.forEach(client => client.write(payload));
-}, 2000);
+async function processQueue(apiKey) {
+  const q = getOrCreateQueue(apiKey);
+  if (q.processing || q.jobs.length === 0) return;
+  q.processing = true;
 
+  while (q.jobs.length > 0) {
+    const job = q.jobs[0];
+    const elapsed = Date.now() - q.lastSubmit;
+    if (elapsed < SUBMIT_INTERVAL_MS) await new Promise(r => setTimeout(r, SUBMIT_INTERVAL_MS - elapsed));
+
+    try {
+      const r = await apiFetch(`${API_BASE}/v1/videos`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(job.body),
+      }, 30000);
+
+      if (r.status === 429 || r.status === 503) {
+        const retryAfter = 15000 + Math.random() * 5000;
+        await new Promise(r => setTimeout(r, retryAfter));
+        continue;
+      }
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error?.message || "Erreur");
+
+      q.lastSubmit = Date.now();
+      q.jobs.shift();
+      
+      const videoId = data.video_id || data.id;
+      activeTasks.set(job.taskId, { status: "processing", videoId, url: null });
+      pollVideoStatus(apiKey, job.taskId, videoId);
+      job.resolve({ id: videoId });
+
+    } catch (err) {
+      q.jobs.shift();
+      job.reject(err);
+      activeTasks.set(job.taskId, { status: "failed", videoId: null, url: null });
+    }
+  }
+  q.processing = false;
+}
+
+function enqueueVideoJob(apiKey, body, taskId) {
+  return new Promise((resolve, reject) => {
+    const q = getOrCreateQueue(apiKey);
+    q.jobs.push({ body, taskId, resolve, reject });
+    processQueue(apiKey).catch(console.error);
+  });
+}
+
+async function pollVideoStatus(apiKey, taskId, videoId) {
+  const interval = setInterval(async () => {
+    try {
+      const r = await apiFetch(`${API_BASE}/agnesapi?video_id=${videoId}&model_name=agnes-video-2.5-flash`, {
+        headers: { "Authorization": `Bearer ${apiKey}` }
+      }, 20000);
+      
+      const data = await r.json();
+      if (data.status === "completed" && (data.url || data.metadata?.url)) {
+        clearInterval(interval);
+        activeTasks.set(taskId, { status: "completed", videoId, url: data.url || data.metadata?.url });
+      } else if (data.status === "failed") {
+        clearInterval(interval);
+        activeTasks.set(taskId, { status: "failed", videoId, url: null });
+      }
+    } catch (e) {}
+  }, 5000);
+}
+
+// ==========================================
 // ROUTES
+// ==========================================
+
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 
 app.post("/api/health", async (req, res) => {
@@ -130,6 +206,7 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
+// ROUTE 1 : Le client demande la génération (mise en file d'attente)
 app.post("/api/generate-video", async (req, res) => {
   try {
     const { prompt, format, duration, images, taskId } = req.body;
@@ -155,96 +232,25 @@ app.post("/api/generate-video", async (req, res) => {
       body.mode = "text";
     }
 
-    const r = await apiFetch(`${API_BASE}/v1/videos`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }, 30000);
-
-    if (r.status === 429) {
-      const retryAfter = r.headers.get("retry-after") || "60";
-      const waitMs = parseInt(retryAfter, 10) * 1000;
-      return res.status(429).json({ error: "Limite atteinte", retryAfter: waitMs });
-    }
-
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error?.message || "Erreur soumission");
-
-    const videoId = data.video_id || data.id;
-    activeTasks.set(taskId, { status: "processing", videoId, url: null });
+    activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
     
-    pollVideoStatus(req.apiKey, taskId, videoId);
-    res.json({ id: videoId, taskId });
-
+    // On lance la mise en file d'attente en arrière-plan
+    enqueueVideoJob(req.apiKey, body, taskId);
+    
+    // On répond IMMEDIATEMENT au client
+    res.json({ success: true, taskId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-async function pollVideoStatus(apiKey, taskId, videoId) {
-  const interval = setInterval(async () => {
-    try {
-      const r = await apiFetch(`${API_BASE}/agnesapi?video_id=${videoId}&model_name=agnes-video-2.5-flash`, {
-        headers: { "Authorization": `Bearer ${apiKey}` }
-      }, 20000);
-      const data = await r.json();
-      if (data.status === "completed" && (data.url || data.metadata?.url)) {
-        clearInterval(interval);
-        activeTasks.set(taskId, { status: "completed", videoId, url: data.url || data.metadata?.url });
-      } else if (data.status === "failed") {
-        clearInterval(interval);
-        activeTasks.set(taskId, { status: "failed", videoId, url: null });
-      }
-    } catch (e) {}
-  }, 5000);
-}
-
-app.post("/api/studio/generate-storyboard", async (req, res) => {
-  try {
-    const { projectIdea, sceneCount, format, style, mood } = req.body;
-    if (!projectIdea) return res.status(400).json({ error: "L'idée du projet est manquante." });
-
-    const count = parseInt(sceneCount) || 5;
-    const systemPrompt = {
-      role: "system",
-      content: `Tu es un superviseur de production audiovisuelle IA. Génère un storyboard complet en JSON.
-RÈGLES :
-1. Histoire fluide (début, milieu, fin).
-2. Bible des personnages IMMUABLE (vêtements, visage).
-3. ${count} scènes de 12s. Chaque scène a un prompt_video AUTONOME.
-4. Réponds UNIQUEMENT avec le JSON valide.
-
-Structure JSON :
-{
-  "titre": "...",
-  "synopsis": "...",
-  "personnages": [{"nom": "...", "description_physique": "...", "role": "..."}],
-  "scenes": [{"numero": 1, "titre": "...", "description_action": "...", "personnages_presents": ["..."], "prompt_video": "..."}]
-}`
-    };
-
-    const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count} (Clips de 12s)\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
-
-    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.7, max_tokens: 4096 }),
-    }, 120000);
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur de génération du storyboard.");
-
-    const rawContent = data.choices[0].message.content;
-    let parsedPlan;
-    try {
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      parsedPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(rawContent);
-    } catch (e) {
-      throw new Error("L'IA n'a pas renvoyé un format JSON valide.");
-    }
-    res.json(parsedPlan);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+// ROUTE 2 : Le client demande l'état de sa tâche (Polling)
+app.get("/api/task-status/:taskId", (req, res) => {
+  const { taskId } = req.params;
+  if (activeTasks.has(taskId)) {
+    res.json(activeTasks.get(taskId));
+  } else {
+    res.status(404).json({ error: "Tâche introuvable" });
   }
 });
 
@@ -255,7 +261,10 @@ app.get("/api/download/:id", async (req, res) => {
     let fileUrl = url;
 
     if (!fileUrl && !id.startsWith("img_")) {
-      const s = await apiFetch(`${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${req.apiKey}` } });
+      const s = await apiFetch(
+        `${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`,
+        { headers: { "Authorization": `Bearer ${req.apiKey}` } }
+      );
       const d = await s.json();
       fileUrl = d.url || d.metadata?.url;
     }
@@ -278,7 +287,33 @@ app.get("/api/download/:id", async (req, res) => {
   }
 });
 
+app.post("/api/studio/generate-storyboard", async (req, res) => {
+  try {
+    const { projectIdea, sceneCount, format, style, mood } = req.body;
+    if (!projectIdea) return res.status(400).json({ error: "L'idée est manquante." });
+    const count = parseInt(sceneCount) || 5;
+    const systemPrompt = {
+      role: "system",
+      content: `Tu es un superviseur de production audiovisuelle IA. Génère un storyboard complet en JSON. ${count} scènes de 12s. Réponds UNIQUEMENT avec le JSON valide.`
+    };
+    const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
+
+    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.7, max_tokens: 4096 }),
+    }, 120000);
+
+    const data = await response.json();
+    const rawContent = data.choices[0].message.content;
+    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Serveur prêt sur ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Serveur Classique (Polling) prêt sur ${PORT}`));
