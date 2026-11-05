@@ -300,7 +300,7 @@
   renderImageHistory();
 
   // ============================================
-  // VIDÉO (MÉCANIQUE POLLING CLASSIQUE)
+  // VIDÉO (MÉCANIQUE POLLING CLASSIQUE CORRIGÉE)
   // ============================================
   const slotTemplate = document.getElementById("slot-template");
   const videoSlotsArray = [];
@@ -369,13 +369,13 @@
           if (info.status === "completed" && info.url) {
             clearInterval(state.pollInterval);
             state.url = info.url;
+            node.dataset.url = info.url;
             video.src = info.url;
             player.hidden = false;
             dlBtn.disabled = false;
             setStatus("ready", "Prête");
             genBtn.disabled = false;
             
-            // Sauvegarde historique
             const saved = JSON.parse(localStorage.getItem(`video_task_${taskId}`) || "{}");
             if (saved.prompt) {
               const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
@@ -394,9 +394,7 @@
           } else if (info.status === "queued") {
             setStatus("queued", "En file d'attente…");
           }
-        } catch (e) {
-          // Ignore les erreurs réseau transitoires
-        }
+        } catch (e) {}
       }, 3000);
     }
 
@@ -434,7 +432,10 @@
     });
 
     dlBtn.addEventListener("click", () => { 
-      if (state.url) downloadFile(state.url, `video-${state.taskId}.mp4`, state.taskId); 
+      // On lit le lien depuis le state ou le dataset du noeud (pour le rafraîchissement)
+      const dlUrl = state.url || node.dataset.url;
+      const dlId = state.taskId || node.dataset.taskId;
+      if (dlUrl) downloadFile(dlUrl, `video-${dlId}.mp4`, dlId); 
     });
   }
 
@@ -446,7 +447,7 @@
     videoSlotsArray.push(node);
   }
 
-  // Reprise automatique au chargement ou retour sur l'app (iOS)
+  // REPRISE APRÈS RAFRAÎCHISSEMENT / iOS (CORRIGÉ)
   function resumePendingJobs() {
     document.querySelectorAll(".slot").forEach(node => {
       const promptVal = node.querySelector(".slot-prompt").value.trim();
@@ -459,25 +460,35 @@
           if (job.prompt === promptVal) {
             const statusEl = node.querySelector(".slot-status");
             if (statusEl && statusEl.dataset.state !== "ready") {
-              // Relancer le polling pour ce slot
+              
               const taskId = key.replace("video_task_", "");
               node.dataset.taskId = taskId;
               
-              // On simule un clic pour relancer la mécanique de polling
-              // (sans renvoyer la requête au serveur, juste le suivi)
               const pollInterval = setInterval(async () => {
                 try {
                   const res = await apiFetch(`/api/task-status/${taskId}`);
                   if (!res.ok) return;
                   const info = await res.json();
+                  
                   if (info.status === "completed" && info.url) {
                     clearInterval(pollInterval);
                     node.querySelector("video").src = info.url; 
                     node.querySelector(".slot-player").hidden = false;
                     node.querySelector(".slot-dl-btn").disabled = false; 
+                    node.dataset.url = info.url; // On attache le lien au noeud !
                     statusEl.dataset.state = "ready";
                     statusEl.innerHTML = `<span class="dot"></span> Prête`; 
                     node.querySelector(".slot-gen-btn").disabled = false;
+                    
+                    // CORRECTION : On sauvegarde dans l'historique ici aussi !
+                    const saved = JSON.parse(localStorage.getItem(key) || "{}");
+                    if (saved.prompt) {
+                      const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
+                      h.unshift({ prompt: saved.prompt, url: info.url, id: taskId });
+                      localStorage.setItem("adopte_video_history", JSON.stringify(h.slice(0, 20)));
+                      renderVideoHistory();
+                    }
+                    
                     localStorage.removeItem(key);
                   } else if (info.status === "failed") {
                     clearInterval(pollInterval);
