@@ -9,7 +9,7 @@ app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // ==========================================
-// KEEP-ALIVE INTERNE (Toutes les 5 minutes)
+// KEEP-ALIVE INTERNE
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
@@ -48,11 +48,11 @@ app.use("/api", (req, res, next) => {
 });
 
 // ==========================================
-// FILE D'ATTENTE ET MÉMOIRE (Retour aux sources)
+// FILE D'ATTENTE VIDÉO (INCHANGÉE)
 // ==========================================
-const SUBMIT_INTERVAL_MS = 12500; // 5 requêtes / minute
+const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
-const activeTasks = new Map(); // Stocke taskId -> { status, videoId, url }
+const activeTasks = new Map();
 
 function queueKey(apiKey) {
   let h = 0;
@@ -137,9 +137,8 @@ async function pollVideoStatus(apiKey, taskId, videoId) {
 }
 
 // ==========================================
-// ROUTES
+// ROUTES EXISTANTES
 // ==========================================
-
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 
 app.post("/api/health", async (req, res) => {
@@ -206,7 +205,6 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
-// ROUTE 1 : Le client demande la génération (mise en file d'attente)
 app.post("/api/generate-video", async (req, res) => {
   try {
     const { prompt, format, duration, images, taskId } = req.body;
@@ -233,18 +231,13 @@ app.post("/api/generate-video", async (req, res) => {
     }
 
     activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
-    
-    // On lance la mise en file d'attente en arrière-plan
     enqueueVideoJob(req.apiKey, body, taskId);
-    
-    // On répond IMMEDIATEMENT au client
     res.json({ success: true, taskId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ROUTE 2 : Le client demande l'état de sa tâche (Polling)
 app.get("/api/task-status/:taskId", (req, res) => {
   const { taskId } = req.params;
   if (activeTasks.has(taskId)) {
@@ -287,15 +280,32 @@ app.get("/api/download/:id", async (req, res) => {
   }
 });
 
+// ==========================================
+// ROUTE STUDIO (CORRIGÉE ET BLINDÉE)
+// ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format, style, mood } = req.body;
     if (!projectIdea) return res.status(400).json({ error: "L'idée est manquante." });
     const count = parseInt(sceneCount) || 5;
+    
+    // On force l'IA à être extrêmement concise pour ne pas couper le JSON
     const systemPrompt = {
       role: "system",
-      content: `Tu es un superviseur de production audiovisuelle IA. Génère un storyboard complet en JSON. ${count} scènes de 12s. Réponds UNIQUEMENT avec le JSON valide.`
+      content: `Tu es un superviseur de production IA. Génère un storyboard de ${count} scènes en JSON.
+RÈGLES STRICTES :
+1. Réponds UNIQUEMENT en JSON. Pas de texte avant ou après.
+2. Ne mets pas de balises markdown (\`\`\`json). Juste le JSON brut.
+3. Chaque prompt_video doit faire moins de 40 mots pour éviter la coupure.
+4. Structure EXACTE :
+{
+  "titre": "Titre",
+  "synopsis": "Synopsis court",
+  "personnages": [{"nom": "Nom", "description_physique": "Desc", "role": "Role"}],
+  "scenes": [{"numero": 1, "titre": "Titre scene", "description_action": "Action", "personnages_presents": ["Nom"], "prompt_video": "Prompt"}]
+}`
     };
+
     const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
 
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
@@ -305,10 +315,27 @@ app.post("/api/studio/generate-storyboard", async (req, res) => {
     }, 120000);
 
     const data = await response.json();
-    const rawContent = data.choices[0].message.content;
+    if (!response.ok) throw new Error(data.error?.message || "Erreur API");
+
+    let rawContent = data.choices[0].message.content;
+    
+    // Nettoyage de sécurité au cas où l'IA met des balises markdown
+    rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    // Extraction du JSON
     const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-    res.json(JSON.parse(jsonMatch[0]));
+    if (!jsonMatch) throw new Error("L'IA n'a pas renvoyé de format JSON valide.");
+    
+    let parsedPlan;
+    try {
+      parsedPlan = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      throw new Error("Le JSON renvoyé par l'IA est incomplet. Essayez un prompt plus court.");
+    }
+
+    res.json(parsedPlan);
   } catch (err) {
+    console.error("Erreur Studio:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -316,4 +343,4 @@ app.post("/api/studio/generate-storyboard", async (req, res) => {
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Serveur Classique (Polling) prêt sur ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Serveur prêt sur ${PORT}`));
