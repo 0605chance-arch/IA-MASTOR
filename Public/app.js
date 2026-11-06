@@ -1,9 +1,6 @@
 (function () {
   "use strict";
 
-  // ============================================
-  // UTILS & SÉCURITÉ
-  // ============================================
   function escapeHtml(text) {
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -11,34 +8,10 @@
   function parseMarkdown(text) {
     if (!text) return "";
     let html = escapeHtml(text);
-    html = html
-      .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/^### (.*$)/gim, "<h3>$1</h3>")
-      .replace(/^## (.*$)/gim, "<h2>$1</h2>")
-      .replace(/^# (.*$)/gim, "<h1>$1</h1>")
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>")
-      .replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
-
-    const lines = html.split("\n");
-    let inTable = false, tableHtml = "";
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith("|") && line.endsWith("|")) {
-        if (!inTable) { inTable = true; tableHtml += "<table>"; }
-        if (line.includes("---")) continue;
-        const cells = line.split("|").filter((c) => c.trim() !== "");
-        const tag = (i === 0 || lines[i - 1].includes("---")) ? "th" : "td";
-        tableHtml += "<tr>" + cells.map((c) => `<${tag}>${c.trim()}</${tag}>`).join("") + "</tr>";
-      } else if (inTable) {
-        tableHtml += "</table>";
-        inTable = false;
-      }
-    }
-    if (inTable) tableHtml += "</table>";
-    if (tableHtml) html = html.replace(/(\|.*\|)+/g, tableHtml);
+    html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>").replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>")
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>").replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
     return html.replace(/\n/g, "<br>");
   }
 
@@ -75,9 +48,6 @@
     }
   }
 
-  // ============================================
-  // CLÉ API
-  // ============================================
   const apiModal = document.getElementById("api-modal");
   const apiKeyInput = document.getElementById("api-key-input");
   const apiKeySave = document.getElementById("api-key-save");
@@ -93,10 +63,7 @@
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
       const r = await fetch("/api/health", { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json", "X-API-Key": key }, 
-        body: JSON.stringify({}),
-        signal: controller.signal
+        method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": key }, body: JSON.stringify({}), signal: controller.signal
       });
       clearTimeout(timer);
       return (await r.json()).valid === true;
@@ -117,10 +84,8 @@
     apiKeySave.disabled = true;
     apiKeyStatus.textContent = "Validation...";
     apiKeyStatus.className = "api-status";
-    
     const ok = await validateKey(key);
     apiKeySave.disabled = false;
-    
     if (ok) { setKey(key); apiDot.classList.add("ok"); apiModal.hidden = true; }
     else { apiKeyStatus.textContent = "Clé invalide ou serveur endormi."; apiKeyStatus.className = "api-status err"; }
   });
@@ -134,9 +99,6 @@
     return fetch(url, { ...options, headers });
   }
 
-  // ============================================
-  // TABS PRINCIPAUX
-  // ============================================
   const tabs = document.querySelectorAll(".tab-btn");
   const sections = document.querySelectorAll(".section");
   tabs.forEach((t) => t.addEventListener("click", () => {
@@ -146,9 +108,7 @@
     document.getElementById(`section-${t.id.split("-")[1]}`).classList.add("active");
   }));
 
-  // ============================================
   // CHAT
-  // ============================================
   const chatHistory = document.getElementById("chat-history");
   const chatInput = document.getElementById("chat-input");
   const chatSend = document.getElementById("chat-send");
@@ -240,9 +200,7 @@
     chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
   });
 
-  // ============================================
   // IMAGE
-  // ============================================
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
   const imgBtn = document.getElementById("image-generate");
@@ -299,9 +257,7 @@
   }
   renderImageHistory();
 
-  // ============================================
-  // VIDÉO (MÉCANIQUE POLLING CLASSIQUE CORRIGÉE)
-  // ============================================
+  // VIDÉO
   const slotTemplate = document.getElementById("slot-template");
   const videoSlotsArray = [];
   const videoSlotsContainer = document.getElementById("video-slots");
@@ -359,7 +315,6 @@
 
     function startPolling(taskId) {
       if (state.pollInterval) clearInterval(state.pollInterval);
-      
       state.pollInterval = setInterval(async () => {
         try {
           const res = await apiFetch(`/api/task-status/${taskId}`);
@@ -400,39 +355,25 @@
 
     genBtn.addEventListener("click", async () => {
       if (!promptEl.value.trim()) return;
-      
       if (!state.taskId) state.taskId = "task_" + Date.now() + "_" + Math.floor(Math.random()*1000);
-      
       genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true;
       setStatus("queued", "Envoi au serveur...");
 
-      const body = {
-        prompt: promptEl.value.trim(),
-        format: formatEl.value,
-        duration: parseInt(durationEl.value, 10),
-        taskId: state.taskId
-      };
+      const body = { prompt: promptEl.value.trim(), format: formatEl.value, duration: parseInt(durationEl.value, 10), taskId: state.taskId };
       if (state.base64) body.images = [state.base64];
 
       try {
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(body) });
         const data = await res.json();
-        
         if (!res.ok) throw new Error(data.error || "Erreur serveur");
         
         node.dataset.taskId = state.taskId;
         localStorage.setItem(`video_task_${state.taskId}`, JSON.stringify({ prompt: promptEl.value.trim(), slotIndex: index }));
-        
         startPolling(state.taskId);
-
-      } catch (e) { 
-        setStatus("error", "Erreur : " + e.message); 
-        genBtn.disabled = false; 
-      }
+      } catch (e) { setStatus("error", "Erreur : " + e.message); genBtn.disabled = false; }
     });
 
     dlBtn.addEventListener("click", () => { 
-      // On lit le lien depuis le state ou le dataset du noeud (pour le rafraîchissement)
       const dlUrl = state.url || node.dataset.url;
       const dlId = state.taskId || node.dataset.taskId;
       if (dlUrl) downloadFile(dlUrl, `video-${dlId}.mp4`, dlId); 
@@ -447,12 +388,10 @@
     videoSlotsArray.push(node);
   }
 
-  // REPRISE APRÈS RAFRAÎCHISSEMENT / iOS (CORRIGÉ)
   function resumePendingJobs() {
     document.querySelectorAll(".slot").forEach(node => {
       const promptVal = node.querySelector(".slot-prompt").value.trim();
       if (!promptVal) return;
-      
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key.startsWith("video_task_")) {
@@ -460,27 +399,22 @@
           if (job.prompt === promptVal) {
             const statusEl = node.querySelector(".slot-status");
             if (statusEl && statusEl.dataset.state !== "ready") {
-              
               const taskId = key.replace("video_task_", "");
               node.dataset.taskId = taskId;
-              
               const pollInterval = setInterval(async () => {
                 try {
                   const res = await apiFetch(`/api/task-status/${taskId}`);
                   if (!res.ok) return;
                   const info = await res.json();
-                  
                   if (info.status === "completed" && info.url) {
                     clearInterval(pollInterval);
                     node.querySelector("video").src = info.url; 
                     node.querySelector(".slot-player").hidden = false;
                     node.querySelector(".slot-dl-btn").disabled = false; 
-                    node.dataset.url = info.url; // On attache le lien au noeud !
+                    node.dataset.url = info.url;
                     statusEl.dataset.state = "ready";
                     statusEl.innerHTML = `<span class="dot"></span> Prête`; 
                     node.querySelector(".slot-gen-btn").disabled = false;
-                    
-                    // CORRECTION : On sauvegarde dans l'historique ici aussi !
                     const saved = JSON.parse(localStorage.getItem(key) || "{}");
                     if (saved.prompt) {
                       const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
@@ -488,7 +422,6 @@
                       localStorage.setItem("adopte_video_history", JSON.stringify(h.slice(0, 20)));
                       renderVideoHistory();
                     }
-                    
                     localStorage.removeItem(key);
                   } else if (info.status === "failed") {
                     clearInterval(pollInterval);
@@ -526,9 +459,7 @@
   }
   renderVideoHistory();
 
-  // ============================================
   // STUDIO
-  // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
   const studioWorkspace = document.getElementById("studio-workspace");
@@ -568,7 +499,7 @@
         body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
+      if (!res.ok) throw new Error(data.error || "Erreur API");
 
       currentProject = { ...data, format };
       localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
@@ -578,10 +509,12 @@
     finally { wizGenBtn.hidden = false; wizLoading.hidden = true; }
   });
 
+  // RENDU DU WORKSPACE (AVEC FILETS DE SÉCURITÉ)
   function renderWorkspace(project) {
-    document.getElementById("workspace-title").textContent = project.titre || "Projet";
-    document.getElementById("workspace-synopsis").textContent = project.synopsis || "";
-    document.getElementById("ws-script-synopsis").textContent = project.synopsis || "";
+    // Filet de sécurité pour le titre et le synopsis
+    document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
+    document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
+    document.getElementById("ws-script-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
 
     const tabBtns = document.querySelectorAll(".ws-tab-btn");
     const tabContents = document.querySelectorAll(".ws-tab-content");
@@ -596,10 +529,11 @@
 
     const charsContainer = document.getElementById("ws-characters-container");
     charsContainer.innerHTML = "";
-    (project.personnages || []).forEach(p => {
+    const chars = Array.isArray(project.personnages) ? project.personnages : [];
+    chars.forEach(p => {
       const charNode = document.getElementById("char-template").content.firstElementChild.cloneNode(true);
-      charNode.querySelector(".char-name").value = p.nom;
-      charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "";
+      charNode.querySelector(".char-name").value = p.nom || "Personnage sans nom";
+      charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "Aucune description.";
       charsContainer.appendChild(charNode);
     });
 
@@ -607,14 +541,28 @@
     scenesContainer.innerHTML = "";
     const sceneTemplate = document.getElementById("studio-scene-template");
     
-    (project.scenes || []).forEach(scene => {
+    const scenes = Array.isArray(project.scenes) ? project.scenes : [];
+    
+    if (scenes.length === 0) {
+       scenesContainer.innerHTML = "<p style='color:red; text-align:center;'>L'IA n'a pas pu générer les scènes (prompt trop long ou erreur API). Veuillez réessayer avec une idée plus courte.</p>";
+    }
+
+    scenes.forEach((scene, index) => {
       const node = sceneTemplate.content.firstElementChild.cloneNode(true);
-      node.querySelector(".studio-scene-title").textContent = `Scène ${scene.numero} : ${scene.titre}`;
-      node.querySelector(".studio-scene-action").textContent = scene.description_action;
-      node.querySelector(".studio-scene-prompt").value = scene.prompt_video;
+      
+      // FILETS DE SÉCURITÉ POUR ÉVITER LES "undefined"
+      const num = scene.numero || (index + 1);
+      const titre = scene.titre || "Scène";
+      const action = scene.description_action || "Aucune description.";
+      const prompt = scene.prompt_video || "";
+
+      node.querySelector(".studio-scene-title").textContent = `Scène ${num} : ${titre}`;
+      node.querySelector(".studio-scene-action").textContent = action;
+      node.querySelector(".studio-scene-prompt").value = prompt;
 
       node.querySelector(".studio-scene-copy-btn").addEventListener("click", () => {
-        navigator.clipboard.writeText(scene.prompt_video).then(() => alert("Copié !"));
+        if (!prompt) return alert("Aucun prompt à copier.");
+        navigator.clipboard.writeText(prompt).then(() => alert("Copié !"));
       });
 
       let currentImgBase64 = null;
@@ -623,9 +571,10 @@
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
       imgBtn.addEventListener("click", async () => {
+        if (!prompt) return alert("Impossible de générer une image sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
         try {
-          const res = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: scene.prompt_video, format: project.format }) });
+          const res = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt, format: project.format || "16:9" }) });
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
@@ -637,12 +586,13 @@
       });
 
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
+        if (!prompt) return alert("Aucun prompt à envoyer.");
         let targetSlot = null;
         for (const slot of videoSlotsArray) {
           if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         if (targetSlot) {
-          targetSlot.fillSlot(scene.prompt_video, currentImgBase64);
+          targetSlot.fillSlot(prompt, currentImgBase64);
           document.getElementById("tab-video").click();
         } else { alert("L'onglet Vidéo est plein."); }
       });
