@@ -8,6 +8,7 @@
 </head>
 <body>
 
+  <!-- MODAL CLÉ API -->
   <div id="api-modal" class="modal" hidden>
     <div class="modal-card">
       <h2>🔑 Clé API Agnès</h2>
@@ -21,6 +22,7 @@
   </div>
 
   <div class="app">
+    <!-- HEADER -->
     <header class="header">
       <div class="header-top">
         <div class="logo">✨ Adopte<em>TonIA</em></div>
@@ -31,6 +33,7 @@
       <p class="tagline">Chat • Image • Vidéo • Studio</p>
     </header>
 
+    <!-- TABS -->
     <div class="tabs">
       <button id="tab-chat"  class="tab-btn active">💬 Chat</button>
       <button id="tab-image" class="tab-btn">🖼️ Image</button>
@@ -40,7 +43,9 @@
 
     <main class="main">
 
-      <!-- CHAT -->
+      <!-- =========================================
+           CHAT
+           ========================================= -->
       <section id="section-chat" class="section active">
         <div class="chat-layout">
           <aside class="chat-sidebar" id="chat-sidebar">
@@ -59,7 +64,9 @@
         </div>
       </section>
 
-      <!-- IMAGE -->
+      <!-- =========================================
+           IMAGE
+           ========================================= -->
       <section id="section-image" class="section">
         <div class="card">
           <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image à générer…"></textarea>
@@ -85,7 +92,9 @@
         </div>
       </section>
 
-      <!-- VIDÉO -->
+      <!-- =========================================
+           VIDÉO
+           ========================================= -->
       <section id="section-video" class="section">
         <div class="info-banner">
           <span class="info-icon">💡</span>
@@ -101,8 +110,12 @@
         </div>
       </section>
 
-      <!-- STUDIO -->
+      <!-- =========================================
+           STUDIO
+           ========================================= -->
       <section id="section-studio" class="section">
+        
+        <!-- ÉCRAN 1 : ACCUEIL STUDIO -->
         <div id="studio-home" class="studio-view">
           <div class="studio-hero">
             <h1>Votre Superviseur IA.</h1>
@@ -122,6 +135,7 @@
           </div>
         </div>
 
+        <!-- ÉCRAN 2 : WIZARD (ASSISTANT) -->
         <div id="studio-wizard" class="studio-view" hidden>
           <div class="wizard-header">
             <button class="btn-secondary btn-small" id="wizard-back-to-home">← Retour</button>
@@ -169,7 +183,7 @@
               </div>
             </div>
 
-            <!-- NOUVEAU : Personnages de référence -->
+            <!-- Personnages de référence -->
             <div class="story-chars-header" style="margin-bottom: 10px;">
               <span class="field-label" style="font-size: 13px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">🎭 Personnages de référence (Max 5)</span>
               <span class="char-count" id="ref-char-count" style="font-size: 12px; background: var(--surface-2); padding: 2px 8px; border-radius: 10px;">0 / 5</span>
@@ -186,6 +200,7 @@
           </div>
         </div>
 
+        <!-- ÉCRAN 3 : ESPACE DE TRAVAIL (WORKSPACE) -->
         <div id="studio-workspace" class="studio-view" hidden>
           <div class="workspace-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
             <div>
@@ -202,28 +217,42 @@
           </div>
 
           <div class="workspace-content">
+            <!-- Onglet Scènes -->
             <div id="ws-tab-scenes" class="ws-tab-content active">
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Générez une image de référence pour chaque scène, puis envoyez le tout vers l'onglet Vidéo.</p>
               <div id="ws-scenes-container" class="scenes-list"></div>
             </div>
+
+            <!-- Onglet Personnages -->
             <div id="ws-tab-characters" class="ws-tab-content" hidden>
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Voici la bible des personnages générée par l'IA.</p>
               <div id="ws-characters-container" class="chars-grid"></div>
             </div>
+
+            <!-- Onglet Synopsis -->
             <div id="ws-tab-script" class="ws-tab-content" hidden>
               <div class="card">
                 <h3>Synopsis complet</h3>
                 <p id="ws-script-synopsis" style="white-space: pre-wrap; line-height: 1.6; font-size: 15px;"></p>
+                
+                <!-- LA BOÎTE MANQUANTE EST BIEN ICI -->
+                <h3 style="margin-top:20px;">Direction Artistique</h3>
+                <div id="ws-script-da" style="font-size: 14px; line-height: 1.6;"></div>
               </div>
             </div>
           </div>
         </div>
+
       </section>
 
     </main>
   </div>
 
-  <!-- Templates -->
+  <!-- ============================================
+       TEMPLATES
+       ============================================ -->
+  
+  <!-- Slot Vidéo (Onglet Vidéo) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
@@ -250,6 +279,7 @@
     </div>
   </template>
 
+  <!-- Carte Personnage (Studio) -->
   <template id="char-template">
     <div class="char-card">
       <input type="file" class="char-img-input" accept="image/*" hidden>
@@ -261,6 +291,7 @@
     </div>
   </template>
 
+  <!-- Carte Personnage Référence (Wizard) -->
   <template id="studio-ref-char-template">
     <div class="char-card">
       <input type="file" class="char-img-input" accept="image/*" hidden>
@@ -273,6 +304,7 @@
     </div>
   </template>
 
+  <!-- Carte Scène (Workspace) -->
   <template id="studio-scene-template">
     <div class="studio-scene-card card" style="margin-bottom: 15px;">
       <div class="studio-scene-header">
