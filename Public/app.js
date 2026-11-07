@@ -434,13 +434,13 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (Avec personnages de référence)
+  // STUDIO (CORRECTION DE LA COHÉRENCE VISUELLE)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
   const studioWorkspace = document.getElementById("studio-workspace");
   let currentProject = JSON.parse(localStorage.getItem("adopte_studio_project") || "null");
-  let currentRefCharacters = []; // Stocke les personnages ajoutés dans le Wizard
+  let currentRefCharacters = []; 
 
   function showScreen(screenId) {
     [studioHome, studioWizard, studioWorkspace].forEach(el => el.hidden = true);
@@ -456,7 +456,6 @@
   });
   document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
 
-  // GESTION DES PERSONNAGES DE RÉFÉRENCE (WIZARD)
   const refCharsContainer = document.getElementById("studio-ref-chars-container");
   const refCharTemplate = document.getElementById("studio-ref-char-template");
   const addRefCharBtn = document.getElementById("add-ref-char-btn");
@@ -474,7 +473,6 @@
     const thumb = node.querySelector(".char-thumb");
     const fileInput = node.querySelector(".char-img-input");
     const delBtn = node.querySelector(".char-del");
-    
     node._imageBase64 = null;
 
     thumb.addEventListener("click", () => fileInput.click());
@@ -482,10 +480,7 @@
       const f = e.target.files[0];
       if (!f) return;
       const r = new FileReader();
-      r.onload = () => {
-        node._imageBase64 = r.result.split(",")[1];
-        thumb.innerHTML = `<img src="${r.result}">`;
-      };
+      r.onload = () => { node._imageBase64 = r.result.split(",")[1]; thumb.innerHTML = `<img src="${r.result}">`; };
       r.readAsDataURL(f);
     });
 
@@ -507,27 +502,23 @@
     return chars;
   }
 
-  // GENERATION DU STORYBOARD
   const wizGenBtn = document.getElementById("wizard-generate-btn");
   const wizLoading = document.getElementById("wizard-loading");
 
   wizGenBtn.addEventListener("click", async () => {
     const idea = document.getElementById("wizard-idea").value.trim();
     if (!idea) return alert("Veuillez décrire votre idée.");
-
     const sceneCount = parseInt(document.getElementById("wizard-scene-count").value, 10);
     const format = document.getElementById("wizard-format").value;
     const style = document.getElementById("wizard-style").value;
     const mood = document.getElementById("wizard-mood").value;
     
     currentRefCharacters = getRefCharsData();
-
     wizGenBtn.hidden = true; wizLoading.hidden = false;
 
     try {
       const res = await apiFetch("/api/studio/generate-storyboard", {
-        method: "POST",
-        body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood, refCharacters: currentRefCharacters })
+        method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood, refCharacters: currentRefCharacters })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
@@ -540,7 +531,6 @@
     finally { wizGenBtn.hidden = false; wizLoading.hidden = true; }
   });
 
-  // RENDU DU WORKSPACE
   function renderWorkspace(project) {
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
@@ -559,11 +549,10 @@
 
     const charsContainer = document.getElementById("ws-characters-container");
     charsContainer.innerHTML = "";
-    const chars = Array.isArray(project.personnages) ? project.personnages : [];
-    chars.forEach(p => {
+    (project.personnages || []).forEach(p => {
       const charNode = document.getElementById("char-template").content.firstElementChild.cloneNode(true);
-      charNode.querySelector(".char-name").value = p.nom || "Personnage sans nom";
-      charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "Aucune description.";
+      charNode.querySelector(".char-name").value = p.nom || "Personnage";
+      charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "";
       charsContainer.appendChild(charNode);
     });
 
@@ -597,29 +586,36 @@
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
-      // INTELLIGENCE : Ajout des personnages à l'image
+      // CORRECTION CRUCIALE : Injection des personnages avec <Picture N>
       imgBtn.addEventListener("click", async () => {
         if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
 
-        // On cherche les personnages présents dans cette scène
         const personsInScene = scene.personnages_presents || [];
         let finalPrompt = promptBase;
-        let refImage = null;
+        let refImages = [];
         
-        // On enrichit le prompt avec les descriptions physiques et on prend la photo du 1er perso présent
-        personsInScene.forEach(pName => {
+        // On associe chaque personnage à une image (Picture 1, Picture 2, etc.)
+        personsInScene.forEach((pName, index) => {
            const match = currentRefCharacters.find(c => c.name.toLowerCase() === pName.toLowerCase());
            if (match) {
-               finalPrompt += ` (Appearance of ${match.name}: ${match.description})`;
-               if (!refImage && match.imageBase64) refImage = match.imageBase64;
+               if (match.imageBase64) {
+                   refImages.push(match.imageBase64);
+                   // On dit à l'IA : "Picture 1 est Léna", etc.
+                   finalPrompt += ` <Picture ${refImages.length}> is ${match.name} (${match.description}).`;
+               } else {
+                   finalPrompt += ` Appearance of ${match.name}: ${match.description}.`;
+               }
            }
         });
 
+        finalPrompt += " Blend the provided characters naturally into the scene while preserving their exact facial features and clothing.";
+
         try {
+          // On envoie le TABLEAU d'images au serveur
           const res = await apiFetch("/api/generate-image", { 
             method: "POST", 
-            body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", imageBase64: refImage }) 
+            body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", images: refImages }) 
           });
           const data = await res.json();
           if (data.url) {
