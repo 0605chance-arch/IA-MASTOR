@@ -434,7 +434,7 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (CORRECTION DE LA COHÉRENCE VISUELLE)
+  // STUDIO (CORRECTION FINALE POUR LA COHÉRENCE)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
@@ -596,7 +596,7 @@
         let refImages = [];
         
         // On associe chaque personnage à une image (Picture 1, Picture 2, etc.)
-        personsInScene.forEach((pName, index) => {
+        personsInScene.forEach((pName) => {
            const match = currentRefCharacters.find(c => c.name.toLowerCase() === pName.toLowerCase());
            if (match) {
                if (match.imageBase64) {
