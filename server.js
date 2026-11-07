@@ -35,6 +35,9 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+// ==========================================
+// FILE D'ATTENTE VIDÉO
+// ==========================================
 const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
 const activeTasks = new Map();
@@ -101,6 +104,9 @@ async function pollVideoStatus(apiKey, taskId, videoId) {
   }, 5000);
 }
 
+// ==========================================
+// ROUTES EXISTANTES
+// ==========================================
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 app.post("/api/health", async (req, res) => {
   try {
@@ -132,15 +138,25 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CORRECTION : Accepte un tableau "images" pour le multi-personnage
 app.post("/api/generate-image", async (req, res) => {
   try {
-    const { prompt, format, imageBase64 } = req.body;
+    const { prompt, format, imageBase64, images } = req.body;
     const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
+    
     const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
-    if (imageBase64) {
-      body.extra_body.image = [`data:image/jpeg;base64,${imageBase64}`];
-      body.prompt = `Transform the reference image with this style: ${cinematicPrompt}`;
+    
+    // On gère soit le tableau "images" (Studio), soit "imageBase64" (Onglet Image simple)
+    let refs = [];
+    if (images && Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
+    else if (imageBase64) refs = [imageBase64];
+
+    if (refs.length > 0) {
+      body.extra_body.image = refs.map(b => `data:image/jpeg;base64,${b}`);
+      // On ne remplace PAS le prompt, on lui dit juste d'utiliser les références
+      body.prompt = `${cinematicPrompt}. Use the provided images as reference for the characters.`;
     }
+
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
       method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
@@ -201,9 +217,6 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur download"); }
 });
 
-// ==========================================
-// NOUVELLE ROUTE STUDIO (Avec personnages de référence et cohérence)
-// ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format, style, mood, refCharacters } = req.body;
