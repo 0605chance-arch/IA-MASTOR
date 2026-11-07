@@ -452,7 +452,6 @@
   document.getElementById("studio-btn-new").addEventListener("click", () => showScreen("wizard"));
   document.getElementById("studio-btn-continue").addEventListener("click", () => {
     if (currentProject) { 
-      // On recharge les personnages sauvegardés
       if (currentProject.refCharacters) currentRefCharacters = currentProject.refCharacters;
       renderWorkspace(currentProject); 
       showScreen("workspace"); 
@@ -528,7 +527,6 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
 
-      // SAUVEGARDE CRUCIALE : on inclut les persos dans le projet
       currentProject = { ...data, format, refCharacters: currentRefCharacters };
       localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
       renderWorkspace(currentProject);
@@ -538,7 +536,6 @@
   });
 
   function renderWorkspace(project) {
-    // On récupère les persos du projet s'ils existent
     if (project.refCharacters) currentRefCharacters = project.refCharacters;
 
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
@@ -603,20 +600,26 @@
         const personsInScene = scene.personnages_presents || [];
         let refImages = [];
         let charDescriptions = "";
+        let charConstraints = "";
 
-        // On cherche les photos et descriptions des personnages présents dans cette scène
         personsInScene.forEach(pName => {
            const match = currentRefCharacters.find(c => c.name.toLowerCase() === pName.toLowerCase());
            if (match) {
-               if (match.imageBase64) refImages.push(match.imageBase64);
-               if (match.description) charDescriptions += ` Character ${match.name}: ${match.description}.`;
+               if (match.imageBase64) {
+                   refImages.push(match.imageBase64);
+                   charDescriptions += `Character ${match.name}: ${match.description}. `;
+                   charConstraints += `- ${match.name} MUST be an exact replica of <Picture ${refImages.length}>. Do NOT alter their physical form, face, clothing, or species. `;
+               } else {
+                   charDescriptions += `Character ${match.name}: ${match.description}. `;
+               }
            }
         });
 
-        // On construit un prompt très explicite
         let finalPrompt = promptBase;
-        if (charDescriptions) {
-            finalPrompt += ` IMPORTANT: The characters in this scene must look exactly like the provided reference images. Detailed description of the characters: ${charDescriptions}`;
+        if (refImages.length > 0) {
+            finalPrompt = `Scene: ${promptBase}. `;
+            if (charDescriptions) finalPrompt += `Characters info: ${charDescriptions}. `;
+            finalPrompt += `CRITICAL INSTRUCTIONS: ${charConstraints}. The characters in this scene MUST look exactly like the provided reference images. Keep their exact anatomy, clothing, and facial features. Do NOT morph them into humans if they are not.`;
         }
 
         try {
