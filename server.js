@@ -8,6 +8,7 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
+// KEEP-ALIVE INTERNE
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
@@ -133,7 +134,6 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GESTION ROBUSTE DES IMAGES DE RÉFÉRENCE (ANTI-MORPHING)
 app.post("/api/generate-image", async (req, res) => {
   try {
     const { prompt, format, imageBase64, images } = req.body;
@@ -147,14 +147,7 @@ app.post("/api/generate-image", async (req, res) => {
 
     if (refs.length > 0) {
       body.extra_body.image = refs.map(b => b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`);
-      
-      // PROMPT CRUCIAL POUR FORCER LA COHÉRENCE
-      body.prompt = `${cinematicPrompt}. 
-      CRITICAL INSTRUCTION: The characters MUST perfectly replicate the exact physical form, shape, and clothing of the characters in the provided reference images. 
-      Do NOT morph the character into a human if it is an object, animal, or stylized figure. 
-      Keep the exact 3D mascot design, exact clothing, and exact face from the reference image.`;
-
-      // Ajout d'un prompt négatif pour bloquer les hallucinations (si supporté)
+      body.prompt = `${cinematicPrompt}. CRITICAL: The characters in the image MUST perfectly match the faces, hair, and clothing of the characters shown in the reference images provided. Use <Picture 1> as the exact reference for the main character.`;
       body.negative_prompt = "human face, animal face, morphing, changing character shape, different clothes, changing species, realistic human skin, altered logo";
     }
 
@@ -218,6 +211,9 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur download"); }
 });
 
+// ==========================================
+// MÉTA-PROMPT STUDIO (INTÉGRATION DU TEXTE)
+// ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format, style, mood, refCharacters } = req.body;
@@ -230,25 +226,60 @@ app.post("/api/studio/generate-storyboard", async (req, res) => {
         refCharacters.map(c => `- ${c.name} : ${c.description}`).join("\n");
     }
     
+    // TON MÉTA-PROMPT INTÉGRÉ ICI
     const systemPrompt = {
       role: "system",
-      content: `Tu es un superviseur de production IA. Génère un storyboard de ${count} scènes en JSON.
-RÈGLES STRICTES :
-1. Réponds UNIQUEMENT en JSON.
-2. Ne mets pas de balises markdown.
-3. Chaque prompt_video doit faire moins de 40 mots.
-4. La cohérence narrative est CRUCIALE. Chaque scène doit découler logiquement de la précédente.
-5. Si des personnages de référence sont fournis, décris-les avec précision dans les prompts des scènes où ils apparaissent.
-Structure EXACTE :
+      content: `RÔLE DE L’IA : Tu es un réalisateur de cinéma, scénariste professionnel, directeur artistique, directeur de photographie et expert en génération de vidéos par intelligence artificielle.
+Ta mission est de transformer une simple idée utilisateur en une véritable production audiovisuelle cohérente, cinématographique et prête à être générée par une IA vidéo.
+
+1. RESPECT ABSOLU DES PERSONNAGES DE RÉFÉRENCE
+- Analyse précisément chaque description fournie.
+- Ne jamais modifier son espèce, son âge apparent, sa morphologie, ses couleurs, ses vêtements ou ses accessoires.
+- Ne jamais inventer une nouvelle apparence.
+- Chaque personnage doit conserver exactement la même identité visuelle du premier au dernier clip.
+- Créer une fiche d’identité visuelle précise pour chaque personnage.
+
+2. COHÉRENCE VISUELLE ENTRE TOUS LES CLIPS
+- Maintenir la même direction artistique, le même style de rendu, les mêmes textures, la même palette de couleurs et la même qualité de lumière.
+- Ne pas passer arbitrairement d’un rendu à un autre.
+- Ne pas modifier la décoration sans justification narrative.
+
+3. CONTINUITÉ NARRATIVE OBLIGATOIRE
+- L'histoire doit avoir un début, un développement et une fin.
+- La fin d’un clip doit correspondre au début du clip suivant.
+- Les déplacements, objets et actions doivent respecter la logique.
+
+4. PROMPTS VIDÉO ULTRA-DÉTAILLÉS ET AUTONOMES
+- Chaque prompt doit être compréhensible sans connaître les scènes précédentes.
+- Ne jamais écrire "comme dans la scène précédente".
+- Chaque prompt doit redécrire les personnages (physique complet, vêtements), le décor, l'action exacte, le type de caméra, l'éclairage et l'ambiance.
+- Ajouter les instructions de durée : chaque clip dure exactement 12 secondes.
+
+5. FORMAT DE SORTIE OBLIGATOIRE
+Tu dois OBLIGATOIREMENT répondre avec un JSON parfait, sans texte avant ou après, sans balise markdown, respectant cette structure exacte :
 {
-  "titre": "Titre",
-  "synopsis": "Synopsis court",
-  "personnages": [{"nom": "Nom", "description_physique": "Desc", "role": "Role"}],
-  "scenes": [{"numero": 1, "titre": "Titre scene", "description_action": "Action", "personnages_presents": ["Nom"], "prompt_video": "Prompt"}]
+  "titre": "Titre de l'histoire",
+  "synopsis": "Synopsis général court",
+  "direction_artistique": {
+    "palette": "Couleurs exactes",
+    "lumiere": "Style de lumière",
+    "ambiance": "Ambiance générale"
+  },
+  "personnages": [{"nom": "Nom", "description_physique": "Description ultra-détaillée", "role": "Rôle"}],
+  "scenes": [
+    {
+      "numero": 1, 
+      "titre": "Titre scene", 
+      "duree": 12, 
+      "description_action": "Description narrative de l'action", 
+      "personnages_presents": ["Nom"],
+      "prompt_video": "Prompt ultra-détaillé de 12 secondes (autonome, décrivant physique, vêtements, décor, action, caméra, lumière)."
+    }
+  ]
 }`
     };
 
-    const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}${charText}`;
+    const userContent = `IDÉE DE L'UTILISATEUR : ${projectIdea}\nNOMBRE DE SCÈNES EXACT : ${count} (12 secondes par scène)\nFORMAT : ${format || "16:9"}\nSTYLE VISUEL : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}${charText}`;
 
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
       method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
