@@ -31,9 +31,8 @@
   async function downloadFile(url, filename, id) {
     try {
       let blob;
-      if (url.startsWith("data:")) {
-        blob = await (await fetch(url)).blob();
-      } else {
+      if (url.startsWith("data:")) { blob = await (await fetch(url)).blob(); } 
+      else {
         const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
         const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey() } });
         if (!res.ok) throw new Error("Erreur serveur");
@@ -43,9 +42,7 @@
       const a = document.createElement("a");
       a.style.display = "none"; a.href = blobUrl; a.download = filename;
       document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(blobUrl); a.remove();
-    } catch (e) {
-      alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer.");
-    }
+    } catch (e) { alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer."); }
   }
 
   const apiModal = document.getElementById("api-modal");
@@ -193,9 +190,7 @@
       const data = await res.json();
       if (data.content) s.messages.push({ role: "assistant", content: data.content });
       else if (data.error) s.messages.push({ role: "assistant", content: `⚠️ Erreur : ${data.error}` });
-    } catch (e) {
-      s.messages.push({ role: "assistant", content: "⚠️ Erreur réseau." });
-    }
+    } catch (e) { s.messages.push({ role: "assistant", content: "⚠️ Erreur réseau." }); }
     saveSessions(); renderChat();
     chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
   });
@@ -320,17 +315,11 @@
           const res = await apiFetch(`/api/task-status/${taskId}`);
           if (!res.ok) return;
           const info = await res.json();
-
           if (info.status === "completed" && info.url) {
             clearInterval(state.pollInterval);
-            state.url = info.url;
-            node.dataset.url = info.url;
-            video.src = info.url;
-            player.hidden = false;
-            dlBtn.disabled = false;
-            setStatus("ready", "Prête");
-            genBtn.disabled = false;
-            
+            state.url = info.url; node.dataset.url = info.url;
+            video.src = info.url; player.hidden = false; dlBtn.disabled = false;
+            setStatus("ready", "Prête"); genBtn.disabled = false;
             const saved = JSON.parse(localStorage.getItem(`video_task_${taskId}`) || "{}");
             if (saved.prompt) {
               const h = JSON.parse(localStorage.getItem("adopte_video_history") || "[]");
@@ -340,15 +329,10 @@
             }
             localStorage.removeItem(`video_task_${taskId}`);
           } else if (info.status === "failed") {
-            clearInterval(state.pollInterval);
-            setStatus("error", "Échec de génération");
-            genBtn.disabled = false;
+            clearInterval(state.pollInterval); setStatus("error", "Échec"); genBtn.disabled = false;
             localStorage.removeItem(`video_task_${taskId}`);
-          } else if (info.status === "processing") {
-            setStatus("loading", "Génération…");
-          } else if (info.status === "queued") {
-            setStatus("queued", "En file d'attente…");
-          }
+          } else if (info.status === "processing") { setStatus("loading", "Génération…"); }
+          else if (info.status === "queued") { setStatus("queued", "En file d'attente…"); }
         } catch (e) {}
       }, 3000);
     }
@@ -357,16 +341,13 @@
       if (!promptEl.value.trim()) return;
       if (!state.taskId) state.taskId = "task_" + Date.now() + "_" + Math.floor(Math.random()*1000);
       genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true;
-      setStatus("queued", "Envoi au serveur...");
-
+      setStatus("queued", "Envoi...");
       const body = { prompt: promptEl.value.trim(), format: formatEl.value, duration: parseInt(durationEl.value, 10), taskId: state.taskId };
       if (state.base64) body.images = [state.base64];
-
       try {
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(body) });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur serveur");
-        
         node.dataset.taskId = state.taskId;
         localStorage.setItem(`video_task_${state.taskId}`, JSON.stringify({ prompt: promptEl.value.trim(), slotIndex: index }));
         startPolling(state.taskId);
@@ -408,12 +389,9 @@
                   const info = await res.json();
                   if (info.status === "completed" && info.url) {
                     clearInterval(pollInterval);
-                    node.querySelector("video").src = info.url; 
-                    node.querySelector(".slot-player").hidden = false;
-                    node.querySelector(".slot-dl-btn").disabled = false; 
-                    node.dataset.url = info.url;
-                    statusEl.dataset.state = "ready";
-                    statusEl.innerHTML = `<span class="dot"></span> Prête`; 
+                    node.querySelector("video").src = info.url; node.querySelector(".slot-player").hidden = false;
+                    node.querySelector(".slot-dl-btn").disabled = false; node.dataset.url = info.url;
+                    statusEl.dataset.state = "ready"; statusEl.innerHTML = `<span class="dot"></span> Prête`; 
                     node.querySelector(".slot-gen-btn").disabled = false;
                     const saved = JSON.parse(localStorage.getItem(key) || "{}");
                     if (saved.prompt) {
@@ -424,10 +402,8 @@
                     }
                     localStorage.removeItem(key);
                   } else if (info.status === "failed") {
-                    clearInterval(pollInterval);
-                    statusEl.dataset.state = "error"; statusEl.innerHTML = `<span class="dot"></span> Échec`;
-                    node.querySelector(".slot-gen-btn").disabled = false;
-                    localStorage.removeItem(key);
+                    clearInterval(pollInterval); statusEl.dataset.state = "error"; statusEl.innerHTML = `<span class="dot"></span> Échec`;
+                    node.querySelector(".slot-gen-btn").disabled = false; localStorage.removeItem(key);
                   }
                 } catch(e) {}
               }, 3000);
@@ -438,9 +414,7 @@
     });
   }
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") resumePendingJobs();
-  });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") resumePendingJobs(); });
   resumePendingJobs();
 
   function renderVideoHistory() {
@@ -459,11 +433,14 @@
   }
   renderVideoHistory();
 
-  // STUDIO
+  // ============================================
+  // STUDIO (Avec personnages de référence)
+  // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
   const studioWorkspace = document.getElementById("studio-workspace");
   let currentProject = JSON.parse(localStorage.getItem("adopte_studio_project") || "null");
+  let currentRefCharacters = []; // Stocke les personnages ajoutés dans le Wizard
 
   function showScreen(screenId) {
     [studioHome, studioWizard, studioWorkspace].forEach(el => el.hidden = true);
@@ -479,6 +456,58 @@
   });
   document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
 
+  // GESTION DES PERSONNAGES DE RÉFÉRENCE (WIZARD)
+  const refCharsContainer = document.getElementById("studio-ref-chars-container");
+  const refCharTemplate = document.getElementById("studio-ref-char-template");
+  const addRefCharBtn = document.getElementById("add-ref-char-btn");
+  const refCharCount = document.getElementById("ref-char-count");
+
+  function updateRefCharUI() {
+    const n = refCharsContainer.querySelectorAll(".char-card").length;
+    refCharCount.textContent = `${n} / 5`;
+    addRefCharBtn.hidden = n >= 5;
+  }
+
+  function addRefCharCard() {
+    if (refCharsContainer.querySelectorAll(".char-card").length >= 5) return;
+    const node = refCharTemplate.content.firstElementChild.cloneNode(true);
+    const thumb = node.querySelector(".char-thumb");
+    const fileInput = node.querySelector(".char-img-input");
+    const delBtn = node.querySelector(".char-del");
+    
+    node._imageBase64 = null;
+
+    thumb.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => {
+        node._imageBase64 = r.result.split(",")[1];
+        thumb.innerHTML = `<img src="${r.result}">`;
+      };
+      r.readAsDataURL(f);
+    });
+
+    delBtn.addEventListener("click", () => { node.remove(); updateRefCharUI(); });
+    refCharsContainer.appendChild(node);
+    updateRefCharUI();
+  }
+
+  addRefCharBtn.addEventListener("click", addRefCharCard);
+
+  function getRefCharsData() {
+    const chars = [];
+    refCharsContainer.querySelectorAll(".char-card").forEach(card => {
+      const name = card.querySelector(".char-name").value.trim();
+      const desc = card.querySelector(".char-desc").value.trim();
+      const img = card._imageBase64 || null;
+      if (name && desc) chars.push({ name, description: desc, imageBase64: img });
+    });
+    return chars;
+  }
+
+  // GENERATION DU STORYBOARD
   const wizGenBtn = document.getElementById("wizard-generate-btn");
   const wizLoading = document.getElementById("wizard-loading");
 
@@ -490,13 +519,15 @@
     const format = document.getElementById("wizard-format").value;
     const style = document.getElementById("wizard-style").value;
     const mood = document.getElementById("wizard-mood").value;
+    
+    currentRefCharacters = getRefCharsData();
 
     wizGenBtn.hidden = true; wizLoading.hidden = false;
 
     try {
       const res = await apiFetch("/api/studio/generate-storyboard", {
         method: "POST",
-        body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood })
+        body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood, refCharacters: currentRefCharacters })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
@@ -509,9 +540,8 @@
     finally { wizGenBtn.hidden = false; wizLoading.hidden = true; }
   });
 
-  // RENDU DU WORKSPACE (AVEC FILETS DE SÉCURITÉ)
+  // RENDU DU WORKSPACE
   function renderWorkspace(project) {
-    // Filet de sécurité pour le titre et le synopsis
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
@@ -540,29 +570,26 @@
     const scenesContainer = document.getElementById("ws-scenes-container");
     scenesContainer.innerHTML = "";
     const sceneTemplate = document.getElementById("studio-scene-template");
-    
     const scenes = Array.isArray(project.scenes) ? project.scenes : [];
     
     if (scenes.length === 0) {
-       scenesContainer.innerHTML = "<p style='color:red; text-align:center;'>L'IA n'a pas pu générer les scènes (prompt trop long ou erreur API). Veuillez réessayer avec une idée plus courte.</p>";
+       scenesContainer.innerHTML = "<p style='color:red; text-align:center;'>L'IA n'a pas pu générer les scènes. Veuillez réessayer.</p>";
     }
 
     scenes.forEach((scene, index) => {
       const node = sceneTemplate.content.firstElementChild.cloneNode(true);
-      
-      // FILETS DE SÉCURITÉ POUR ÉVITER LES "undefined"
       const num = scene.numero || (index + 1);
       const titre = scene.titre || "Scène";
       const action = scene.description_action || "Aucune description.";
-      const prompt = scene.prompt_video || "";
+      const promptBase = scene.prompt_video || "";
 
       node.querySelector(".studio-scene-title").textContent = `Scène ${num} : ${titre}`;
       node.querySelector(".studio-scene-action").textContent = action;
-      node.querySelector(".studio-scene-prompt").value = prompt;
+      node.querySelector(".studio-scene-prompt").value = promptBase;
 
       node.querySelector(".studio-scene-copy-btn").addEventListener("click", () => {
-        if (!prompt) return alert("Aucun prompt à copier.");
-        navigator.clipboard.writeText(prompt).then(() => alert("Copié !"));
+        if (!promptBase) return alert("Aucun prompt à copier.");
+        navigator.clipboard.writeText(promptBase).then(() => alert("Copié !"));
       });
 
       let currentImgBase64 = null;
@@ -570,11 +597,30 @@
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
+      // INTELLIGENCE : Ajout des personnages à l'image
       imgBtn.addEventListener("click", async () => {
-        if (!prompt) return alert("Impossible de générer une image sans prompt.");
+        if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
+
+        // On cherche les personnages présents dans cette scène
+        const personsInScene = scene.personnages_presents || [];
+        let finalPrompt = promptBase;
+        let refImage = null;
+        
+        // On enrichit le prompt avec les descriptions physiques et on prend la photo du 1er perso présent
+        personsInScene.forEach(pName => {
+           const match = currentRefCharacters.find(c => c.name.toLowerCase() === pName.toLowerCase());
+           if (match) {
+               finalPrompt += ` (Appearance of ${match.name}: ${match.description})`;
+               if (!refImage && match.imageBase64) refImage = match.imageBase64;
+           }
+        });
+
         try {
-          const res = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: prompt, format: project.format || "16:9" }) });
+          const res = await apiFetch("/api/generate-image", { 
+            method: "POST", 
+            body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", imageBase64: refImage }) 
+          });
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
@@ -586,13 +632,13 @@
       });
 
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
-        if (!prompt) return alert("Aucun prompt à envoyer.");
+        if (!promptBase) return alert("Aucun prompt.");
         let targetSlot = null;
         for (const slot of videoSlotsArray) {
           if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         if (targetSlot) {
-          targetSlot.fillSlot(prompt, currentImgBase64);
+          targetSlot.fillSlot(promptBase, currentImgBase64);
           document.getElementById("tab-video").click();
         } else { alert("L'onglet Vidéo est plein."); }
       });
