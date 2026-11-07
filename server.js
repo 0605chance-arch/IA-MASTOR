@@ -8,19 +8,11 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
-// ==========================================
-// KEEP-ALIVE INTERNE
-// ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
-  setInterval(async () => {
-    try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {}
-  }, 5 * 60 * 1000);
+  setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// ==========================================
-// HELPERS
-// ==========================================
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) return h.trim();
@@ -32,11 +24,7 @@ function getApiKey(req) {
 async function apiFetch(url, options = {}, timeoutMs = 120000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal, keepalive: true });
-  } finally {
-    clearTimeout(timer);
-  }
+  try { return await fetch(url, { ...options, signal: controller.signal, keepalive: true }); } finally { clearTimeout(timer); }
 }
 
 app.use("/api", (req, res, next) => {
@@ -47,9 +35,6 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// ==========================================
-// FILE D'ATTENTE VIDÉO (INCHANGÉE)
-// ==========================================
 const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
 const activeTasks = new Map();
@@ -70,40 +55,25 @@ async function processQueue(apiKey) {
   const q = getOrCreateQueue(apiKey);
   if (q.processing || q.jobs.length === 0) return;
   q.processing = true;
-
   while (q.jobs.length > 0) {
     const job = q.jobs[0];
     const elapsed = Date.now() - q.lastSubmit;
     if (elapsed < SUBMIT_INTERVAL_MS) await new Promise(r => setTimeout(r, SUBMIT_INTERVAL_MS - elapsed));
-
     try {
       const r = await apiFetch(`${API_BASE}/v1/videos`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify(job.body),
+        method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(job.body),
       }, 30000);
-
-      if (r.status === 429 || r.status === 503) {
-        const retryAfter = 15000 + Math.random() * 5000;
-        await new Promise(r => setTimeout(r, retryAfter));
-        continue;
-      }
-
+      if (r.status === 429 || r.status === 503) { await new Promise(r => setTimeout(r, 15000)); continue; }
       const data = await r.json();
       if (!r.ok) throw new Error(data.error?.message || "Erreur");
-
       q.lastSubmit = Date.now();
       q.jobs.shift();
-      
       const videoId = data.video_id || data.id;
       activeTasks.set(job.taskId, { status: "processing", videoId, url: null });
       pollVideoStatus(apiKey, job.taskId, videoId);
       job.resolve({ id: videoId });
-
     } catch (err) {
-      q.jobs.shift();
-      job.reject(err);
-      activeTasks.set(job.taskId, { status: "failed", videoId: null, url: null });
+      q.jobs.shift(); job.reject(err); activeTasks.set(job.taskId, { status: "failed", videoId: null, url: null });
     }
   }
   q.processing = false;
@@ -120,39 +90,27 @@ function enqueueVideoJob(apiKey, body, taskId) {
 async function pollVideoStatus(apiKey, taskId, videoId) {
   const interval = setInterval(async () => {
     try {
-      const r = await apiFetch(`${API_BASE}/agnesapi?video_id=${videoId}&model_name=agnes-video-2.5-flash`, {
-        headers: { "Authorization": `Bearer ${apiKey}` }
-      }, 20000);
-      
+      const r = await apiFetch(`${API_BASE}/agnesapi?video_id=${videoId}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${apiKey}` } }, 20000);
       const data = await r.json();
       if (data.status === "completed" && (data.url || data.metadata?.url)) {
-        clearInterval(interval);
-        activeTasks.set(taskId, { status: "completed", videoId, url: data.url || data.metadata?.url });
+        clearInterval(interval); activeTasks.set(taskId, { status: "completed", videoId, url: data.url || data.metadata?.url });
       } else if (data.status === "failed") {
-        clearInterval(interval);
-        activeTasks.set(taskId, { status: "failed", videoId, url: null });
+        clearInterval(interval); activeTasks.set(taskId, { status: "failed", videoId, url: null });
       }
     } catch (e) {}
   }, 5000);
 }
 
-// ==========================================
-// ROUTES EXISTANTES
-// ==========================================
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
-
 app.post("/api/health", async (req, res) => {
   try {
     const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: "agnes-3.0-flash", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
     }, 15000);
     if (r.ok) return res.json({ valid: true });
     return res.status(401).json({ valid: false, error: "Clé invalide" });
-  } catch (err) {
-    res.status(500).json({ valid: false, error: err.message });
-  }
+  } catch (err) { res.status(500).json({ valid: false, error: err.message }); }
 });
 
 app.post("/api/chat", async (req, res) => {
@@ -162,22 +120,16 @@ app.post("/api/chat", async (req, res) => {
     let finalMessages = messages.map((m) => ({ ...m }));
     if (imageBase64) {
       const last = finalMessages[finalMessages.length - 1];
-      last.content = [
-        { type: "text", text: last.content },
-        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-      ];
+      last.content = [{ type: "text", text: last.content }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }];
     }
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, ...finalMessages], temperature: 0.6, max_tokens: 4096 }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur API");
     res.json({ content: data.choices[0].message.content });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/generate-image", async (req, res) => {
@@ -190,9 +142,7 @@ app.post("/api/generate-image", async (req, res) => {
       body.prompt = `Transform the reference image with this style: ${cinematicPrompt}`;
     }
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
@@ -200,51 +150,32 @@ app.post("/api/generate-image", async (req, res) => {
     if (!finalUrl) throw new Error("Aucune image renvoyée.");
     if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
     res.json({ id: "img_" + Date.now(), url: finalUrl });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/generate-video", async (req, res) => {
   try {
     const { prompt, format, duration, images, taskId } = req.body;
     if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
-
     let seconds = String(parseInt(duration) || 4);
     if (parseInt(seconds) < 4) seconds = "4";
     if (parseInt(seconds) > 12) seconds = "12";
-
     const body = {
-      model: "agnes-video-2.5-flash",
-      prompt: `${prompt}, cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail`,
-      seconds,
-      size: "720P",
-      aspect_ratio: format || "16:9",
-      seed: Math.floor(Math.random() * 1000000),
+      model: "agnes-video-2.5-flash", prompt: `${prompt}, cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail`,
+      seconds, size: "720P", aspect_ratio: format || "16:9", seed: Math.floor(Math.random() * 1000000),
     };
-
     if (images && Array.isArray(images) && images.length > 0) {
-      body.mode = "reference";
-      body.images = images.slice(0, 5).map(b => `data:image/jpeg;base64,${b}`);
-    } else {
-      body.mode = "text";
-    }
-
+      body.mode = "reference"; body.images = images.slice(0, 5).map(b => `data:image/jpeg;base64,${b}`);
+    } else { body.mode = "text"; }
     activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
     enqueueVideoJob(req.apiKey, body, taskId);
     res.json({ success: true, taskId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/task-status/:taskId", (req, res) => {
-  const { taskId } = req.params;
-  if (activeTasks.has(taskId)) {
-    res.json(activeTasks.get(taskId));
-  } else {
-    res.status(404).json({ error: "Tâche introuvable" });
-  }
+  if (activeTasks.has(req.params.taskId)) res.json(activeTasks.get(req.params.taskId));
+  else res.status(404).json({ error: "Tâche introuvable" });
 });
 
 app.get("/api/download/:id", async (req, res) => {
@@ -252,52 +183,49 @@ app.get("/api/download/:id", async (req, res) => {
     const { id } = req.params;
     const { url } = req.query;
     let fileUrl = url;
-
     if (!fileUrl && !id.startsWith("img_")) {
-      const s = await apiFetch(
-        `${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`,
-        { headers: { "Authorization": `Bearer ${req.apiKey}` } }
-      );
-      const d = await s.json();
-      fileUrl = d.url || d.metadata?.url;
+      const s = await apiFetch(`${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${req.apiKey}` } });
+      const d = await s.json(); fileUrl = d.url || d.metadata?.url;
     }
-
     if (!fileUrl) return res.status(404).send("Fichier introuvable");
     const ext = id.startsWith("img_") ? "jpg" : "mp4";
-
     if (fileUrl.startsWith("data:")) {
       const buffer = Buffer.from(fileUrl.split(",")[1], "base64");
       res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
       return res.send(buffer);
     }
-
     const fileRes = await fetch(fileUrl);
     const buffer = await fileRes.arrayBuffer();
     res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
     res.send(Buffer.from(buffer));
-  } catch (err) {
-    res.status(500).send("Erreur download");
-  }
+  } catch (err) { res.status(500).send("Erreur download"); }
 });
 
 // ==========================================
-// ROUTE STUDIO (CORRIGÉE ET BLINDÉE)
+// NOUVELLE ROUTE STUDIO (Avec personnages de référence et cohérence)
 // ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
-    const { projectIdea, sceneCount, format, style, mood } = req.body;
+    const { projectIdea, sceneCount, format, style, mood, refCharacters } = req.body;
     if (!projectIdea) return res.status(400).json({ error: "L'idée est manquante." });
     const count = parseInt(sceneCount) || 5;
+
+    let charText = "";
+    if (refCharacters && refCharacters.length > 0) {
+      charText = "\nPERSONNAGES DE RÉFÉRENCE (Utilise-les absolument, respecte leur physique) :\n" + 
+        refCharacters.map(c => `- ${c.name} : ${c.description}`).join("\n");
+    }
     
-    // On force l'IA à être extrêmement concise pour ne pas couper le JSON
     const systemPrompt = {
       role: "system",
       content: `Tu es un superviseur de production IA. Génère un storyboard de ${count} scènes en JSON.
 RÈGLES STRICTES :
-1. Réponds UNIQUEMENT en JSON. Pas de texte avant ou après.
-2. Ne mets pas de balises markdown (\`\`\`json). Juste le JSON brut.
-3. Chaque prompt_video doit faire moins de 40 mots pour éviter la coupure.
-4. Structure EXACTE :
+1. Réponds UNIQUEMENT en JSON.
+2. Ne mets pas de balises markdown.
+3. Chaque prompt_video doit faire moins de 40 mots.
+4. La cohérence narrative est CRUCIALE. Chaque scène doit découler logiquement de la précédente.
+5. Si des personnages de référence sont fournis, décris-les avec précision dans les prompts des scènes où ils apparaissent.
+Structure EXACTE :
 {
   "titre": "Titre",
   "synopsis": "Synopsis court",
@@ -306,41 +234,24 @@ RÈGLES STRICTES :
 }`
     };
 
-    const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
+    const userContent = `IDÉE : ${projectIdea}\nSCÈNES : ${count}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}${charText}`;
 
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
+      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.7, max_tokens: 4096 }),
     }, 120000);
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur API");
 
-    let rawContent = data.choices[0].message.content;
-    
-    // Nettoyage de sécurité au cas où l'IA met des balises markdown
-    rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
-    
-    // Extraction du JSON
+    let rawContent = data.choices[0].message.content.replace(/```json/g, "").replace(/```/g, "").trim();
     const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("L'IA n'a pas renvoyé de format JSON valide.");
     
-    let parsedPlan;
-    try {
-      parsedPlan = JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      throw new Error("Le JSON renvoyé par l'IA est incomplet. Essayez un prompt plus court.");
-    }
-
-    res.json(parsedPlan);
-  } catch (err) {
-    console.error("Erreur Studio:", err);
-    res.status(500).json({ error: err.message });
-  }
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Serveur prêt sur ${PORT}`));
