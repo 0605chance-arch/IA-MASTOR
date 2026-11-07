@@ -195,7 +195,7 @@
     chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
   });
 
-  // IMAGE (STANDALONE)
+  // IMAGE
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
   const imgBtn = document.getElementById("image-generate");
@@ -434,7 +434,7 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (CORRECTION FINALE)
+  // STUDIO (MÉTA-PROMPT)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
@@ -542,6 +542,14 @@
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
 
+    // NOUVEAU : Affichage de la Direction Artistique
+    const da = project.direction_artistique || {};
+    document.getElementById("ws-script-da").innerHTML = `
+      <p><strong>🎨 Palette :</strong> ${da.palette || "Non spécifiée"}</p>
+      <p><strong>💡 Lumière :</strong> ${da.lumiere || "Non spécifiée"}</p>
+      <p><strong>🎭 Ambiance :</strong> ${da.ambiance || "Non spécifiée"}</p>
+    `;
+
     const tabBtns = document.querySelectorAll(".ws-tab-btn");
     const tabContents = document.querySelectorAll(".ws-tab-content");
     tabBtns.forEach(btn => {
@@ -592,7 +600,6 @@
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
-      // INJECTION DES PERSONNAGES DANS L'IMAGE
       imgBtn.addEventListener("click", async () => {
         if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
