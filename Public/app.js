@@ -195,7 +195,7 @@
     chatImageBase64 = null; chatImageBtn.textContent = "📷"; chatSend.disabled = false;
   });
 
-  // IMAGE
+  // IMAGE (STANDALONE)
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
   const imgBtn = document.getElementById("image-generate");
@@ -434,7 +434,7 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (CORRECTION FINALE POUR LA COHÉRENCE)
+  // STUDIO (CORRECTION FINALE)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
@@ -451,7 +451,12 @@
 
   document.getElementById("studio-btn-new").addEventListener("click", () => showScreen("wizard"));
   document.getElementById("studio-btn-continue").addEventListener("click", () => {
-    if (currentProject) { renderWorkspace(currentProject); showScreen("workspace"); }
+    if (currentProject) { 
+      // On recharge les personnages sauvegardés
+      if (currentProject.refCharacters) currentRefCharacters = currentProject.refCharacters;
+      renderWorkspace(currentProject); 
+      showScreen("workspace"); 
+    }
     else alert("Aucun projet sauvegardé.");
   });
   document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
@@ -523,7 +528,8 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
 
-      currentProject = { ...data, format };
+      // SAUVEGARDE CRUCIALE : on inclut les persos dans le projet
+      currentProject = { ...data, format, refCharacters: currentRefCharacters };
       localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
       renderWorkspace(currentProject);
       showScreen("workspace");
@@ -532,6 +538,9 @@
   });
 
   function renderWorkspace(project) {
+    // On récupère les persos du projet s'ils existent
+    if (project.refCharacters) currentRefCharacters = project.refCharacters;
+
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
@@ -586,33 +595,31 @@
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
-      // CORRECTION CRUCIALE : Injection des personnages avec <Picture N>
+      // INJECTION DES PERSONNAGES DANS L'IMAGE
       imgBtn.addEventListener("click", async () => {
         if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
 
         const personsInScene = scene.personnages_presents || [];
-        let finalPrompt = promptBase;
         let refImages = [];
-        
-        // On associe chaque personnage à une image (Picture 1, Picture 2, etc.)
-        personsInScene.forEach((pName) => {
+        let charDescriptions = "";
+
+        // On cherche les photos et descriptions des personnages présents dans cette scène
+        personsInScene.forEach(pName => {
            const match = currentRefCharacters.find(c => c.name.toLowerCase() === pName.toLowerCase());
            if (match) {
-               if (match.imageBase64) {
-                   refImages.push(match.imageBase64);
-                   // On dit à l'IA : "Picture 1 est Léna", etc.
-                   finalPrompt += ` <Picture ${refImages.length}> is ${match.name} (${match.description}).`;
-               } else {
-                   finalPrompt += ` Appearance of ${match.name}: ${match.description}.`;
-               }
+               if (match.imageBase64) refImages.push(match.imageBase64);
+               if (match.description) charDescriptions += ` Character ${match.name}: ${match.description}.`;
            }
         });
 
-        finalPrompt += " Blend the provided characters naturally into the scene while preserving their exact facial features and clothing.";
+        // On construit un prompt très explicite
+        let finalPrompt = promptBase;
+        if (charDescriptions) {
+            finalPrompt += ` IMPORTANT: The characters in this scene must look exactly like the provided reference images. Detailed description of the characters: ${charDescriptions}`;
+        }
 
         try {
-          // On envoie le TABLEAU d'images au serveur
           const res = await apiFetch("/api/generate-image", { 
             method: "POST", 
             body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", images: refImages }) 
