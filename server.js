@@ -8,7 +8,6 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
-// KEEP-ALIVE
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
@@ -134,7 +133,7 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GESTION ROBUSTE DES IMAGES DE RÉFÉRENCE
+// GESTION ROBUSTE DES IMAGES DE RÉFÉRENCE (ANTI-MORPHING)
 app.post("/api/generate-image", async (req, res) => {
   try {
     const { prompt, format, imageBase64, images } = req.body;
@@ -147,10 +146,16 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
-      // On prépare le tableau d'images pour Agnes
       body.extra_body.image = refs.map(b => b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`);
-      // On ajoute une instruction forte en anglais
-      body.prompt = `${cinematicPrompt}. IMPORTANT: The characters in the image MUST perfectly match the faces, hair, and clothing of the characters shown in the reference images provided.`;
+      
+      // PROMPT CRUCIAL POUR FORCER LA COHÉRENCE
+      body.prompt = `${cinematicPrompt}. 
+      CRITICAL INSTRUCTION: The characters MUST perfectly replicate the exact physical form, shape, and clothing of the characters in the provided reference images. 
+      Do NOT morph the character into a human if it is an object, animal, or stylized figure. 
+      Keep the exact 3D mascot design, exact clothing, and exact face from the reference image.`;
+
+      // Ajout d'un prompt négatif pour bloquer les hallucinations (si supporté)
+      body.negative_prompt = "human face, animal face, morphing, changing character shape, different clothes, changing species, realistic human skin, altered logo";
     }
 
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
