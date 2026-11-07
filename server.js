@@ -8,11 +8,17 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
+// ==========================================
+// KEEP-ALIVE INTERNE (Toutes les 5 minutes)
+// ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 if (RENDER_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
+// ==========================================
+// HELPERS
+// ==========================================
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) return h.trim();
@@ -138,7 +144,7 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// CORRECTION : Accepte un tableau "images" pour le multi-personnage
+// CORRECTION : Gestion complète des images de référence pour la cohérence
 app.post("/api/generate-image", async (req, res) => {
   try {
     const { prompt, format, imageBase64, images } = req.body;
@@ -152,9 +158,10 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
-      body.extra_body.image = refs.map(b => `data:image/jpeg;base64,${b}`);
-      // On ne remplace PAS le prompt, on lui dit juste d'utiliser les références
-      body.prompt = `${cinematicPrompt}. Use the provided images as reference for the characters.`;
+      // On s'assure que chaque image est au format Data URI Base64
+      body.extra_body.image = refs.map(b => b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`);
+      // On enrichit le prompt pour forcer l'IA à utiliser les références
+      body.prompt = `${cinematicPrompt}. Use the provided reference images to maintain exact character consistency.`;
     }
 
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
@@ -217,6 +224,9 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur download"); }
 });
 
+// ==========================================
+// ROUTE STUDIO
+// ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format, style, mood, refCharacters } = req.body;
