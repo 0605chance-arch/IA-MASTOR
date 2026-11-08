@@ -1,6 +1,19 @@
 (function () {
   "use strict";
 
+  // FIX 2 : Bannière réveil serveur (dismissible, persiste en session)
+  (function initWakeupBanner() {
+    const wakeupBanner = document.getElementById("wakeup-banner");
+    const wakeupBannerClose = document.getElementById("wakeup-banner-close");
+    if (wakeupBanner && wakeupBannerClose) {
+      if (sessionStorage.getItem("wakeup_banner_dismissed") === "1") wakeupBanner.hidden = true;
+      wakeupBannerClose.addEventListener("click", () => {
+        wakeupBanner.hidden = true;
+        sessionStorage.setItem("wakeup_banner_dismissed", "1");
+      });
+    }
+  })();
+
   function escapeHtml(text) {
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -527,6 +540,25 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
 
+      // FIX 1 : Écrase les descriptions inventées par l'IA avec TES descriptions de référence
+      if (currentRefCharacters && currentRefCharacters.length > 0) {
+        const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        if (!Array.isArray(data.personnages)) data.personnages = [];
+        currentRefCharacters.forEach(rc => {
+          const existing = data.personnages.find(p => norm(p.nom) === norm(rc.name));
+          if (existing) {
+            existing.nom = rc.name;
+            existing.description_physique = rc.description + " (identité visuelle verrouillée via image de référence)";
+          } else {
+            data.personnages.push({
+              nom: rc.name,
+              description_physique: rc.description,
+              role: "Personnage de référence"
+            });
+          }
+        });
+      }
+
       currentProject = { ...data, format, refCharacters: currentRefCharacters };
       localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
       renderWorkspace(currentProject);
@@ -604,41 +636,43 @@
         if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
 
-        const personsInScene = scene.personnages_presents || [];
-        let refImages = [];
-        let charDescriptions = "";
-        let charConstraints = "";
+        // FIX 1 : Toujours envoyer TOUS les personnages de référence avec image
+        const normalize = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        const sceneText = normalize(promptBase + " " + (scene.description_action || "") + " " + ((scene.personnages_presents || []).join(" ")));
+        const allRefsWithImage = (currentRefCharacters || []).filter(c => c.imageBase64);
+        const refImages = allRefsWithImage.map(c => c.imageBase64);
 
-        personsInScene.forEach(pName => {
-           const match = currentRefCharacters.find(c => c.name.toLowerCase() === pName.toLowerCase());
-           if (match) {
-               if (match.imageBase64) {
-                   refImages.push(match.imageBase64);
-                   charDescriptions += `Character ${match.name}: ${match.description}. `;
-                   charConstraints += `- ${match.name} MUST be an exact replica of <Picture ${refImages.length}>. Do NOT alter their physical form, face, clothing, or species. `;
-               } else {
-                   charDescriptions += `Character ${match.name}: ${match.description}. `;
-               }
-           }
-        });
-
-        let finalPrompt = promptBase;
+        // FIX 1 : Verrou d'identité ultra-strict injecté dans CHAQUE prompt image
+        let identityBlock = "";
         if (refImages.length > 0) {
-            finalPrompt = `Scene: ${promptBase}. `;
-            if (charDescriptions) finalPrompt += `Characters info: ${charDescriptions}. `;
-            finalPrompt += `CRITICAL INSTRUCTIONS: ${charConstraints}. The characters in this scene MUST look exactly like the provided reference images. Keep their exact anatomy, clothing, and facial features. Do NOT morph them into humans if they are not.`;
+          identityBlock = "\n\n=== CRITICAL CHARACTER IDENTITY LOCK (MUST FOLLOW) ===\n";
+          identityBlock += "The provided reference images define the EXACT visual identity of specific characters. You MUST reproduce them PIXEL-PERFECT: same face, same hair, same skin tone, same clothes, same species, same body shape, same accessories.\n";
+          allRefsWithImage.forEach((char, i) => {
+            const inScene = sceneText.includes(normalize(char.name));
+            identityBlock += `- <Picture ${i + 1}> = "${char.name}" — ${char.description}.`;
+            identityBlock += inScene
+              ? ` THIS CHARACTER IS PRESENT IN THIS SCENE. Reproduce their appearance EXACTLY as shown in <Picture ${i + 1}>.\n`
+              : ` (Not required in this specific scene unless explicitly mentioned.)\n`;
+          });
+          identityBlock += "OVERRIDE RULE: If any text description above contradicts the reference images, the REFERENCE IMAGES WIN.\n";
+          identityBlock += "CONSISTENCY RULE: The characters must have the SAME appearance as the reference images in every scene, with zero variation between generations.\n";
+          identityBlock += "=== END IDENTITY LOCK ===\n";
         }
 
+        const finalPrompt = `${promptBase}${identityBlock}`;
+
         try {
-          const res = await apiFetch("/api/generate-image", { 
-            method: "POST", 
-            body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", images: refImages }) 
+          const res = await apiFetch("/api/generate-image", {
+            method: "POST",
+            body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", images: refImages })
           });
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
-            currentImgBase64 = await urlToBase64(data.url); 
+            currentImgBase64 = await urlToBase64(data.url);
             imgBtn.textContent = "🔄 Régénérer";
+          } else if (data.error) {
+            alert("Erreur image : " + data.error);
           }
         } catch (e) { alert("Erreur image."); }
         imgBtn.disabled = false;
