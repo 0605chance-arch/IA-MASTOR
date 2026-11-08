@@ -9,10 +9,22 @@ app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // KEEP-ALIVE INTERNE
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
-if (RENDER_URL) {
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
+if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
+
+// --- STOCKAGE TEMPORAIRE D'IMAGES (POUR FORCER L'API AGNES À LES VOIR) ---
+const tempImages = new Map();
+app.get("/api/temp-image/:id", (req, res) => {
+  const dataUrl = tempImages.get(req.params.id);
+  if (!dataUrl) return res.status(404).send("Image introuvable");
+  const base64Data = dataUrl.split(",")[1];
+  const buffer = Buffer.from(base64Data, "base64");
+  res.setHeader("Content-Type", "image/jpeg");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(buffer);
+});
 
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
@@ -30,6 +42,7 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
+  if (req.path.startsWith("/temp-image")) return next();
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKey = key;
@@ -146,10 +159,22 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
-      body.extra_body.image = refs.map(b => b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`);
-      const pictureRefs = refs.map((_, i) => `<Picture ${i + 1}>`).join(", ");
+      // FIX ULTIME : On génère des VRAIES URLS PUBLIQUES pour que l'API Agnes les télécharge
+      const imageUrls = refs.map((b, i) => {
+        const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
+        const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
+        tempImages.set(id, dataUrl);
+        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); // Supprime après 10 min
+        return `${RENDER_URL}/api/temp-image/${id}`;
+      });
+
+      // On passe les URLs (parfois l'API attend "image", parfois "images")
+      body.extra_body.image = imageUrls;
+      body.extra_body.images = imageUrls;
       
-      // Le CRITICAL LOCK est placé AU TOUT DÉBUT pour avoir le maximum de poids face au texte
+      const pictureRefs = imageUrls.map((_, i) => `<Picture ${i + 1}>`).join(", ");
+      
+      // VERROU ABSOLU
       body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Do NOT change their hair, skin tone, or clothes. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
       
       body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes, altered logo";
@@ -230,7 +255,7 @@ app.post("/api/studio/generate-storyboard", async (req, res) => {
         refCharacters.map(c => `- ${c.name} : ${c.description}`).join("\n");
     }
     
-    // MÉTA-PROMPT (CORRIGÉ POUR INTERDIRE LES INVENTIONS PHYSIQUES)
+    // MÉTA-PROMPT CORRIGÉ : Interdiction d'inventer des détails physiques
     const systemPrompt = {
       role: "system",
       content: `RÔLE DE L’IA : Tu es un réalisateur de cinéma, scénariste professionnel, directeur artistique, directeur de photographie et expert en génération de vidéos par intelligence artificielle.
@@ -238,10 +263,10 @@ Ta mission est de transformer une simple idée utilisateur en une véritable pro
 
 1. RESPECT ABSOLU DES PERSONNAGES DE RÉFÉRENCE
 - Analyse précisément chaque description fournie.
+- **CRITIQUE : Tu DOIS utiliser EXACTEMENT les noms fournis par l'utilisateur. Ne les renomme JAMAIS.**
 - Ne jamais modifier son espèce, son âge apparent, sa morphologie, ses couleurs, ses vêtements ou ses accessoires.
 - Ne jamais inventer une nouvelle apparence.
-- Chaque personnage doit conserver exactement la même identité visuelle du premier au dernier clip.
-- Créer une fiche d’identité visuelle précise pour chaque personnage.
+- Créer une fiche d’identité visuelle précise pour chaque personnage en te basant STRICTEMENT sur les descriptions fournies.
 
 2. COHÉRENCE VISUELLE ENTRE TOUS LES CLIPS
 - Maintenir la même direction artistique, le même style de rendu, les mêmes textures, la même palette de couleurs et la même qualité de lumière.
@@ -257,7 +282,7 @@ Ta mission est de transformer une simple idée utilisateur en une véritable pro
 - Chaque prompt doit être compréhensible sans connaître les scènes précédentes.
 - Ne jamais écrire "comme dans la scène précédente".
 - Chaque prompt doit décrire le décor, l'action exacte, le type de caméra, l'éclairage et l'ambiance.
-- INTERDICTION ABSOLUE : Ne JAMAIS inventer une description physique (visage, cheveux, vêtements) si elle n'est pas dans les "PERSONNAGES DE RÉFÉRENCE". Tu DOIS utiliser EXACTEMENT les descriptions fournies par l'utilisateur pour chaque personnage.
+- **CRITIQUE** : Ne décris JAMAIS le visage, les cheveux ou les vêtements des personnages. Utilise UNIQUEMENT leur nom (ex: "Hélène regarde au loin"). L'apparence est gérée par les images de référence.
 - Ajouter les instructions de durée : chaque clip dure exactement 12 secondes.
 
 5. FORMAT DE SORTIE OBLIGATOIRE
@@ -265,22 +290,9 @@ Tu dois OBLIGATOIREMENT répondre avec un JSON parfait, sans texte avant ou apr�
 {
   "titre": "Titre de l'histoire",
   "synopsis": "Synopsis général court",
-  "direction_artistique": {
-    "palette": "Couleurs exactes",
-    "lumiere": "Style de lumière",
-    "ambiance": "Ambiance générale"
-  },
+  "direction_artistique": { "palette": "Couleurs exactes", "lumiere": "Style de lumière", "ambiance": "Ambiance générale" },
   "personnages": [{"nom": "Nom", "description_physique": "Description ultra-détaillée", "role": "Rôle"}],
-  "scenes": [
-    {
-      "numero": 1, 
-      "titre": "Titre scene", 
-      "duree": 12, 
-      "description_action": "Description narrative de l'action", 
-      "personnages_presents": ["Nom"],
-      "prompt_video": "Prompt ultra-détaillé de 12 secondes (autonome, décrivant physique, vêtements, décor, action, caméra, lumière)."
-    }
-  ]
+  "scenes": [ { "numero": 1, "titre": "Titre scene", "duree": 12, "description_action": "Description narrative", "personnages_presents": ["Nom"], "prompt_video": "Prompt ultra-détaillé" } ]
 }`
     };
 
