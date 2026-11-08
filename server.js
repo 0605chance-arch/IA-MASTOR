@@ -147,8 +147,9 @@ app.post("/api/generate-image", async (req, res) => {
 
     if (refs.length > 0) {
       body.extra_body.image = refs.map(b => b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`);
-      body.prompt = `${cinematicPrompt}. CRITICAL: The characters in the image MUST perfectly match the faces, hair, and clothing of the characters shown in the reference images provided. Use <Picture 1> as the exact reference for the main character.`;
-      body.negative_prompt = "human face, animal face, morphing, changing character shape, different clothes, changing species, realistic human skin, altered logo";
+      const pictureRefs = refs.map((_, i) => `<Picture ${i + 1}>`).join(", ");
+      body.prompt = `${cinematicPrompt}. CRITICAL IDENTITY LOCK: The characters in the generated image MUST perfectly match the faces, hair, skin tone, clothing, species, body shape and physical appearance of the characters shown in the reference images (${pictureRefs}). Each <Picture N> reference image defines the EXACT visual identity of one specific character. Do NOT invent new characters. Do NOT modify any character's appearance between generations. If any text description in the prompt conflicts with a reference image, the REFERENCE IMAGE WINS.`;
+      body.negative_prompt = "human face, animal face, morphing, changing character shape, different clothes, changing species, realistic human skin, altered logo, different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity";
     }
 
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
