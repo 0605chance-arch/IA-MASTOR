@@ -14,7 +14,7 @@ if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// --- STOCKAGE TEMPORAIRE D'IMAGES (POUR FORCER L'API AGNES À LES VOIR) ---
+// --- STOCKAGE TEMPORAIRE D'IMAGES (Pour que l'API Agnes puisse les télécharger) ---
 const tempImages = new Map();
 app.get("/api/temp-image/:id", (req, res) => {
   const dataUrl = tempImages.get(req.params.id);
@@ -159,7 +159,7 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
-      // FIX ULTIME : On génère des VRAIES URLS PUBLIQUES pour que l'API Agnes les télécharge
+      // On génère de VRAIES URLS PUBLIQUES pour que l'API Agnes les télécharge
       const imageUrls = refs.map((b, i) => {
         const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
         const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
@@ -168,16 +168,14 @@ app.post("/api/generate-image", async (req, res) => {
         return `${RENDER_URL}/api/temp-image/${id}`;
       });
 
-      // On passe les URLs (parfois l'API attend "image", parfois "images")
       body.extra_body.image = imageUrls;
       body.extra_body.images = imageUrls;
       
       const pictureRefs = imageUrls.map((_, i) => `<Picture ${i + 1}>`).join(", ");
       
-      // VERROU ABSOLU
-      body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Do NOT change their hair, skin tone, or clothes. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
+      body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
       
-      body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes, altered logo";
+      body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
     }
 
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
@@ -241,62 +239,34 @@ app.get("/api/download/:id", async (req, res) => {
 });
 
 // ==========================================
-// MÉTA-PROMPT STUDIO (INTÉGRATION DU TEXTE)
+// NOUVEAU MÉTA-PROMPT STUDIO (Qualité uniquement)
 // ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
-    const { projectIdea, sceneCount, format, style, mood, refCharacters } = req.body;
+    const { projectIdea, sceneCount, format, style, mood } = req.body;
     if (!projectIdea) return res.status(400).json({ error: "L'idée est manquante." });
     const count = parseInt(sceneCount) || 5;
-
-    let charText = "";
-    if (refCharacters && refCharacters.length > 0) {
-      charText = "\nPERSONNAGES DE RÉFÉRENCE (Utilise-les absolument, respecte leur physique) :\n" + 
-        refCharacters.map(c => `- ${c.name} : ${c.description}`).join("\n");
-    }
     
-    // MÉTA-PROMPT CORRIGÉ : Interdiction d'inventer des détails physiques
     const systemPrompt = {
       role: "system",
-      content: `RÔLE DE L’IA : Tu es un réalisateur de cinéma, scénariste professionnel, directeur artistique, directeur de photographie et expert en génération de vidéos par intelligence artificielle.
-Ta mission est de transformer une simple idée utilisateur en une véritable production audiovisuelle cohérente, cinématographique et prête à être générée par une IA vidéo.
+      content: `RÔLE DE L’IA : Tu es un réalisateur de cinéma, scénariste professionnel et directeur de la photographie. 
+Ta mission est de découper l'idée de l'utilisateur en ${count} scènes de 12 secondes.
 
-1. RESPECT ABSOLU DES PERSONNAGES DE RÉFÉRENCE
-- Analyse précisément chaque description fournie.
-- **CRITIQUE : Tu DOIS utiliser EXACTEMENT les noms fournis par l'utilisateur. Ne les renomme JAMAIS.**
-- Ne jamais modifier son espèce, son âge apparent, sa morphologie, ses couleurs, ses vêtements ou ses accessoires.
-- Ne jamais inventer une nouvelle apparence.
-- Créer une fiche d’identité visuelle précise pour chaque personnage en te basant STRICTEMENT sur les descriptions fournies.
-
-2. COHÉRENCE VISUELLE ENTRE TOUS LES CLIPS
-- Maintenir la même direction artistique, le même style de rendu, les mêmes textures, la même palette de couleurs et la même qualité de lumière.
-- Ne pas passer arbitrairement d’un rendu à un autre.
-- Ne pas modifier la décoration sans justification narrative.
-
-3. CONTINUITÉ NARRATIVE OBLIGATOIRE
-- L'histoire doit avoir un début, un développement et une fin.
-- La fin d’un clip doit correspondre au début du clip suivant.
-- Les déplacements, objets et actions doivent respecter la logique.
-
-4. PROMPTS VIDÉO ULTRA-DÉTAILLÉS ET AUTONOMES
-- Chaque prompt doit être compréhensible sans connaître les scènes précédentes.
-- Ne jamais écrire "comme dans la scène précédente".
-- Chaque prompt doit décrire le décor, l'action exacte, le type de caméra, l'éclairage et l'ambiance.
-- **CRITIQUE** : Ne décris JAMAIS le visage, les cheveux ou les vêtements des personnages. Utilise UNIQUEMENT leur nom (ex: "Hélène regarde au loin"). L'apparence est gérée par les images de référence.
-- Ajouter les instructions de durée : chaque clip dure exactement 12 secondes.
-
-5. FORMAT DE SORTIE OBLIGATOIRE
-Tu dois OBLIGATOIREMENT répondre avec un JSON parfait, sans texte avant ou après, sans balise markdown, respectant cette structure exacte :
+RÈGLES CRITIQUES :
+1. N'INVENTE AUCUN NOM. Utilise exactement les noms fournis par l'utilisateur dans son idée. S'il n'y a pas de nom, utilise "L'homme" ou "La femme".
+2. N'INVENTE AUCUNE DESCRIPTION PHYSIQUE (pas d'âge, pas de couleur de cheveux, pas de vêtements). L'apparence sera gérée par les images de référence de l'utilisateur. Contente-toi de décrire leurs actions.
+3. PROMPTS VIDÉO : Décris l'action, le décor, le mouvement de caméra (ex: "Travelling avant", "Gros plan"), l'éclairage et l'ambiance. Chaque prompt doit être autonome et durer 12 secondes.
+4. FORMAT DE SORTIE : Un JSON parfait, sans texte avant/après.
 {
-  "titre": "Titre de l'histoire",
-  "synopsis": "Synopsis général court",
-  "direction_artistique": { "palette": "Couleurs exactes", "lumiere": "Style de lumière", "ambiance": "Ambiance générale" },
-  "personnages": [{"nom": "Nom", "description_physique": "Description ultra-détaillée", "role": "Rôle"}],
-  "scenes": [ { "numero": 1, "titre": "Titre scene", "duree": 12, "description_action": "Description narrative", "personnages_presents": ["Nom"], "prompt_video": "Prompt ultra-détaillé" } ]
+  "titre": "Titre",
+  "synopsis": "Synopsis court",
+  "direction_artistique": { "palette": "Couleurs", "lumiere": "Lumière", "ambiance": "Ambiance" },
+  "personnages": [], 
+  "scenes": [ { "numero": 1, "titre": "Titre scene", "duree": 12, "description_action": "Description narrative", "prompt_video": "Prompt ultra-détaillé pour l'IA vidéo" } ]
 }`
     };
 
-    const userContent = `IDÉE DE L'UTILISATEUR : ${projectIdea}\nNOMBRE DE SCÈNES EXACT : ${count} (12 secondes par scène)\nFORMAT : ${format || "16:9"}\nSTYLE VISUEL : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}${charText}`;
+    const userContent = `IDÉE : ${projectIdea}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
 
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
       method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
