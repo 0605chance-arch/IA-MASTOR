@@ -446,7 +446,7 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (NOUVELLE LOGIQUE D'IMPORT)
+  // STUDIO (NOUVELLE LOGIQUE D'IMPORT MULTIPLE)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
@@ -495,7 +495,7 @@
       renderWorkspace(currentProject);
       showScreen("workspace");
     } catch (e) { alert("Erreur : " + e.message); }
-    finally { wizGenBtn.hidden = false; wizLoading.hidden = true; }
+    finally { wizGenBtn.hidden = false; wizLoading.hidden = false; }
   });
 
   function renderWorkspace(project) {
@@ -521,7 +521,6 @@
       };
     });
 
-    // On garde l'onglet personnage au cas où, même s'il est vide maintenant
     const charsContainer = document.getElementById("ws-characters-container");
     charsContainer.innerHTML = "<p style='color:gray;'>L'IA ne génère plus de personnages. Utilisez les photos directement dans les scènes.</p>";
 
@@ -545,25 +544,45 @@
         navigator.clipboard.writeText(node.querySelector(".studio-scene-prompt").value).then(() => alert("Copié !"));
       });
 
-      // GESTION DE L'UPLOAD D'IMAGE PAR SCÈNE
+      // GESTION DE L'UPLOAD MULTIPLE
       const uploadInput = node.querySelector(".studio-scene-upload-input");
       const uploadBtn = node.querySelector(".studio-scene-upload-btn");
       const uploadPreviewContainer = node.querySelector(".studio-scene-upload-preview-container");
-      const uploadPreview = node.querySelector(".studio-scene-upload-preview");
-      let currentBase64 = null;
+      let currentImagesBase64 = []; // Tableau pour stocker plusieurs photos
 
       uploadBtn.addEventListener("click", () => uploadInput.click());
       uploadInput.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          currentBase64 = reader.result.split(",")[1];
-          uploadPreview.src = reader.result;
-          uploadPreviewContainer.style.display = "block";
-          uploadBtn.textContent = "✅ Photo prête";
-        };
-        reader.readAsDataURL(file);
+        const files = Array.from(e.target.files).slice(0, 5); // Max 5 photos
+        if (files.length === 0) return;
+
+        currentImagesBase64 = [];
+        uploadPreviewContainer.innerHTML = "";
+        
+        let loadedCount = 0;
+        files.forEach((file) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const b64 = reader.result.split(",")[1];
+            currentImagesBase64.push(b64);
+            
+            // Créer la miniature
+            const img = document.createElement("img");
+            img.src = reader.result;
+            img.style.width = "40px";
+            img.style.height = "40px";
+            img.style.objectFit = "cover";
+            img.style.borderRadius = "6px";
+            img.style.border = "1px solid var(--border)";
+            uploadPreviewContainer.appendChild(img);
+
+            loadedCount++;
+            if (loadedCount === files.length) {
+              uploadPreviewContainer.style.display = "flex";
+              uploadBtn.textContent = `✅ ${currentImagesBase64.length} photo(s) prête(s)`;
+            }
+          };
+          reader.readAsDataURL(file);
+        });
       });
 
       const imgPlaceholder = node.querySelector(".studio-scene-img-placeholder");
@@ -579,7 +598,8 @@
 
         try {
           const payload = { prompt: finalPrompt, format: project.format || "16:9" };
-          if (currentBase64) payload.images = [currentBase64];
+          // Si on a des photos, on les envoie TOUTES
+          if (currentImagesBase64.length > 0) payload.images = currentImagesBase64;
 
           const res = await apiFetch("/api/generate-image", {
             method: "POST",
@@ -608,7 +628,9 @@
           if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         if (targetSlot) {
-          targetSlot.fillSlot(currentPrompt, currentBase64);
+          // On envoie la première image de la liste au slot vidéo (l'interface vidéo ne gère qu'une vignette)
+          const firstImg = currentImagesBase64.length > 0 ? currentImagesBase64[0] : null;
+          targetSlot.fillSlot(currentPrompt, firstImg);
           document.getElementById("tab-video").click();
         } else { alert("L'onglet Vidéo est plein."); }
       });
