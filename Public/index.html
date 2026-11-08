@@ -140,8 +140,8 @@
             <h2 style="margin-bottom: 20px;">Créer votre storyboard</h2>
             
             <div class="input-group" style="margin-bottom: 15px;">
-              <label>Quelle est votre idée de départ ? (Incluez les noms !)</label>
-              <textarea id="wizard-idea" class="input-field" rows="3" placeholder="Ex: Une publicité pour une montre de luxe. Marc, un homme élégant, regarde l'heure à Paris..."></textarea>
+              <label>Quelle est votre idée de départ ? (Incluez les noms et les dialogues !)</label>
+              <textarea id="wizard-idea" class="input-field" rows="5" placeholder="Ex: Marc et Léa se disputent sur un toit. Marc dit : 'Tu m'as menti !'. Léa répond : 'Je n'avais pas le choix.'"></textarea>
             </div>
 
             <div class="wizard-params" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
@@ -158,23 +158,6 @@
                   <option value="16:9">16:9 (Cinéma)</option>
                   <option value="9:16">9:16 (Mobile)</option>
                   <option value="1:1">1:1 (Carré)</option>
-                </select>
-              </div>
-              <div class="input-group">
-                <label>Style visuel</label>
-                <select id="wizard-style" class="input-field">
-                  <option value="Cinématographique">Cinématographique</option>
-                  <option value="Publicité haut de gamme">Publicité</option>
-                  <option value="Photoréaliste">Photoréaliste</option>
-                </select>
-              </div>
-              <div class="input-group">
-                <label>Ambiance</label>
-                <select id="wizard-mood" class="input-field">
-                  <option value="Dramatique">Dramatique</option>
-                  <option value="Mystérieuse">Mystérieuse</option>
-                  <option value="Émotionnelle">Émotionnelle</option>
-                  <option value="Épique">Épique</option>
                 </select>
               </div>
             </div>
@@ -199,7 +182,6 @@
 
           <div class="workspace-nav-tabs">
             <button class="ws-tab-btn active" data-target="ws-tab-scenes">🎬 Scènes & Prompts</button>
-            <button class="ws-tab-btn" data-target="ws-tab-characters">🎭 Personnages</button>
             <button class="ws-tab-btn" data-target="ws-tab-script">📖 Synopsis</button>
           </div>
 
@@ -207,11 +189,6 @@
             <div id="ws-tab-scenes" class="ws-tab-content active">
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Ajoutez une ou plusieurs photos de référence (Max 5) pour chaque scène, puis générez l'image.</p>
               <div id="ws-scenes-container" class="scenes-list"></div>
-            </div>
-
-            <div id="ws-tab-characters" class="ws-tab-content" hidden>
-              <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Voici la bible des personnages générée par l'IA.</p>
-              <div id="ws-characters-container" class="chars-grid"></div>
             </div>
 
             <div id="ws-tab-script" class="ws-tab-content" hidden>
@@ -254,18 +231,6 @@
     </div>
   </template>
 
-  <template id="char-template">
-    <div class="char-card">
-      <input type="file" class="char-img-input" accept="image/*" hidden>
-      <div class="char-thumb" role="button" title="Ajouter une image de référence"><span class="char-plus">+</span></div>
-      <div class="char-fields">
-        <input type="text" class="char-name input-field" placeholder="Nom" readonly>
-        <textarea class="char-desc input-field" rows="3" placeholder="Description physique..." readonly></textarea>
-      </div>
-    </div>
-  </template>
-
-  <!-- TEMPLATE SCÈNE MODIFIÉ (Accepte plusieurs photos) -->
   <template id="studio-scene-template">
     <div class="studio-scene-card card" style="margin-bottom: 15px;">
       <div class="studio-scene-header">
