@@ -159,22 +159,19 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
-      // On génère de VRAIES URLS PUBLIQUES pour que l'API Agnes les télécharge
       const imageUrls = refs.map((b, i) => {
         const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
         const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
         tempImages.set(id, dataUrl);
-        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); // Supprime après 10 min
+        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); 
         return `${RENDER_URL}/api/temp-image/${id}`;
       });
 
       body.extra_body.image = imageUrls;
       body.extra_body.images = imageUrls;
-      
       const pictureRefs = imageUrls.map((_, i) => `<Picture ${i + 1}>`).join(", ");
       
       body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
-      
       body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
     }
 
@@ -239,38 +236,38 @@ app.get("/api/download/:id", async (req, res) => {
 });
 
 // ==========================================
-// NOUVEAU MÉTA-PROMPT STUDIO (Qualité uniquement)
+// MÉTA-PROMPT STUDIO (MODE EXÉCUTANT STRICT)
 // ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
-    const { projectIdea, sceneCount, format, style, mood } = req.body;
+    const { projectIdea, sceneCount, format } = req.body;
     if (!projectIdea) return res.status(400).json({ error: "L'idée est manquante." });
     const count = parseInt(sceneCount) || 5;
     
     const systemPrompt = {
       role: "system",
-      content: `RÔLE DE L’IA : Tu es un réalisateur de cinéma, scénariste professionnel et directeur de la photographie. 
-Ta mission est de découper l'idée de l'utilisateur en ${count} scènes de 12 secondes.
+      content: `RÔLE : Tu es un simple exécutant. Ton seul but est de découper le texte de l'utilisateur en exactement ${count} scènes de 12 secondes.
+Tu n'es PAS un scénariste. Tu N'AS PAS le droit d'inventer des actions, des détails ou des personnages.
 
-RÈGLES CRITIQUES :
-1. N'INVENTE AUCUN NOM. Utilise exactement les noms fournis par l'utilisateur dans son idée. S'il n'y a pas de nom, utilise "L'homme" ou "La femme".
-2. N'INVENTE AUCUNE DESCRIPTION PHYSIQUE (pas d'âge, pas de couleur de cheveux, pas de vêtements). L'apparence sera gérée par les images de référence de l'utilisateur. Contente-toi de décrire leurs actions.
-3. PROMPTS VIDÉO : Décris l'action, le décor, le mouvement de caméra (ex: "Travelling avant", "Gros plan"), l'éclairage et l'ambiance. Chaque prompt doit être autonome et durer 12 secondes.
-4. FORMAT DE SORTIE : Un JSON parfait, sans texte avant/après.
+RÈGLES ABSOLUES :
+1. RESPECT DU TEXTE : Tu dois suivre l'IDÉE DE L'UTILISATEUR à la lettre. S'il donne des dialogues, tu DOIS les copier-coller textuellement dans les scènes. S'il décrit une action précise, tu dois l'inclure. N'invente RIEN.
+2. DÉCOUPAGE : Répartis l'histoire (début, milieu, fin) équitablement sur les ${count} scènes.
+3. PROMPTS VIDÉO : Décris uniquement le plan de caméra (ex: "Gros plan", "Plan large") + l'action exacte dictée par l'utilisateur + les dialogues.
+4. N'inclus AUCUNE description physique (pas d'âge, pas de vêtements, pas de couleur de cheveux). L'apparence est gérée par les images de référence.
+5. FORMAT DE SORTIE : Un JSON parfait, sans texte avant/après.
 {
-  "titre": "Titre",
-  "synopsis": "Synopsis court",
-  "direction_artistique": { "palette": "Couleurs", "lumiere": "Lumière", "ambiance": "Ambiance" },
-  "personnages": [], 
-  "scenes": [ { "numero": 1, "titre": "Titre scene", "duree": 12, "description_action": "Description narrative", "prompt_video": "Prompt ultra-détaillé pour l'IA vidéo" } ]
+  "titre": "Titre de l'histoire",
+  "synopsis": "Synopsis basé UNIQUEMENT sur le texte de l'utilisateur",
+  "direction_artistique": { "palette": "Déduite du texte", "lumiere": "Déduite du texte", "ambiance": "Déduite du texte" },
+  "scenes": [ { "numero": 1, "titre": "Titre scene", "duree": 12, "description_action": "Description narrative", "prompt_video": "Plan + Action + Dialogue (si fourni)" } ]
 }`
     };
 
-    const userContent = `IDÉE : ${projectIdea}\nFORMAT : ${format || "16:9"}\nSTYLE : ${style || "Cinématographique"}\nAMBIANCE : ${mood || "Dramatique"}`;
+    const userContent = `IDÉE DE L'UTILISATEUR À SUIVRE À LA LETTRE :\n${projectIdea}\n\nNOMBRE DE SCÈNES EXACT : ${count}\nFORMAT : ${format || "16:9"}`;
 
     const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
       method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.7, max_tokens: 4096 }),
+      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.2, max_tokens: 4096 }),
     }, 120000);
 
     const data = await response.json();
