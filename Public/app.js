@@ -1,7 +1,6 @@
 (function () {
   "use strict";
 
-  // FIX 2 : Bannière réveil serveur (dismissible, persiste en session)
   (function initWakeupBanner() {
     const wakeupBanner = document.getElementById("wakeup-banner");
     const wakeupBannerClose = document.getElementById("wakeup-banner-close");
@@ -447,13 +446,12 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (MÉTA-PROMPT)
+  // STUDIO (NOUVELLE LOGIQUE D'IMPORT)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
   const studioWorkspace = document.getElementById("studio-workspace");
   let currentProject = JSON.parse(localStorage.getItem("adopte_studio_project") || "null");
-  let currentRefCharacters = []; 
 
   function showScreen(screenId) {
     [studioHome, studioWizard, studioWorkspace].forEach(el => el.hidden = true);
@@ -465,59 +463,12 @@
   document.getElementById("studio-btn-new").addEventListener("click", () => showScreen("wizard"));
   document.getElementById("studio-btn-continue").addEventListener("click", () => {
     if (currentProject) { 
-      if (currentProject.refCharacters) currentRefCharacters = currentProject.refCharacters;
       renderWorkspace(currentProject); 
       showScreen("workspace"); 
     }
     else alert("Aucun projet sauvegardé.");
   });
   document.getElementById("wizard-back-to-home").addEventListener("click", () => showScreen("home"));
-
-  const refCharsContainer = document.getElementById("studio-ref-chars-container");
-  const refCharTemplate = document.getElementById("studio-ref-char-template");
-  const addRefCharBtn = document.getElementById("add-ref-char-btn");
-  const refCharCount = document.getElementById("ref-char-count");
-
-  function updateRefCharUI() {
-    const n = refCharsContainer.querySelectorAll(".char-card").length;
-    refCharCount.textContent = `${n} / 5`;
-    addRefCharBtn.hidden = n >= 5;
-  }
-
-  function addRefCharCard() {
-    if (refCharsContainer.querySelectorAll(".char-card").length >= 5) return;
-    const node = refCharTemplate.content.firstElementChild.cloneNode(true);
-    const thumb = node.querySelector(".char-thumb");
-    const fileInput = node.querySelector(".char-img-input");
-    const delBtn = node.querySelector(".char-del");
-    node._imageBase64 = null;
-
-    thumb.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", (e) => {
-      const f = e.target.files[0];
-      if (!f) return;
-      const r = new FileReader();
-      r.onload = () => { node._imageBase64 = r.result.split(",")[1]; thumb.innerHTML = `<img src="${r.result}">`; };
-      r.readAsDataURL(f);
-    });
-
-    delBtn.addEventListener("click", () => { node.remove(); updateRefCharUI(); });
-    refCharsContainer.appendChild(node);
-    updateRefCharUI();
-  }
-
-  addRefCharBtn.addEventListener("click", addRefCharCard);
-
-  function getRefCharsData() {
-    const chars = [];
-    refCharsContainer.querySelectorAll(".char-card").forEach(card => {
-      const name = card.querySelector(".char-name").value.trim();
-      const desc = card.querySelector(".char-desc").value.trim();
-      const img = card._imageBase64 || null;
-      if (name && desc) chars.push({ name, description: desc, imageBase64: img });
-    });
-    return chars;
-  }
 
   const wizGenBtn = document.getElementById("wizard-generate-btn");
   const wizLoading = document.getElementById("wizard-loading");
@@ -530,50 +481,16 @@
     const style = document.getElementById("wizard-style").value;
     const mood = document.getElementById("wizard-mood").value;
     
-    currentRefCharacters = getRefCharsData();
     wizGenBtn.hidden = true; wizLoading.hidden = false;
 
     try {
       const res = await apiFetch("/api/studio/generate-storyboard", {
-        method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood, refCharacters: currentRefCharacters })
+        method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
 
-      // FIX 1 : Remplacement forcé des noms et descriptions inventés par l'IA
-      if (currentRefCharacters && currentRefCharacters.length > 0 && Array.isArray(data.personnages)) {
-        const nameMap = {}; 
-        const count = Math.min(data.personnages.length, currentRefCharacters.length);
-        
-        for (let i = 0; i < count; i++) {
-          const aiChar = data.personnages[i];
-          const userChar = currentRefCharacters[i];
-          nameMap[aiChar.nom] = userChar.name; 
-          
-          aiChar.nom = userChar.name;
-          aiChar.description_physique = userChar.description;
-        }
-
-        if (Array.isArray(data.scenes)) {
-          data.scenes.forEach(scene => {
-            if (scene.description_action) {
-              Object.keys(nameMap).forEach(oldName => {
-                scene.description_action = scene.description_action.replace(new RegExp(oldName, 'gi'), nameMap[oldName]);
-              });
-            }
-            if (scene.prompt_video) {
-              Object.keys(nameMap).forEach(oldName => {
-                scene.prompt_video = scene.prompt_video.replace(new RegExp(oldName, 'gi'), nameMap[oldName]);
-              });
-            }
-            if (Array.isArray(scene.personnages_presents)) {
-              scene.personnages_presents = scene.personnages_presents.map(n => nameMap[n] || n);
-            }
-          });
-        }
-      }
-
-      currentProject = { ...data, format, refCharacters: currentRefCharacters };
+      currentProject = { ...data, format };
       localStorage.setItem("adopte_studio_project", JSON.stringify(currentProject));
       renderWorkspace(currentProject);
       showScreen("workspace");
@@ -582,8 +499,6 @@
   });
 
   function renderWorkspace(project) {
-    if (project.refCharacters) currentRefCharacters = project.refCharacters;
-
     document.getElementById("workspace-title").textContent = project.titre || "Projet sans titre";
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
@@ -606,24 +521,15 @@
       };
     });
 
+    // On garde l'onglet personnage au cas où, même s'il est vide maintenant
     const charsContainer = document.getElementById("ws-characters-container");
-    charsContainer.innerHTML = "";
-    (project.personnages || []).forEach(p => {
-      const charNode = document.getElementById("char-template").content.firstElementChild.cloneNode(true);
-      charNode.querySelector(".char-name").value = p.nom || "Personnage";
-      charNode.querySelector(".char-desc").value = p.description_physique || p.description_reference || "";
-      charsContainer.appendChild(charNode);
-    });
+    charsContainer.innerHTML = "<p style='color:gray;'>L'IA ne génère plus de personnages. Utilisez les photos directement dans les scènes.</p>";
 
     const scenesContainer = document.getElementById("ws-scenes-container");
     scenesContainer.innerHTML = "";
     const sceneTemplate = document.getElementById("studio-scene-template");
     const scenes = Array.isArray(project.scenes) ? project.scenes : [];
     
-    if (scenes.length === 0) {
-       scenesContainer.innerHTML = "<p style='color:red; text-align:center;'>L'IA n'a pas pu générer les scènes. Veuillez réessayer.</p>";
-    }
-
     scenes.forEach((scene, index) => {
       const node = sceneTemplate.content.firstElementChild.cloneNode(true);
       const num = scene.numero || (index + 1);
@@ -636,63 +542,73 @@
       node.querySelector(".studio-scene-prompt").value = promptBase;
 
       node.querySelector(".studio-scene-copy-btn").addEventListener("click", () => {
-        if (!promptBase) return alert("Aucun prompt à copier.");
-        navigator.clipboard.writeText(promptBase).then(() => alert("Copié !"));
+        navigator.clipboard.writeText(node.querySelector(".studio-scene-prompt").value).then(() => alert("Copié !"));
       });
 
-      let currentImgBase64 = null;
+      // GESTION DE L'UPLOAD D'IMAGE PAR SCÈNE
+      const uploadInput = node.querySelector(".studio-scene-upload-input");
+      const uploadBtn = node.querySelector(".studio-scene-upload-btn");
+      const uploadPreviewContainer = node.querySelector(".studio-scene-upload-preview-container");
+      const uploadPreview = node.querySelector(".studio-scene-upload-preview");
+      let currentBase64 = null;
+
+      uploadBtn.addEventListener("click", () => uploadInput.click());
+      uploadInput.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          currentBase64 = reader.result.split(",")[1];
+          uploadPreview.src = reader.result;
+          uploadPreviewContainer.style.display = "block";
+          uploadBtn.textContent = "✅ Photo prête";
+        };
+        reader.readAsDataURL(file);
+      });
+
       const imgPlaceholder = node.querySelector(".studio-scene-img-placeholder");
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
       imgBtn.addEventListener("click", async () => {
-        if (!promptBase) return alert("Impossible de générer sans prompt.");
+        const finalPrompt = node.querySelector(".studio-scene-prompt").value;
+        if (!finalPrompt) return alert("Le prompt est vide.");
+        
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
-
-        const allRefsWithImage = (currentRefCharacters || []).filter(c => c.imageBase64);
-        const refImages = allRefsWithImage.map(c => c.imageBase64);
-
-        if (refImages.length === 0) {
-           alert("Attention : Aucune photo de référence n'a été trouvée pour les personnages. L'IA risque de les inventer.");
-        }
-
-        // On écrase TOUTES les descriptions de l'IA dans le prompt de scène par un verrou fort
-        let identityBlock = "CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images. Do NOT invent new faces. Do NOT change their hair, skin tone, or clothes. Match the reference images perfectly.\n";
-        
-        allRefsWithImage.forEach((char, i) => {
-          identityBlock += `- <Picture ${i + 1}> IS "${char.name}".\n`;
-        });
-        
-        identityBlock += "OVERRIDE RULE: If any text description contradicts the reference images, the REFERENCE IMAGES WIN.\n";
-
-        // Le prompt final est noyé sous le verrou d'identité
-        const finalPrompt = `${identityBlock}\n\nSCENE TO GENERATE:\n${promptBase}`;
+        imgPlaceholder.hidden = true;
 
         try {
+          const payload = { prompt: finalPrompt, format: project.format || "16:9" };
+          if (currentBase64) payload.images = [currentBase64];
+
           const res = await apiFetch("/api/generate-image", {
             method: "POST",
-            body: JSON.stringify({ prompt: finalPrompt, format: project.format || "16:9", images: refImages })
+            body: JSON.stringify(payload)
           });
           const data = await res.json();
           if (data.url) {
-            imgEl.src = data.url; imgEl.hidden = false; imgPlaceholder.hidden = true;
-            currentImgBase64 = await urlToBase64(data.url);
+            imgEl.src = data.url; imgEl.hidden = false;
             imgBtn.textContent = "🔄 Régénérer";
           } else if (data.error) {
             alert("Erreur image : " + data.error);
+            imgPlaceholder.hidden = false;
           }
-        } catch (e) { alert("Erreur image."); }
+        } catch (e) { 
+          alert("Erreur réseau."); 
+          imgPlaceholder.hidden = false;
+        }
         imgBtn.disabled = false;
       });
 
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
-        if (!promptBase) return alert("Aucun prompt.");
+        const currentPrompt = node.querySelector(".studio-scene-prompt").value;
+        if (!currentPrompt) return alert("Aucun prompt.");
         let targetSlot = null;
         for (const slot of videoSlotsArray) {
           if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         if (targetSlot) {
-          targetSlot.fillSlot(promptBase, currentImgBase64);
+          targetSlot.fillSlot(currentPrompt, currentBase64);
           document.getElementById("tab-video").click();
         } else { alert("L'onglet Vidéo est plein."); }
       });
