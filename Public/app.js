@@ -540,38 +540,36 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
 
-      // FIX 1 : Écrase les descriptions inventées par l'IA avec TES descriptions de référence
-      // et injecte les descriptions exactes dans les prompts vidéo
-      if (currentRefCharacters && currentRefCharacters.length > 0) {
-        const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-        if (!Array.isArray(data.personnages)) data.personnages = [];
+      // FIX 1 : Remplacement forcé des noms et descriptions inventés par l'IA
+      if (currentRefCharacters && currentRefCharacters.length > 0 && Array.isArray(data.personnages)) {
+        const nameMap = {}; 
+        const count = Math.min(data.personnages.length, currentRefCharacters.length);
         
-        // 1. On écrase les descriptions de la bible
-        currentRefCharacters.forEach(rc => {
-          const existing = data.personnages.find(p => norm(p.nom) === norm(rc.name));
-          if (existing) {
-            existing.nom = rc.name;
-            existing.description_physique = rc.description;
-          } else {
-            data.personnages.push({
-              nom: rc.name,
-              description_physique: rc.description,
-              role: "Personnage de référence"
-            });
-          }
-        });
+        for (let i = 0; i < count; i++) {
+          const aiChar = data.personnages[i];
+          const userChar = currentRefCharacters[i];
+          nameMap[aiChar.nom] = userChar.name; 
+          
+          aiChar.nom = userChar.name;
+          aiChar.description_physique = userChar.description;
+        }
 
-        // 2. On injecte tes descriptions exactes dans le prompt vidéo de chaque scène
         if (Array.isArray(data.scenes)) {
-            data.scenes.forEach(scene => {
-                let pText = scene.prompt_video || "";
-                currentRefCharacters.forEach(rc => {
-                    if ((scene.personnages_presents || []).some(n => norm(n) === norm(rc.name)) || norm(pText).includes(norm(rc.name))) {
-                        pText += ` [${rc.name}'s exact appearance: ${rc.description}]`;
-                    }
-                });
-                scene.prompt_video = pText;
-            });
+          data.scenes.forEach(scene => {
+            if (scene.description_action) {
+              Object.keys(nameMap).forEach(oldName => {
+                scene.description_action = scene.description_action.replace(new RegExp(oldName, 'gi'), nameMap[oldName]);
+              });
+            }
+            if (scene.prompt_video) {
+              Object.keys(nameMap).forEach(oldName => {
+                scene.prompt_video = scene.prompt_video.replace(new RegExp(oldName, 'gi'), nameMap[oldName]);
+              });
+            }
+            if (Array.isArray(scene.personnages_presents)) {
+              scene.personnages_presents = scene.personnages_presents.map(n => nameMap[n] || n);
+            }
+          });
         }
       }
 
@@ -651,25 +649,24 @@
         if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
 
-        // FIX 1 : Envoi de TOUTES les images sans filtrer, pour que l'IA sache toujours qui est qui
         const allRefsWithImage = (currentRefCharacters || []).filter(c => c.imageBase64);
         const refImages = allRefsWithImage.map(c => c.imageBase64);
 
-        let identityBlock = "";
-        if (refImages.length > 0) {
-          identityBlock = "\n\n=== CRITICAL CHARACTER IDENTITY LOCK (MUST FOLLOW) ===\n";
-          identityBlock += "The provided reference images define the EXACT visual identity of specific characters. You MUST reproduce them PIXEL-PERFECT: same face, same hair, same skin tone, same clothes, same species, same body shape.\n";
-          
-          allRefsWithImage.forEach((char, i) => {
-            identityBlock += `- <Picture ${i + 1}> IS "${char.name}". His/her exact appearance: ${char.description}. THIS CHARACTER IS PRESENT IN THIS SCENE. Reproduce their appearance EXACTLY as shown in <Picture ${i + 1}>.\n`;
-          });
-          
-          identityBlock += "OVERRIDE RULE: If any text description above contradicts the reference images, the REFERENCE IMAGES WIN.\n";
-          identityBlock += "CONSISTENCY RULE: The characters must have the SAME appearance as the reference images in every scene, with zero variation between generations.\n";
-          identityBlock += "=== END IDENTITY LOCK ===\n";
+        if (refImages.length === 0) {
+           alert("Attention : Aucune photo de référence n'a été trouvée pour les personnages. L'IA risque de les inventer.");
         }
 
-        const finalPrompt = `${promptBase}${identityBlock}`;
+        // On écrase TOUTES les descriptions de l'IA dans le prompt de scène par un verrou fort
+        let identityBlock = "CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images. Do NOT invent new faces. Do NOT change their hair, skin tone, or clothes. Match the reference images perfectly.\n";
+        
+        allRefsWithImage.forEach((char, i) => {
+          identityBlock += `- <Picture ${i + 1}> IS "${char.name}".\n`;
+        });
+        
+        identityBlock += "OVERRIDE RULE: If any text description contradicts the reference images, the REFERENCE IMAGES WIN.\n";
+
+        // Le prompt final est noyé sous le verrou d'identité
+        const finalPrompt = `${identityBlock}\n\nSCENE TO GENERATE:\n${promptBase}`;
 
         try {
           const res = await apiFetch("/api/generate-image", {
