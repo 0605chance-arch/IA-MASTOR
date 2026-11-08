@@ -397,7 +397,7 @@ textarea { resize: vertical; }
 }
 
 /* ============================================
-   10. BANNIÈRE RÉVEIL SERVEUR (FIX 2)
+   10. BANNIÈRE RÉVEIL SERVEUR
    ============================================ */
 .wakeup-banner {
   display: flex;
@@ -439,7 +439,7 @@ textarea { resize: vertical; }
 .modal-wakeup strong { color: var(--warning); }
 
 /* ============================================
-   11. BANNIÈRE WARNING (FIX 3)
+   11. BANNIÈRE WARNING
    ============================================ */
 .info-banner.info-banner-warning {
   background: rgba(255, 159, 10, 0.1);
