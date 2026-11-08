@@ -13,6 +13,7 @@
     <div class="modal-card">
       <h2>🔑 Clé API Agnès</h2>
       <p class="modal-desc">Votre token est stocké uniquement en <strong>sessionStorage</strong>.</p>
+      <p class="modal-wakeup">☕️ <strong>Premier démarrage :</strong> l'app peut mettre jusqu'à <strong>1 minute</strong> à se réveiller (serveur Render). Merci de patienter, ne cliquez pas plusieurs fois.</p>
       <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre token Agnès…" autocomplete="off">
       <div id="api-key-status" class="api-status"></div>
       <div class="modal-actions">
@@ -31,6 +32,11 @@
         </button>
       </div>
       <p class="tagline">Chat • Image • Vidéo • Studio</p>
+      <div class="wakeup-banner" id="wakeup-banner">
+        <span>☕️</span>
+        <span>Le serveur peut mettre jusqu'à <strong>1 minute</strong> à se réveiller au premier démarrage. Laissez l'app se réveiller, ne cliquez pas plusieurs fois.</span>
+        <button id="wakeup-banner-close" aria-label="Fermer">×</button>
+      </div>
     </header>
 
     <!-- TABS -->
@@ -68,6 +74,15 @@
            IMAGE
            ========================================= -->
       <section id="section-image" class="section">
+        <div class="info-banner info-banner-warning">
+          <span class="info-icon">⚠️</span>
+          <p>
+            <strong>Ne spammez pas le bouton « Générer ».</strong> En cas de message d'erreur, ne recliquez pas.
+            Faites dans cet ordre : <strong>1)</strong> Actualisez la page (Render / App),
+            <strong>2)</strong> Attendez <strong>1 minute</strong>,
+            <strong>3)</strong> Relancez une génération.
+          </p>
+        </div>
         <div class="card">
           <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image à générer…"></textarea>
           <div class="upload-area">
