@@ -446,7 +446,7 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (CORRIGÉ : Envoie l'image générée)
+  // STUDIO
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
@@ -478,14 +478,13 @@
     if (!idea) return alert("Veuillez décrire votre idée.");
     const sceneCount = parseInt(document.getElementById("wizard-scene-count").value, 10);
     const format = document.getElementById("wizard-format").value;
-    const style = document.getElementById("wizard-style").value;
-    const mood = document.getElementById("wizard-mood").value;
     
     wizGenBtn.hidden = true; wizLoading.hidden = false;
 
     try {
+      // Appel API sans les paramètres "style" et "mood" inutiles
       const res = await apiFetch("/api/studio/generate-storyboard", {
-        method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format, style, mood })
+        method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur API");
@@ -521,9 +520,6 @@
       };
     });
 
-    const charsContainer = document.getElementById("ws-characters-container");
-    charsContainer.innerHTML = "<p style='color:gray;'>L'IA ne génère plus de personnages. Utilisez les photos directement dans les scènes.</p>";
-
     const scenesContainer = document.getElementById("ws-scenes-container");
     scenesContainer.innerHTML = "";
     const sceneTemplate = document.getElementById("studio-scene-template");
@@ -544,16 +540,15 @@
         navigator.clipboard.writeText(node.querySelector(".studio-scene-prompt").value).then(() => alert("Copié !"));
       });
 
-      // GESTION DE L'UPLOAD MULTIPLE
       const uploadInput = node.querySelector(".studio-scene-upload-input");
       const uploadBtn = node.querySelector(".studio-scene-upload-btn");
       const uploadPreviewContainer = node.querySelector(".studio-scene-upload-preview-container");
-      let currentImagesBase64 = []; // Photos d'origine uploadées
-      let generatedImageBase64 = null; // L'image finale générée par l'IA
+      let currentImagesBase64 = []; 
+      let generatedImageBase64 = null; 
 
       uploadBtn.addEventListener("click", () => uploadInput.click());
       uploadInput.addEventListener("change", (e) => {
-        const files = Array.from(e.target.files).slice(0, 5); // Max 5 photos
+        const files = Array.from(e.target.files).slice(0, 5); 
         if (files.length === 0) return;
 
         currentImagesBase64 = [];
@@ -607,10 +602,7 @@
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false;
-            
-            // On sauvegarde l'image GÉNÉRÉE en Base64 pour l'envoyer à l'onglet Vidéo
             generatedImageBase64 = await urlToBase64(data.url);
-            
             imgBtn.textContent = "🔄 Régénérer";
           } else if (data.error) {
             alert("Erreur image : " + data.error);
@@ -623,7 +615,6 @@
         imgBtn.disabled = false;
       });
 
-      // BOUTON ENVOYER VERS VIDÉO (CORRIGÉ)
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
         const currentPrompt = node.querySelector(".studio-scene-prompt").value;
         if (!currentPrompt) return alert("Aucun prompt.");
@@ -632,9 +623,7 @@
           if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         if (targetSlot) {
-          // On envoie en priorité l'image générée. Si elle n'existe pas, on prend la 1ère photo d'origine.
           const imgToSend = generatedImageBase64 || (currentImagesBase64.length > 0 ? currentImagesBase64[0] : null);
-          
           targetSlot.fillSlot(currentPrompt, imgToSend);
           document.getElementById("tab-video").click();
         } else { alert("L'onglet Vidéo est plein."); }
