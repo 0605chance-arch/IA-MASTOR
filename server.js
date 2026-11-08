@@ -148,8 +148,11 @@ app.post("/api/generate-image", async (req, res) => {
     if (refs.length > 0) {
       body.extra_body.image = refs.map(b => b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`);
       const pictureRefs = refs.map((_, i) => `<Picture ${i + 1}>`).join(", ");
-      body.prompt = `${cinematicPrompt}. CRITICAL IDENTITY LOCK: The characters in the generated image MUST perfectly match the faces, hair, skin tone, clothing, species, body shape and physical appearance of the characters shown in the reference images (${pictureRefs}). Each <Picture N> reference image defines the EXACT visual identity of one specific character. Do NOT invent new characters. Do NOT modify any character's appearance between generations. If any text description in the prompt conflicts with a reference image, the REFERENCE IMAGE WINS.`;
-      body.negative_prompt = "human face, animal face, morphing, changing character shape, different clothes, changing species, realistic human skin, altered logo, different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity";
+      
+      // Le CRITICAL LOCK est placé AU TOUT DÉBUT pour avoir le maximum de poids face au texte
+      body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Do NOT change their hair, skin tone, or clothes. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
+      
+      body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes, altered logo";
     }
 
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
@@ -227,7 +230,7 @@ app.post("/api/studio/generate-storyboard", async (req, res) => {
         refCharacters.map(c => `- ${c.name} : ${c.description}`).join("\n");
     }
     
-    // TON MÉTA-PROMPT INTÉGRÉ ICI
+    // MÉTA-PROMPT (CORRIGÉ POUR INTERDIRE LES INVENTIONS PHYSIQUES)
     const systemPrompt = {
       role: "system",
       content: `RÔLE DE L’IA : Tu es un réalisateur de cinéma, scénariste professionnel, directeur artistique, directeur de photographie et expert en génération de vidéos par intelligence artificielle.
@@ -253,7 +256,8 @@ Ta mission est de transformer une simple idée utilisateur en une véritable pro
 4. PROMPTS VIDÉO ULTRA-DÉTAILLÉS ET AUTONOMES
 - Chaque prompt doit être compréhensible sans connaître les scènes précédentes.
 - Ne jamais écrire "comme dans la scène précédente".
-- Chaque prompt doit redécrire les personnages (physique complet, vêtements), le décor, l'action exacte, le type de caméra, l'éclairage et l'ambiance.
+- Chaque prompt doit décrire le décor, l'action exacte, le type de caméra, l'éclairage et l'ambiance.
+- INTERDICTION ABSOLUE : Ne JAMAIS inventer une description physique (visage, cheveux, vêtements) si elle n'est pas dans les "PERSONNAGES DE RÉFÉRENCE". Tu DOIS utiliser EXACTEMENT les descriptions fournies par l'utilisateur pour chaque personnage.
 - Ajouter les instructions de durée : chaque clip dure exactement 12 secondes.
 
 5. FORMAT DE SORTIE OBLIGATOIRE
