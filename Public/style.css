@@ -395,3 +395,53 @@ textarea { resize: vertical; }
   .studio-hero h1 { font-size: 26px; }
   .wizard-params { grid-template-columns: 1fr; }
 }
+
+/* ============================================
+   10. BANNIÈRE RÉVEIL SERVEUR (FIX 2)
+   ============================================ */
+.wakeup-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 159, 10, 0.1);
+  border: 1px solid rgba(255, 159, 10, 0.35);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.wakeup-banner strong { color: var(--warning); }
+.wakeup-banner button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.wakeup-banner button:hover { color: var(--text); }
+.wakeup-banner[hidden] { display: none; }
+
+.modal-wakeup {
+  font-size: 13px;
+  color: var(--text-dim);
+  background: rgba(255, 159, 10, 0.08);
+  border: 1px solid rgba(255, 159, 10, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+.modal-wakeup strong { color: var(--warning); }
+
+/* ============================================
+   11. BANNIÈRE WARNING (FIX 3)
+   ============================================ */
+.info-banner.info-banner-warning {
+  background: rgba(255, 159, 10, 0.1);
+  border-color: rgba(255, 159, 10, 0.35);
+}
