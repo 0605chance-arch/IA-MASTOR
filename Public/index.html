@@ -205,7 +205,7 @@
 
           <div class="workspace-content">
             <div id="ws-tab-scenes" class="ws-tab-content active">
-              <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Ajoutez une photo de référence pour chaque scène (optionnel), puis générez l'image.</p>
+              <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Ajoutez une ou plusieurs photos de référence (Max 5) pour chaque scène, puis générez l'image.</p>
               <div id="ws-scenes-container" class="scenes-list"></div>
             </div>
 
@@ -265,7 +265,7 @@
     </div>
   </template>
 
-  <!-- TEMPLATE SCÈNE MODIFIÉ (Ajout de l'upload photo) -->
+  <!-- TEMPLATE SCÈNE MODIFIÉ (Accepte plusieurs photos) -->
   <template id="studio-scene-template">
     <div class="studio-scene-card card" style="margin-bottom: 15px;">
       <div class="studio-scene-header">
@@ -275,13 +275,11 @@
       <p class="studio-scene-action" style="font-size: 13px; color: var(--text-dim); margin: 10px 0;"></p>
       
       <div class="studio-scene-image-container" style="background: var(--bg); padding: 10px; border-radius: 12px; text-align: center; border: 1px dashed var(--border);">
-        <!-- Nouveau bouton d'upload -->
-        <div style="display:flex; gap:10px; margin-bottom:10px; align-items:center; justify-content:center;">
-            <input type="file" class="studio-scene-upload-input" accept="image/*" hidden>
-            <button class="btn-secondary btn-small studio-scene-upload-btn" style="flex:1;">📷 Ajouter une photo</button>
-            <div class="studio-scene-upload-preview-container" style="display: none; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); flex-shrink:0;">
-                <img class="studio-scene-upload-preview" src="" style="width: 100%; height: 100%; object-fit: cover;">
-            </div>
+        
+        <div style="display:flex; gap:10px; margin-bottom:10px; align-items:center; justify-content:center; flex-direction:column;">
+            <input type="file" class="studio-scene-upload-input" accept="image/*" multiple hidden>
+            <button class="btn-secondary btn-small studio-scene-upload-btn" style="width:100%;">📷 Ajouter des photos (Max 5)</button>
+            <div class="studio-scene-upload-preview-container" style="display: none; gap: 5px; flex-wrap: wrap; justify-content: center;"></div>
         </div>
         
         <div class="studio-scene-img-placeholder" style="color: var(--text-dim); font-size: 13px; padding: 20px 0;">🖼️ Aucune image générée</div>
