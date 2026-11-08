@@ -446,7 +446,7 @@
   renderVideoHistory();
 
   // ============================================
-  // STUDIO (NOUVELLE LOGIQUE D'IMPORT MULTIPLE)
+  // STUDIO (CORRIGÉ : Envoie l'image générée)
   // ============================================
   const studioHome = document.getElementById("studio-home");
   const studioWizard = document.getElementById("studio-wizard");
@@ -548,7 +548,8 @@
       const uploadInput = node.querySelector(".studio-scene-upload-input");
       const uploadBtn = node.querySelector(".studio-scene-upload-btn");
       const uploadPreviewContainer = node.querySelector(".studio-scene-upload-preview-container");
-      let currentImagesBase64 = []; // Tableau pour stocker plusieurs photos
+      let currentImagesBase64 = []; // Photos d'origine uploadées
+      let generatedImageBase64 = null; // L'image finale générée par l'IA
 
       uploadBtn.addEventListener("click", () => uploadInput.click());
       uploadInput.addEventListener("change", (e) => {
@@ -565,7 +566,6 @@
             const b64 = reader.result.split(",")[1];
             currentImagesBase64.push(b64);
             
-            // Créer la miniature
             const img = document.createElement("img");
             img.src = reader.result;
             img.style.width = "40px";
@@ -598,7 +598,6 @@
 
         try {
           const payload = { prompt: finalPrompt, format: project.format || "16:9" };
-          // Si on a des photos, on les envoie TOUTES
           if (currentImagesBase64.length > 0) payload.images = currentImagesBase64;
 
           const res = await apiFetch("/api/generate-image", {
@@ -608,6 +607,10 @@
           const data = await res.json();
           if (data.url) {
             imgEl.src = data.url; imgEl.hidden = false;
+            
+            // On sauvegarde l'image GÉNÉRÉE en Base64 pour l'envoyer à l'onglet Vidéo
+            generatedImageBase64 = await urlToBase64(data.url);
+            
             imgBtn.textContent = "🔄 Régénérer";
           } else if (data.error) {
             alert("Erreur image : " + data.error);
@@ -620,6 +623,7 @@
         imgBtn.disabled = false;
       });
 
+      // BOUTON ENVOYER VERS VIDÉO (CORRIGÉ)
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
         const currentPrompt = node.querySelector(".studio-scene-prompt").value;
         if (!currentPrompt) return alert("Aucun prompt.");
@@ -628,9 +632,10 @@
           if (!slot.querySelector(".slot-prompt").value.trim()) { targetSlot = slot; break; }
         }
         if (targetSlot) {
-          // On envoie la première image de la liste au slot vidéo (l'interface vidéo ne gère qu'une vignette)
-          const firstImg = currentImagesBase64.length > 0 ? currentImagesBase64[0] : null;
-          targetSlot.fillSlot(currentPrompt, firstImg);
+          // On envoie en priorité l'image générée. Si elle n'existe pas, on prend la 1ère photo d'origine.
+          const imgToSend = generatedImageBase64 || (currentImagesBase64.length > 0 ? currentImagesBase64[0] : null);
+          
+          targetSlot.fillSlot(currentPrompt, imgToSend);
           document.getElementById("tab-video").click();
         } else { alert("L'onglet Vidéo est plein."); }
       });
