@@ -541,14 +541,17 @@
       if (!res.ok) throw new Error(data.error || "Erreur API");
 
       // FIX 1 : Écrase les descriptions inventées par l'IA avec TES descriptions de référence
+      // et injecte les descriptions exactes dans les prompts vidéo
       if (currentRefCharacters && currentRefCharacters.length > 0) {
         const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
         if (!Array.isArray(data.personnages)) data.personnages = [];
+        
+        // 1. On écrase les descriptions de la bible
         currentRefCharacters.forEach(rc => {
           const existing = data.personnages.find(p => norm(p.nom) === norm(rc.name));
           if (existing) {
             existing.nom = rc.name;
-            existing.description_physique = rc.description + " (identité visuelle verrouillée via image de référence)";
+            existing.description_physique = rc.description;
           } else {
             data.personnages.push({
               nom: rc.name,
@@ -557,6 +560,19 @@
             });
           }
         });
+
+        // 2. On injecte tes descriptions exactes dans le prompt vidéo de chaque scène
+        if (Array.isArray(data.scenes)) {
+            data.scenes.forEach(scene => {
+                let pText = scene.prompt_video || "";
+                currentRefCharacters.forEach(rc => {
+                    if ((scene.personnages_presents || []).some(n => norm(n) === norm(rc.name)) || norm(pText).includes(norm(rc.name))) {
+                        pText += ` [${rc.name}'s exact appearance: ${rc.description}]`;
+                    }
+                });
+                scene.prompt_video = pText;
+            });
+        }
       }
 
       currentProject = { ...data, format, refCharacters: currentRefCharacters };
@@ -574,7 +590,6 @@
     document.getElementById("workspace-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
     document.getElementById("ws-script-synopsis").textContent = project.synopsis || "Aucun synopsis généré.";
 
-    // NOUVEAU : Affichage de la Direction Artistique
     const da = project.direction_artistique || {};
     document.getElementById("ws-script-da").innerHTML = `
       <p><strong>🎨 Palette :</strong> ${da.palette || "Non spécifiée"}</p>
@@ -636,24 +651,19 @@
         if (!promptBase) return alert("Impossible de générer sans prompt.");
         imgBtn.disabled = true; imgBtn.textContent = "Génération…";
 
-        // FIX 1 : Toujours envoyer TOUS les personnages de référence avec image
-        const normalize = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-        const sceneText = normalize(promptBase + " " + (scene.description_action || "") + " " + ((scene.personnages_presents || []).join(" ")));
+        // FIX 1 : Envoi de TOUTES les images sans filtrer, pour que l'IA sache toujours qui est qui
         const allRefsWithImage = (currentRefCharacters || []).filter(c => c.imageBase64);
         const refImages = allRefsWithImage.map(c => c.imageBase64);
 
-        // FIX 1 : Verrou d'identité ultra-strict injecté dans CHAQUE prompt image
         let identityBlock = "";
         if (refImages.length > 0) {
           identityBlock = "\n\n=== CRITICAL CHARACTER IDENTITY LOCK (MUST FOLLOW) ===\n";
-          identityBlock += "The provided reference images define the EXACT visual identity of specific characters. You MUST reproduce them PIXEL-PERFECT: same face, same hair, same skin tone, same clothes, same species, same body shape, same accessories.\n";
+          identityBlock += "The provided reference images define the EXACT visual identity of specific characters. You MUST reproduce them PIXEL-PERFECT: same face, same hair, same skin tone, same clothes, same species, same body shape.\n";
+          
           allRefsWithImage.forEach((char, i) => {
-            const inScene = sceneText.includes(normalize(char.name));
-            identityBlock += `- <Picture ${i + 1}> = "${char.name}" — ${char.description}.`;
-            identityBlock += inScene
-              ? ` THIS CHARACTER IS PRESENT IN THIS SCENE. Reproduce their appearance EXACTLY as shown in <Picture ${i + 1}>.\n`
-              : ` (Not required in this specific scene unless explicitly mentioned.)\n`;
+            identityBlock += `- <Picture ${i + 1}> IS "${char.name}". His/her exact appearance: ${char.description}. THIS CHARACTER IS PRESENT IN THIS SCENE. Reproduce their appearance EXACTLY as shown in <Picture ${i + 1}>.\n`;
           });
+          
           identityBlock += "OVERRIDE RULE: If any text description above contradicts the reference images, the REFERENCE IMAGES WIN.\n";
           identityBlock += "CONSISTENCY RULE: The characters must have the SAME appearance as the reference images in every scene, with zero variation between generations.\n";
           identityBlock += "=== END IDENTITY LOCK ===\n";
