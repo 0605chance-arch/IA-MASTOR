@@ -8,7 +8,6 @@
 </head>
 <body>
 
-  <!-- MODAL CLÉ API -->
   <div id="api-modal" class="modal" hidden>
     <div class="modal-card">
       <h2>🔑 Clé API Agnès</h2>
@@ -23,7 +22,6 @@
   </div>
 
   <div class="app">
-    <!-- HEADER -->
     <header class="header">
       <div class="header-top">
         <div class="logo">✨ Adopte<em>TonIA</em></div>
@@ -39,7 +37,6 @@
       </div>
     </header>
 
-    <!-- TABS -->
     <div class="tabs">
       <button id="tab-chat"  class="tab-btn active">💬 Chat</button>
       <button id="tab-image" class="tab-btn">🖼️ Image</button>
@@ -48,10 +45,6 @@
     </div>
 
     <main class="main">
-
-      <!-- =========================================
-           CHAT
-           ========================================= -->
       <section id="section-chat" class="section active">
         <div class="chat-layout">
           <aside class="chat-sidebar" id="chat-sidebar">
@@ -70,9 +63,6 @@
         </div>
       </section>
 
-      <!-- =========================================
-           IMAGE
-           ========================================= -->
       <section id="section-image" class="section">
         <div class="info-banner info-banner-warning">
           <span class="info-icon">⚠️</span>
@@ -107,9 +97,6 @@
         </div>
       </section>
 
-      <!-- =========================================
-           VIDÉO
-           ========================================= -->
       <section id="section-video" class="section">
         <div class="info-banner">
           <span class="info-icon">💡</span>
@@ -125,12 +112,7 @@
         </div>
       </section>
 
-      <!-- =========================================
-           STUDIO
-           ========================================= -->
       <section id="section-studio" class="section">
-        
-        <!-- ÉCRAN 1 : ACCUEIL STUDIO -->
         <div id="studio-home" class="studio-view">
           <div class="studio-hero">
             <h1>Votre Superviseur IA.</h1>
@@ -150,7 +132,6 @@
           </div>
         </div>
 
-        <!-- ÉCRAN 2 : WIZARD (ASSISTANT) -->
         <div id="studio-wizard" class="studio-view" hidden>
           <div class="wizard-header">
             <button class="btn-secondary btn-small" id="wizard-back-to-home">← Retour</button>
@@ -159,8 +140,8 @@
             <h2 style="margin-bottom: 20px;">Créer votre storyboard</h2>
             
             <div class="input-group" style="margin-bottom: 15px;">
-              <label>Quelle est votre idée de départ ?</label>
-              <textarea id="wizard-idea" class="input-field" rows="3" placeholder="Ex: Une publicité pour une montre de luxe, ambiance nocturne, un homme élégant..."></textarea>
+              <label>Quelle est votre idée de départ ? (Incluez les noms !)</label>
+              <textarea id="wizard-idea" class="input-field" rows="3" placeholder="Ex: Une publicité pour une montre de luxe. Marc, un homme élégant, regarde l'heure à Paris..."></textarea>
             </div>
 
             <div class="wizard-params" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
@@ -198,14 +179,6 @@
               </div>
             </div>
 
-            <!-- Personnages de référence -->
-            <div class="story-chars-header" style="margin-bottom: 10px;">
-              <span class="field-label" style="font-size: 13px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">🎭 Personnages de référence (Max 5)</span>
-              <span class="char-count" id="ref-char-count" style="font-size: 12px; background: var(--surface-2); padding: 2px 8px; border-radius: 10px;">0 / 5</span>
-            </div>
-            <div id="studio-ref-chars-container" class="chars-grid" style="margin-bottom: 15px;"></div>
-            <button id="add-ref-char-btn" class="btn-secondary btn-small" type="button" style="width: 100%; margin-bottom: 20px;">+ Ajouter un personnage</button>
-
             <button id="wizard-generate-btn" class="btn-primary" style="width: 100%; padding: 15px; font-size: 16px;">🎬 Générer le Storyboard</button>
             
             <div id="wizard-loading" hidden style="text-align: center; padding: 30px 0;">
@@ -215,7 +188,6 @@
           </div>
         </div>
 
-        <!-- ÉCRAN 3 : ESPACE DE TRAVAIL (WORKSPACE) -->
         <div id="studio-workspace" class="studio-view" hidden>
           <div class="workspace-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
             <div>
@@ -232,42 +204,30 @@
           </div>
 
           <div class="workspace-content">
-            <!-- Onglet Scènes -->
             <div id="ws-tab-scenes" class="ws-tab-content active">
-              <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Générez une image de référence pour chaque scène, puis envoyez le tout vers l'onglet Vidéo.</p>
+              <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Ajoutez une photo de référence pour chaque scène (optionnel), puis générez l'image.</p>
               <div id="ws-scenes-container" class="scenes-list"></div>
             </div>
 
-            <!-- Onglet Personnages -->
             <div id="ws-tab-characters" class="ws-tab-content" hidden>
               <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Voici la bible des personnages générée par l'IA.</p>
               <div id="ws-characters-container" class="chars-grid"></div>
             </div>
 
-            <!-- Onglet Synopsis -->
             <div id="ws-tab-script" class="ws-tab-content" hidden>
               <div class="card">
                 <h3>Synopsis complet</h3>
                 <p id="ws-script-synopsis" style="white-space: pre-wrap; line-height: 1.6; font-size: 15px;"></p>
-                
-                <!-- LA BOÎTE MANQUANTE EST BIEN ICI -->
                 <h3 style="margin-top:20px;">Direction Artistique</h3>
                 <div id="ws-script-da" style="font-size: 14px; line-height: 1.6;"></div>
               </div>
             </div>
           </div>
         </div>
-
       </section>
-
     </main>
   </div>
 
-  <!-- ============================================
-       TEMPLATES
-       ============================================ -->
-  
-  <!-- Slot Vidéo (Onglet Vidéo) -->
   <template id="slot-template">
     <div class="slot card">
       <div class="slot-header">
@@ -294,7 +254,6 @@
     </div>
   </template>
 
-  <!-- Carte Personnage (Studio) -->
   <template id="char-template">
     <div class="char-card">
       <input type="file" class="char-img-input" accept="image/*" hidden>
@@ -306,20 +265,7 @@
     </div>
   </template>
 
-  <!-- Carte Personnage Référence (Wizard) -->
-  <template id="studio-ref-char-template">
-    <div class="char-card">
-      <input type="file" class="char-img-input" accept="image/*" hidden>
-      <div class="char-thumb" role="button" title="Ajouter une photo"><span class="char-plus">+</span></div>
-      <div class="char-fields">
-        <input type="text" class="char-name input-field" placeholder="Nom du personnage" maxlength="30">
-        <textarea class="char-desc input-field" rows="2" placeholder="Description physique..." maxlength="200"></textarea>
-      </div>
-      <button class="char-del btn-secondary" type="button" title="Retirer">×</button>
-    </div>
-  </template>
-
-  <!-- Carte Scène (Workspace) -->
+  <!-- TEMPLATE SCÈNE MODIFIÉ (Ajout de l'upload photo) -->
   <template id="studio-scene-template">
     <div class="studio-scene-card card" style="margin-bottom: 15px;">
       <div class="studio-scene-header">
@@ -327,14 +273,25 @@
         <span class="studio-scene-badge" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px;">12s</span>
       </div>
       <p class="studio-scene-action" style="font-size: 13px; color: var(--text-dim); margin: 10px 0;"></p>
+      
       <div class="studio-scene-image-container" style="background: var(--bg); padding: 10px; border-radius: 12px; text-align: center; border: 1px dashed var(--border);">
-        <div class="studio-scene-img-placeholder" style="color: var(--text-dim); font-size: 13px; padding: 20px 0;">🖼️ Aucune image</div>
+        <!-- Nouveau bouton d'upload -->
+        <div style="display:flex; gap:10px; margin-bottom:10px; align-items:center; justify-content:center;">
+            <input type="file" class="studio-scene-upload-input" accept="image/*" hidden>
+            <button class="btn-secondary btn-small studio-scene-upload-btn" style="flex:1;">📷 Ajouter une photo</button>
+            <div class="studio-scene-upload-preview-container" style="display: none; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); flex-shrink:0;">
+                <img class="studio-scene-upload-preview" src="" style="width: 100%; height: 100%; object-fit: cover;">
+            </div>
+        </div>
+        
+        <div class="studio-scene-img-placeholder" style="color: var(--text-dim); font-size: 13px; padding: 20px 0;">🖼️ Aucune image générée</div>
         <img class="studio-scene-img" src="" alt="" hidden style="width: 100%; border-radius: 8px; margin-bottom: 10px;">
-        <button class="btn-secondary btn-small studio-scene-img-btn" style="width:100%;">Générer l'image de la scène</button>
+        <button class="btn-primary btn-small studio-scene-img-btn" style="width:100%;">✨ Générer l'image</button>
       </div>
+      
       <div class="studio-scene-prompt-container" style="margin-top: 15px;">
-        <label style="font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; display: block;">Prompt Vidéo</label>
-        <textarea class="studio-scene-prompt input-field" rows="4" readonly style="font-size: 13px; background: rgba(0,0,0,0.2);"></textarea>
+        <label style="font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; display: block;">Prompt Image/Vidéo (Modifiable)</label>
+        <textarea class="studio-scene-prompt input-field" rows="4" style="font-size: 13px; background: rgba(0,0,0,0.2);"></textarea>
         <div style="display: flex; gap: 10px; margin-top: 10px;">
           <button class="btn-secondary btn-small studio-scene-copy-btn" style="flex: 1;">📋 Copier</button>
           <button class="btn-primary btn-small studio-scene-send-btn" style="flex: 2;">🚀 Envoyer vers Vidéo</button>
