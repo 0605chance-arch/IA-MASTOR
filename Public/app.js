@@ -268,7 +268,6 @@
 
       imgBtn.textContent = "Génération en cours…";
       
-      // Interrogation ultra-rapide toutes les 2 secondes
       const taskId = data.taskId;
       const pollInterval = setInterval(async () => {
         try {
@@ -298,6 +297,7 @@
       }, 2000);
 
     } catch (e) {
+      // MODIFICATION ICI : Message d'erreur détaillé
       alert("Erreur réseau : " + e.message);
       imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
     }
