@@ -2,12 +2,7 @@ const express = require("express");
 const path = require("path");
 const app = express();
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
-// Forcer un timeout plus long pour les connexions entrantes
-app.use((req, res, next) => {
-  req.setTimeout(600000); // 10 minutes
-  res.setTimeout(600000); // 10 minutes
-  next();
-});
+
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
@@ -134,6 +129,10 @@ async function pollVideoStatus(apiKey, taskId, videoId) {
   }, 5000);
 }
 
+// === NOUVEAU : STOCKAGE POUR LES TÂCHES D'IMAGE ===
+const imageTasks = new Map();
+// === FIN NOUVEAU ===
+
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 app.post("/api/health", async (req, res) => {
   try {
@@ -165,13 +164,20 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// === MODIFIÉ : La route de génération d'image lance une tâche en arrière-plan ===
 app.post("/api/generate-image", async (req, res) => {
+  const { prompt, format, imageBase64, images } = req.body;
+  const taskId = "img_task_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+  imageTasks.set(taskId, { status: "processing", url: null, error: null });
+
+  // On répond tout de suite au client
+  res.json({ success: true, taskId });
+
+  // Et on fait le travail en arrière-plan
   try {
-    const { prompt, format, imageBase64, images } = req.body;
     const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
-    
     const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
-    
+
     let refs = [];
     if (images && Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
     else if (imageBase64) refs = [imageBase64];
@@ -182,38 +188,37 @@ app.post("/api/generate-image", async (req, res) => {
         const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
         const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
         tempImages.set(id, dataUrl);
-        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); 
+        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000);
         return `${publicBaseUrl}/api/temp-image/${id}`;
       });
-
       body.extra_body.image = imageUrls;
       body.extra_body.images = imageUrls;
       const pictureRefs = imageUrls.map((_, i) => `<Picture ${i + 1}>`).join(", ");
-      
       body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
       body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
     }
 
-    // === MODIFICATION : Timeout plus long pour la génération d'image (5 minutes) ===
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
       method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
-    }, 300000); 
-    // === FIN MODIFICATION ===
-
+    }, 300000);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
     let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
     if (!finalUrl) throw new Error("Aucune image renvoyée.");
     if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
-    res.json({ id: "img_" + Date.now(), url: finalUrl });
+    imageTasks.set(taskId, { status: "completed", url: finalUrl, error: null });
   } catch (err) {
-    // === MODIFICATION : Gestion d'erreur plus propre ===
-    if (err.name === 'AbortError') {
-      return res.status(504).json({ error: "Le serveur a mis trop de temps à répondre. Réessayez." });
-    }
-    res.status(500).json({ error: err.message || "Erreur inattendue." });
+    imageTasks.set(taskId, { status: "failed", url: null, error: err.message || "Erreur inconnue" });
   }
 });
+
+// === NOUVEAU : Route pour vérifier le statut d'une tâche d'image ===
+app.get("/api/image-status/:taskId", (req, res) => {
+  const task = imageTasks.get(req.params.taskId);
+  if (!task) return res.status(404).json({ error: "Tâche introuvable" });
+  res.json(task);
+});
+// === FIN NOUVEAU ===
 
 app.post("/api/generate-video", async (req, res) => {
   try {
