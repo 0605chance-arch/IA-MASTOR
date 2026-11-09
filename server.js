@@ -34,6 +34,19 @@ app.get("/api/temp-image/:id", (req, res) => {
   res.send(buffer);
 });
 
+// === NOUVEAU : Fonction pour obtenir l'URL publique de manière dynamique ===
+function getPublicUrl(req) {
+  // Si une variable d'environnement est définie, on l'utilise
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
+  if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL.replace(/\/$/, "");
+  
+  // Sinon, on reconstruit l'URL à partir des en-têtes de la requête (fonctionne sur Bonto, Render, etc.)
+  const protocol = req.headers['x-forwarded-proto'] || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers['host'] || 'localhost';
+  return `${protocol}://${host}`;
+}
+// === FIN NOUVEAU ===
+
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) return h.trim();
@@ -168,12 +181,17 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
+      // === MODIFICATION : Utilisation de getPublicUrl(req) au lieu de RENDER_URL ===
+      const publicBaseUrl = getPublicUrl(req);
+      // === FIN MODIFICATION ===
+
       const imageUrls = refs.map((b, i) => {
         const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
         const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
         tempImages.set(id, dataUrl);
         setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); 
-        return `${RENDER_URL}/api/temp-image/${id}`;
+        // Utilise la nouvelle URL publique
+        return `${publicBaseUrl}/api/temp-image/${id}`;
       });
 
       body.extra_body.image = imageUrls;
