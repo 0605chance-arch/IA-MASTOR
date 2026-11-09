@@ -2,7 +2,12 @@ const express = require("express");
 const path = require("path");
 const app = express();
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
-
+// Forcer un timeout plus long pour les connexions entrantes
+app.use((req, res, next) => {
+  req.setTimeout(600000); // 10 minutes
+  res.setTimeout(600000); // 10 minutes
+  next();
+});
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
