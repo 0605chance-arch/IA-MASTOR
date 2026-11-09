@@ -1,7 +1,6 @@
 (function () {
   "use strict";
 
-  // === AJOUT : GESTION DES 3 OFFRES ===
   async function applyTierGating() {
     try {
       const res = await fetch("/api/tier");
@@ -16,18 +15,14 @@
         studio: document.getElementById("tab-studio")
       };
 
-      // On masque les onglets non autorisés par l'offre
       Object.keys(tabMapping).forEach(key => {
         if (tabMapping[key] && !features.includes(key)) {
           tabMapping[key].style.display = "none";
         }
       });
-    } catch (e) {
-      console.warn("Impossible de charger le niveau de l'offre, affichage complet par défaut.", e);
-    }
+    } catch (e) {}
   }
   applyTierGating();
-  // === FIN AJOUT ===
 
   (function initWakeupBanner() {
     const wakeupBanner = document.getElementById("wakeup-banner");
@@ -260,21 +255,52 @@
 
   imgBtn.addEventListener("click", async () => {
     if (!imgPrompt.value.trim()) return;
-    imgBtn.disabled = true; imgBtn.textContent = "Génération…"; imgArea.hidden = true;
+    imgBtn.disabled = true; imgBtn.textContent = "Lancement…"; imgArea.hidden = true;
+
     try {
-      const res = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 || undefined }) });
+      const res = await apiFetch("/api/generate-image", {
+        method: "POST",
+        body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 || undefined })
+      });
       const data = await res.json();
-      if (data.url) {
-        imgResult.src = data.url;
-        imgDownload.onclick = (e) => { e.preventDefault(); downloadFile(data.url, `image-${data.id}.jpg`, data.id); };
-        imgArea.hidden = false;
-        const h = JSON.parse(localStorage.getItem("adopte_image_history") || "[]");
-        h.unshift({ prompt: imgPrompt.value, url: data.url, id: data.id });
-        localStorage.setItem("adopte_image_history", JSON.stringify(h.slice(0, 20)));
-        renderImageHistory();
-      } else alert(data.error);
-    } catch { alert("Erreur réseau"); }
-    imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
+      
+      if (!data.taskId) throw new Error(data.error || "Erreur de lancement");
+
+      imgBtn.textContent = "Génération en cours…";
+      
+      // Interrogation ultra-rapide toutes les 2 secondes
+      const taskId = data.taskId;
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await apiFetch(`/api/image-status/${taskId}`);
+          const statusData = await statusRes.json();
+
+          if (statusData.status === "completed") {
+            clearInterval(pollInterval);
+            imgResult.src = statusData.url;
+            imgDownload.onclick = (e) => { e.preventDefault(); downloadFile(statusData.url, `image-${taskId}.jpg`, taskId); };
+            imgArea.hidden = false;
+            const h = JSON.parse(localStorage.getItem("adopte_image_history") || "[]");
+            h.unshift({ prompt: imgPrompt.value, url: statusData.url, id: taskId });
+            localStorage.setItem("adopte_image_history", JSON.stringify(h.slice(0, 20)));
+            renderImageHistory();
+            imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
+          } else if (statusData.status === "failed") {
+            clearInterval(pollInterval);
+            alert("Erreur image : " + (statusData.error || "Erreur inconnue"));
+            imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
+          }
+        } catch (e) {
+          clearInterval(pollInterval);
+          alert("Erreur réseau lors du suivi de la génération.");
+          imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
+        }
+      }, 2000);
+
+    } catch (e) {
+      alert("Erreur réseau : " + e.message);
+      imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
+    }
   });
 
   function renderImageHistory() {
@@ -510,7 +536,6 @@
     wizGenBtn.hidden = true; wizLoading.hidden = false;
 
     try {
-      // Appel API sans les paramètres "style" et "mood" inutiles
       const res = await apiFetch("/api/studio/generate-storyboard", {
         method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format })
       });
@@ -628,19 +653,41 @@
             body: JSON.stringify(payload)
           });
           const data = await res.json();
-          if (data.url) {
-            imgEl.src = data.url; imgEl.hidden = false;
-            generatedImageBase64 = await urlToBase64(data.url);
-            imgBtn.textContent = "🔄 Régénérer";
-          } else if (data.error) {
-            alert("Erreur image : " + data.error);
-            imgPlaceholder.hidden = false;
-          }
+          
+          if (!data.taskId) throw new Error(data.error || "Erreur de lancement");
+
+          const taskId = data.taskId;
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await apiFetch(`/api/image-status/${taskId}`);
+              const statusData = await statusRes.json();
+
+              if (statusData.status === "completed") {
+                clearInterval(pollInterval);
+                imgEl.src = statusData.url; imgEl.hidden = false;
+                generatedImageBase64 = await urlToBase64(statusData.url);
+                imgBtn.textContent = "🔄 Régénérer";
+                imgBtn.disabled = false;
+              } else if (statusData.status === "failed") {
+                clearInterval(pollInterval);
+                alert("Erreur image : " + (statusData.error || "Erreur inconnue"));
+                imgPlaceholder.hidden = false;
+                imgBtn.disabled = false; imgBtn.textContent = "✨ Générer l'image";
+              }
+            } catch (e) {
+              clearInterval(pollInterval);
+              alert("Erreur réseau lors du suivi de la génération.");
+              imgPlaceholder.hidden = false;
+              imgBtn.disabled = false; imgBtn.textContent = "✨ Générer l'image";
+            }
+          }, 2000);
+
         } catch (e) { 
-          alert("Erreur réseau."); 
+          alert("Erreur réseau : " + e.message); 
           imgPlaceholder.hidden = false;
+          imgBtn.disabled = false;
+          imgBtn.textContent = "✨ Générer l'image";
         }
-        imgBtn.disabled = false;
       });
 
       node.querySelector(".studio-scene-send-btn").addEventListener("click", () => {
