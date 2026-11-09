@@ -1,12 +1,20 @@
 const express = require("express");
 const path = require("path");
 const app = express();
+// AJOUT 1 : Import du module de gestion des offres
+const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
+
+// AJOUT 2 : Route pour que le frontend connaisse l'offre active
+app.get("/api/tier", (req, res) => {
+  const tier = getActiveTier();
+  res.json({ tier: tier, features: getFeaturesForTier(tier) });
+});
 
 // KEEP-ALIVE INTERNE
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -42,6 +50,7 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
+  if (req.path === "/tier" && req.method === "GET") return next(); // AJOUT 3 : On autorise l'accès public à /api/tier
   if (req.path.startsWith("/temp-image")) return next();
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
