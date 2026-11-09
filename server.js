@@ -1,7 +1,6 @@
 const express = require("express");
 const path = require("path");
 const app = express();
-// AJOUT 1 : Import du module de gestion des offres
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
 const API_BASE = "https://apihub.agnes-ai.com";
@@ -10,19 +9,16 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
-// AJOUT 2 : Route pour que le frontend connaisse l'offre active
 app.get("/api/tier", (req, res) => {
   const tier = getActiveTier();
   res.json({ tier: tier, features: getFeaturesForTier(tier) });
 });
 
-// KEEP-ALIVE INTERNE
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
 if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// --- STOCKAGE TEMPORAIRE D'IMAGES (Pour que l'API Agnes puisse les télécharger) ---
 const tempImages = new Map();
 app.get("/api/temp-image/:id", (req, res) => {
   const dataUrl = tempImages.get(req.params.id);
@@ -34,18 +30,13 @@ app.get("/api/temp-image/:id", (req, res) => {
   res.send(buffer);
 });
 
-// === NOUVEAU : Fonction pour obtenir l'URL publique de manière dynamique ===
 function getPublicUrl(req) {
-  // Si une variable d'environnement est définie, on l'utilise
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
   if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL.replace(/\/$/, "");
-  
-  // Sinon, on reconstruit l'URL à partir des en-têtes de la requête (fonctionne sur Bonto, Render, etc.)
   const protocol = req.headers['x-forwarded-proto'] || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers['host'] || 'localhost';
   return `${protocol}://${host}`;
 }
-// === FIN NOUVEAU ===
 
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
@@ -63,7 +54,7 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
-  if (req.path === "/tier" && req.method === "GET") return next(); // AJOUT 3 : On autorise l'accès public à /api/tier
+  if (req.path === "/tier" && req.method === "GET") return next();
   if (req.path.startsWith("/temp-image")) return next();
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
@@ -181,16 +172,12 @@ app.post("/api/generate-image", async (req, res) => {
     else if (imageBase64) refs = [imageBase64];
 
     if (refs.length > 0) {
-      // === MODIFICATION : Utilisation de getPublicUrl(req) au lieu de RENDER_URL ===
       const publicBaseUrl = getPublicUrl(req);
-      // === FIN MODIFICATION ===
-
       const imageUrls = refs.map((b, i) => {
         const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
         const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
         tempImages.set(id, dataUrl);
         setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); 
-        // Utilise la nouvelle URL publique
         return `${publicBaseUrl}/api/temp-image/${id}`;
       });
 
@@ -202,16 +189,25 @@ app.post("/api/generate-image", async (req, res) => {
       body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
     }
 
+    // === MODIFICATION : Timeout plus long pour la génération d'image (5 minutes) ===
     const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
       method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
-    });
+    }, 300000); 
+    // === FIN MODIFICATION ===
+
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
     let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
     if (!finalUrl) throw new Error("Aucune image renvoyée.");
     if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
     res.json({ id: "img_" + Date.now(), url: finalUrl });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    // === MODIFICATION : Gestion d'erreur plus propre ===
+    if (err.name === 'AbortError') {
+      return res.status(504).json({ error: "Le serveur a mis trop de temps à répondre. Réessayez." });
+    }
+    res.status(500).json({ error: err.message || "Erreur inattendue." });
+  }
 });
 
 app.post("/api/generate-video", async (req, res) => {
