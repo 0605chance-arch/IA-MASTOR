@@ -1,6 +1,34 @@
 (function () {
   "use strict";
 
+  // === AJOUT : GESTION DES 3 OFFRES ===
+  async function applyTierGating() {
+    try {
+      const res = await fetch("/api/tier");
+      if (!res.ok) throw new Error("Erreur réseau");
+      const data = await res.json();
+      const features = data.features || ["chat", "image", "video", "studio"];
+
+      const tabMapping = {
+        chat: document.getElementById("tab-chat"),
+        image: document.getElementById("tab-image"),
+        video: document.getElementById("tab-video"),
+        studio: document.getElementById("tab-studio")
+      };
+
+      // On masque les onglets non autorisés par l'offre
+      Object.keys(tabMapping).forEach(key => {
+        if (tabMapping[key] && !features.includes(key)) {
+          tabMapping[key].style.display = "none";
+        }
+      });
+    } catch (e) {
+      console.warn("Impossible de charger le niveau de l'offre, affichage complet par défaut.", e);
+    }
+  }
+  applyTierGating();
+  // === FIN AJOUT ===
+
   (function initWakeupBanner() {
     const wakeupBanner = document.getElementById("wakeup-banner");
     const wakeupBannerClose = document.getElementById("wakeup-banner-close");
