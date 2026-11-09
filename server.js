@@ -19,7 +19,6 @@ if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// --- STOCKAGE TEMPORAIRE D'IMAGES ---
 const tempImages = new Map();
 app.get("/api/temp-image/:id", (req, res) => {
   const dataUrl = tempImages.get(req.params.id);
@@ -63,9 +62,7 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// === STOCKAGE POUR LES TÂCHES D'IMAGE (Nouveau) ===
 const imageTasks = new Map();
-// Nettoyage automatique des vieilles tâches toutes les 15 minutes pour ne pas saturer la mémoire
 setInterval(() => {
   const now = Date.now();
   for (const [id, task] of imageTasks.entries()) {
@@ -73,7 +70,6 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-// FILE D'ATTENTE VIDÉO
 const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
 const activeTasks = new Map();
@@ -171,18 +167,16 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// === ROUTE IMAGE OPTIMISÉE (Fire & Poll) ===
+// === AJOUT DU RADAR : On log la requête pour être sûr qu'elle arrive ===
 app.post("/api/generate-image", async (req, res) => {
+  console.log("📸 [RADAR] Requête image reçue du navigateur !");
   const { prompt, format, imageBase64, images } = req.body;
   const taskId = "img_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
   
-  // On enregistre la tâche avec le statut "processing"
   imageTasks.set(taskId, { status: "processing", url: null, error: null, timestamp: Date.now() });
 
-  // RÉPONSE IMMÉDIATE AU CLIENT (Moins de 100ms, aucun timeout Bonto possible)
   res.json({ success: true, taskId });
 
-  // Le travail en arrière-plan
   (async () => {
     try {
       const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
@@ -210,7 +204,7 @@ app.post("/api/generate-image", async (req, res) => {
 
       const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
         method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
-      }, 300000); // Timeout de 5 minutes interne au serveur
+      }, 300000); 
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
@@ -218,21 +212,19 @@ app.post("/api/generate-image", async (req, res) => {
       if (!finalUrl) throw new Error("Aucune image renvoyée.");
       if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
       
-      // On met à jour la tâche
       imageTasks.set(taskId, { status: "completed", url: finalUrl, error: null, timestamp: Date.now() });
     } catch (err) {
+      console.error("❌ [RADAR] Erreur image:", err.message);
       imageTasks.set(taskId, { status: "failed", url: null, error: err.message || "Erreur inconnue", timestamp: Date.now() });
     }
   })();
 });
 
-// ROUTE DE VERIFICATION DU STATUT (Appelée par le navigateur toutes les 2s)
 app.get("/api/image-status/:taskId", (req, res) => {
   const task = imageTasks.get(req.params.taskId);
   if (!task) return res.status(404).json({ error: "Tâche introuvable" });
   res.json(task);
 });
-// === FIN ROUTE IMAGE ===
 
 app.post("/api/generate-video", async (req, res) => {
   try {
@@ -282,7 +274,6 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur download"); }
 });
 
-// MÉTA-PROMPT STUDIO 
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format } = req.body;
