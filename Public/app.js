@@ -20,7 +20,9 @@
           tabMapping[key].style.display = "none";
         }
       });
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Impossible de charger le niveau de l'offre.", e);
+    }
   }
   applyTierGating();
 
@@ -77,7 +79,7 @@
       const a = document.createElement("a");
       a.style.display = "none"; a.href = blobUrl; a.download = filename;
       document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(blobUrl); a.remove();
-    } catch (e) { alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer."); }
+    } catch (e) { alert("Téléchargement échoué."); }
   }
 
   const apiModal = document.getElementById("api-modal");
@@ -253,6 +255,7 @@
     reader.readAsDataURL(file);
   });
 
+  // === MODIFIÉ : Suivi par polling (comme la vidéo) ===
   imgBtn.addEventListener("click", async () => {
     if (!imgPrompt.value.trim()) return;
     imgBtn.disabled = true; imgBtn.textContent = "Lancement…"; imgArea.hidden = true;
@@ -266,7 +269,7 @@
       
       if (!data.taskId) throw new Error(data.error || "Erreur de lancement");
 
-      imgBtn.textContent = "Génération en cours…";
+      imgBtn.textContent = "Génération…";
       
       const taskId = data.taskId;
       const pollInterval = setInterval(async () => {
@@ -291,13 +294,12 @@
           }
         } catch (e) {
           clearInterval(pollInterval);
-          alert("Erreur réseau lors du suivi de la génération.");
+          alert("Erreur réseau lors du suivi.");
           imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
         }
       }, 2000);
 
     } catch (e) {
-      // MODIFICATION ICI : Message d'erreur détaillé
       alert("Erreur réseau : " + e.message);
       imgBtn.disabled = false; imgBtn.textContent = "Générer l'image";
     }
@@ -637,6 +639,7 @@
       const imgEl = node.querySelector(".studio-scene-img");
       const imgBtn = node.querySelector(".studio-scene-img-btn");
 
+      // === MODIFIÉ : Suivi par polling pour le Studio aussi ===
       imgBtn.addEventListener("click", async () => {
         const finalPrompt = node.querySelector(".studio-scene-prompt").value;
         if (!finalPrompt) return alert("Le prompt est vide.");
@@ -676,7 +679,7 @@
               }
             } catch (e) {
               clearInterval(pollInterval);
-              alert("Erreur réseau lors du suivi de la génération.");
+              alert("Erreur réseau lors du suivi.");
               imgPlaceholder.hidden = false;
               imgBtn.disabled = false; imgBtn.textContent = "✨ Générer l'image";
             }
