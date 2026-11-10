@@ -11,8 +11,16 @@
     "express": "^4.19.2"
   },
   "engines": {
-  "node": "18.x"
-}
-  "keywords": ["ai", "video", "image", "chat", "agnes", "storyboard", "starter-plan"],
+    "node": "18.x"
+  },
+  "keywords": [
+    "ai",
+    "video",
+    "image",
+    "chat",
+    "agnes",
+    "storyboard",
+    "starter-plan"
+  ],
   "license": "MIT"
 }
