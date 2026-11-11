@@ -246,10 +246,8 @@ textarea { resize: vertical; }
 
 .message { padding: 10px 14px; font-size: 15px; max-width: 100%; border-radius: 14px; line-height: 1.6; overflow-wrap: break-word; }
 .message.user { align-self: flex-end; background: var(--accent); color: #fff; margin-left: 40px; border-bottom-right-radius: 4px; }
-.message.assistant { align-self: flex-start; background: var(--surface-2); color: var(--text); margin-right: 40px; border-bottom-left-radius: 4px; }
+.message.assistant { align-self: flex-start; background: var(--surface-2); color: var(--text); margin-right: 40px; border-bottom-left-radius: 4px; width: 100%;}
 .message img { max-width: 100%; height: auto; border-radius: 8px; margin-top: 6px; }
-.message pre { background: var(--bg); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 8px 0; }
-.message code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: ui-monospace, monospace; }
 
 /* ============================================
    5. IMAGE
@@ -445,3 +443,27 @@ textarea { resize: vertical; }
   background: rgba(255, 159, 10, 0.1);
   border-color: rgba(255, 159, 10, 0.35);
 }
+
+/* ============================================
+   12. RENDU MARKDOWN DANS LE CHAT (NOUVEAU)
+   ============================================ */
+.message.assistant p { margin-bottom: 10px; }
+.message.assistant p:last-child { margin-bottom: 0; }
+.message.assistant ul, .message.assistant ol { margin: 10px 0 10px 20px; }
+.message.assistant li { margin-bottom: 4px; }
+.message.assistant h1, .message.assistant h2, .message.assistant h3 { margin: 15px 0 10px 0; font-weight: 600; }
+.message.assistant h1 { font-size: 1.4em; }
+.message.assistant h2 { font-size: 1.2em; }
+.message.assistant h3 { font-size: 1.1em; }
+
+/* Style des tableaux générés par l'IA */
+.table-wrapper { overflow-x: auto; margin: 15px 0; border-radius: 8px; border: 1px solid var(--border); }
+.message.assistant table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+.message.assistant th, .message.assistant td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.message.assistant th { background: rgba(255, 255, 255, 0.05); font-weight: 600; color: var(--text); }
+.message.assistant tr:last-child td { border-bottom: none; }
+
+/* Style du code */
+.message.assistant pre { background: #0d1117; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 10px 0; border: 1px solid var(--border); }
+.message.assistant code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.message.assistant pre code { background: transparent; padding: 0; border: none; }
