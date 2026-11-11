@@ -1,6 +1,8 @@
 const express = require("express");
 const path = require("path");
 const app = express();
+// AJOUT 1 : Import de la gestion des offres
+const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
@@ -8,13 +10,19 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
-// KEEP-ALIVE INTERNE
+// AJOUT 2 : Route pour dire au frontend quelle offre est active
+app.get("/api/tier", (req, res) => {
+  const tier = getActiveTier();
+  res.json({ tier: tier, features: getFeaturesForTier(tier) });
+});
+
+// KEEP-ALIVE INTERNE (Ton fameux ping !)
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
 if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// --- STOCKAGE TEMPORAIRE D'IMAGES (Pour que l'API Agnes puisse les télécharger) ---
+// --- STOCKAGE TEMPORAIRE D'IMAGES ---
 const tempImages = new Map();
 app.get("/api/temp-image/:id", (req, res) => {
   const dataUrl = tempImages.get(req.params.id);
@@ -42,6 +50,7 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
+  if (req.path === "/tier" && req.method === "GET") return next(); // AJOUT 3 : On laisse passer la route tier sans clé API
   if (req.path.startsWith("/temp-image")) return next();
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
@@ -235,9 +244,6 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur download"); }
 });
 
-// ==========================================
-// MÉTA-PROMPT STUDIO (MODE EXÉCUTANT STRICT)
-// ==========================================
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format } = req.body;
