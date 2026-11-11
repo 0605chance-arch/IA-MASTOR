@@ -1,6 +1,31 @@
 (function () {
   "use strict";
 
+  // === AJOUT : Masquage automatique des onglets selon l'offre ===
+  async function applyTierGating() {
+    try {
+      const res = await fetch("/api/tier");
+      if (!res.ok) throw new Error("Erreur réseau");
+      const data = await res.json();
+      const features = data.features || ["chat", "image", "video", "studio"];
+
+      const tabMapping = {
+        chat: document.getElementById("tab-chat"),
+        image: document.getElementById("tab-image"),
+        video: document.getElementById("tab-video"),
+        studio: document.getElementById("tab-studio")
+      };
+
+      Object.keys(tabMapping).forEach(key => {
+        if (tabMapping[key] && !features.includes(key)) {
+          tabMapping[key].style.display = "none";
+        }
+      });
+    } catch (e) {}
+  }
+  applyTierGating();
+  // === FIN AJOUT ===
+
   (function initWakeupBanner() {
     const wakeupBanner = document.getElementById("wakeup-banner");
     const wakeupBannerClose = document.getElementById("wakeup-banner-close");
@@ -482,7 +507,6 @@
     wizGenBtn.hidden = true; wizLoading.hidden = false;
 
     try {
-      // Appel API sans les paramètres "style" et "mood" inutiles
       const res = await apiFetch("/api/studio/generate-storyboard", {
         method: "POST", body: JSON.stringify({ projectIdea: idea, sceneCount, format })
       });
