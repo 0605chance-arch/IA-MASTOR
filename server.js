@@ -1,288 +1,281 @@
-const express = require("express");
-const path = require("path");
-const app = express();
-const { getActiveTier, getFeaturesForTier } = require("./tiers");
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>🚀 SPEED IA ♾️ — Studio Premium</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-const API_BASE = "https://apihub.agnes-ai.com";
-const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
+  <div id="api-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>🔑 Clé API Agnès</h2>
+      <p class="modal-desc">Votre token est stocké uniquement en <strong>sessionStorage</strong>.</p>
+      <p class="modal-wakeup">☕️ <strong>Premier démarrage :</strong> l'app peut mettre jusqu'à <strong>1 minute</strong> à se réveiller (serveur Render). Merci de patienter, ne cliquez pas plusieurs fois.</p>
+      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre token Agnès…" autocomplete="off">
+      <div id="api-key-status" class="api-status"></div>
+      <div class="modal-actions">
+        <button id="api-key-save" class="btn-primary">Valider &amp; continuer</button>
+      </div>
+    </div>
+  </div>
 
-app.use(express.json({ limit: "80mb" }));
-app.use(express.static(path.join(__dirname, "Public")));
+  <div class="app">
+    <header class="header">
+      <div class="header-top">
+        <div class="logo">🚀 SPEED IA ♾️</div>
+        <button id="api-key-btn" class="api-btn" title="Changer la clé API">
+          <span class="api-dot" id="api-dot"></span> 🔑
+        </button>
+      </div>
+      <p class="tagline">Chat • Image • Vidéo • Studio</p>
+      <div class="wakeup-banner" id="wakeup-banner">
+        <span>☕️</span>
+        <span>Le serveur peut mettre jusqu'à <strong>1 minute</strong> à se réveiller au premier démarrage. Laissez l'app se réveiller, ne cliquez pas plusieurs fois.</span>
+        <button id="wakeup-banner-close" aria-label="Fermer">×</button>
+      </div>
+    </header>
 
-app.get("/api/tier", (req, res) => {
-  const tier = getActiveTier();
-  res.json({ tier: tier, features: getFeaturesForTier(tier) });
-});
+    <div class="tabs">
+      <button id="tab-chat"  class="tab-btn active">💬 Chat</button>
+      <button id="tab-image" class="tab-btn">🖼️ Image</button>
+      <button id="tab-video" class="tab-btn">🎬 Vidéo</button>
+      <button id="tab-studio" class="tab-btn">🎥 Studio</button>
+    </div>
 
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
-if (process.env.RENDER_EXTERNAL_URL) {
-  setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
-}
+    <main class="main">
+      <section id="section-chat" class="section active">
+        <div class="chat-layout">
+          <aside class="chat-sidebar" id="chat-sidebar">
+            <button id="new-chat-btn" class="btn-secondary" style="width:100%; margin-bottom:10px;">+ Nouvelle conversation</button>
+            <div id="chat-sessions-list" class="sessions-list"></div>
+          </aside>
+          <div class="chat-main">
+            <div id="chat-history" class="chat-history"></div>
+            <div class="chat-input-area">
+              <input type="file" id="chat-image-upload" accept="image/*" hidden>
+              <button id="chat-image-btn" class="btn-secondary" style="padding: 10px 14px; border-radius: 50%;">📷</button>
+              <textarea id="chat-input" placeholder="Envoyez un message…" rows="1"></textarea>
+              <button id="chat-send" class="btn-primary">⬆️</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
-const tempImages = new Map();
-app.get("/api/temp-image/:id", (req, res) => {
-  const dataUrl = tempImages.get(req.params.id);
-  if (!dataUrl) return res.status(404).send("Image introuvable");
-  const base64Data = dataUrl.split(",")[1];
-  const buffer = Buffer.from(base64Data, "base64");
-  res.setHeader("Content-Type", "image/jpeg");
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  res.send(buffer);
-});
+      <section id="section-image" class="section">
+        <div class="info-banner info-banner-warning">
+          <span class="info-icon">⚠️</span>
+          <p>
+            <strong>Ne spammez pas le bouton « Générer ».</strong> En cas de message d'erreur, ne recliquez pas.
+            Faites dans cet ordre : <strong>1)</strong> Actualisez la page (Render / App),
+            <strong>2)</strong> Attendez <strong>1 minute</strong>,
+            <strong>3)</strong> Relancez une génération.
+          </p>
+        </div>
+        <div class="card">
+          <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image à générer…"></textarea>
+          <div class="upload-area">
+            <input type="file" id="image-upload" accept="image/*" hidden>
+            <button id="image-upload-btn" class="btn-secondary">📷 Image de référence</button>
+            <div id="image-preview" class="preview"></div>
+          </div>
+          <select id="image-format" class="input-field">
+            <option value="9:16">Portrait (9:16)</option>
+            <option value="16:9">Large (16:9)</option>
+            <option value="1:1">Carré (1:1)</option>
+          </select>
+          
+          <select id="image-quality" class="input-field">
+            <option value="1K">Qualité Standard (1K)</option>
+            <option value="2K">Haute Définition (2K)</option>
+            <option value="4K">Ultra HD (4K)</option>
+          </select>
+          
+          <button id="image-generate" class="btn-primary">Générer l'image</button>
+        </div>
+        <div id="image-result-area" class="result-area" hidden>
+          <img id="image-result" src="" alt="Résultat">
+          <a id="image-download" class="btn-download" download>Télécharger</a>
+        </div>
+        <div class="history-section">
+          <h3>Historique des images</h3>
+          <div id="image-history" class="history-grid"></div>
+        </div>
+      </section>
 
-function getApiKey(req) {
-  const h = req.headers["x-api-key"];
-  if (typeof h === "string" && h.trim()) return h.trim();
-  const auth = req.headers["authorization"];
-  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
-  return DEFAULT_KEY;
-}
+      <section id="section-video" class="section">
+        <div class="info-banner">
+          <span class="info-icon">💡</span>
+          <p>
+            <strong>Astuce :</strong> Utilisez les prompts du <strong>Studio</strong> pour créer vos vidéos ici.<br>
+            <strong>Note :</strong> L'API Agnès autorise <strong>5 requêtes par minute</strong> (5 clics). Si vous dépassez, l'app attendra automatiquement la minute suivante.
+          </p>
+        </div>
+        <div class="video-slots" id="video-slots"></div>
+        <div class="history-section">
+          <h3>Bibliothèque vidéo</h3>
+          <div id="video-history" class="history-grid"></div>
+        </div>
+      </section>
 
-async function apiFetch(url, options = {}, timeoutMs = 120000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(url, { ...options, signal: controller.signal, keepalive: true }); } finally { clearTimeout(timer); }
-}
+      <section id="section-studio" class="section">
+        <div id="studio-home" class="studio-view">
+          <div class="studio-hero">
+            <h1>Votre Superviseur IA.</h1>
+            <p>Transformez une idée floue en une histoire structurée, avec une bible de personnages et des prompts vidéo prêts à l'emploi.</p>
+          </div>
+          <div class="studio-actions-grid">
+            <button class="studio-action-card card" id="studio-btn-new">
+              <span class="action-icon">✨</span>
+              <h3>Créer une histoire</h3>
+              <p>Laissez l'IA vous guider pour structurer votre projet.</p>
+            </button>
+            <button class="studio-action-card card" id="studio-btn-continue">
+              <span class="action-icon">📂</span>
+              <h3>Reprendre un projet</h3>
+              <p>Retrouvez votre storyboard et vos prompts sauvegardés.</p>
+            </button>
+          </div>
+        </div>
 
-app.use("/api", (req, res, next) => {
-  if (req.path === "/health" && req.method === "GET") return next();
-  if (req.path === "/tier" && req.method === "GET") return next();
-  if (req.path.startsWith("/temp-image")) return next();
-  const key = getApiKey(req);
-  if (!key) return res.status(401).json({ error: "Clé API manquante." });
-  req.apiKey = key;
-  next();
-});
+        <div id="studio-wizard" class="studio-view" hidden>
+          <div class="wizard-header">
+            <button class="btn-secondary btn-small" id="wizard-back-to-home">← Retour</button>
+          </div>
+          <div class="wizard-container card">
+            <h2 style="margin-bottom: 20px;">Créer votre storyboard</h2>
+            
+            <div class="input-group" style="margin-bottom: 15px;">
+              <label>Quelle est votre idée de départ ? (Incluez les noms et les dialogues !)</label>
+              <textarea id="wizard-idea" class="input-field" rows="5" placeholder="Ex: Marc et Léa se disputent sur un toit. Marc dit : 'Tu m'as menti !'. Léa répond : 'Je n'avais pas le choix.'"></textarea>
+            </div>
 
-const SUBMIT_INTERVAL_MS = 12500;
-const queues = new Map();
-const activeTasks = new Map();
+            <div class="wizard-params" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+              <div class="input-group">
+                <label>Nombre de scènes</label>
+                <select id="wizard-scene-count" class="input-field">
+                  <option value="5">5 clips (~1 min)</option>
+                  <option value="10">10 clips (~2 min)</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label>Format</label>
+                <select id="wizard-format" class="input-field">
+                  <option value="16:9">16:9 (Cinéma)</option>
+                  <option value="9:16">9:16 (Mobile)</option>
+                  <option value="1:1">1:1 (Carré)</option>
+                </select>
+              </div>
+            </div>
 
-function queueKey(apiKey) {
-  let h = 0;
-  for (let i = 0; i < apiKey.length; i++) { h = (h << 5) - h + apiKey.charCodeAt(i); h |= 0; }
-  return "q_" + Math.abs(h);
-}
+            <button id="wizard-generate-btn" class="btn-primary" style="width: 100%; padding: 15px; font-size: 16px;">🎬 Générer le Storyboard</button>
+            
+            <div id="wizard-loading" hidden style="text-align: center; padding: 30px 0;">
+              <div class="spinner" style="border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto;"></div>
+              <p style="color: var(--accent); font-weight: bold;">L'IA écrit votre histoire...</p>
+            </div>
+          </div>
+        </div>
 
-function getOrCreateQueue(apiKey) {
-  const k = queueKey(apiKey);
-  if (!queues.has(k)) queues.set(k, { jobs: [], processing: false, lastSubmit: 0 });
-  return queues.get(k);
-}
+        <div id="studio-workspace" class="studio-view" hidden>
+          <div class="workspace-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+            <div>
+              <h2 id="workspace-title" style="margin:0;">Titre du projet</h2>
+              <p id="workspace-synopsis" class="text-dim" style="margin:0; font-size:14px; max-width: 600px;">Synopsis...</p>
+            </div>
+            <button class="btn-secondary btn-small" id="workspace-back-btn">← Accueil Studio</button>
+          </div>
 
-async function processQueue(apiKey) {
-  const q = getOrCreateQueue(apiKey);
-  if (q.processing || q.jobs.length === 0) return;
-  q.processing = true;
-  while (q.jobs.length > 0) {
-    const job = q.jobs[0];
-    const elapsed = Date.now() - q.lastSubmit;
-    if (elapsed < SUBMIT_INTERVAL_MS) await new Promise(r => setTimeout(r, SUBMIT_INTERVAL_MS - elapsed));
-    try {
-      const r = await apiFetch(`${API_BASE}/v1/videos`, {
-        method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(job.body),
-      }, 30000);
-      if (r.status === 429 || r.status === 503) { await new Promise(r => setTimeout(r, 15000)); continue; }
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error?.message || "Erreur");
-      q.lastSubmit = Date.now();
-      q.jobs.shift();
-      const videoId = data.video_id || data.id;
-      activeTasks.set(job.taskId, { status: "processing", videoId, url: null });
-      pollVideoStatus(apiKey, job.taskId, videoId);
-      job.resolve({ id: videoId });
-    } catch (err) {
-      q.jobs.shift(); job.reject(err); activeTasks.set(job.taskId, { status: "failed", videoId: null, url: null });
-    }
-  }
-  q.processing = false;
-}
+          <div class="workspace-nav-tabs">
+            <button class="ws-tab-btn active" data-target="ws-tab-scenes">🎬 Scènes & Prompts</button>
+            <button class="ws-tab-btn" data-target="ws-tab-script">📖 Synopsis</button>
+          </div>
 
-function enqueueVideoJob(apiKey, body, taskId) {
-  return new Promise((resolve, reject) => {
-    const q = getOrCreateQueue(apiKey);
-    q.jobs.push({ body, taskId, resolve, reject });
-    processQueue(apiKey).catch(console.error);
-  });
-}
+          <div class="workspace-content">
+            <div id="ws-tab-scenes" class="ws-tab-content active">
+              <p style="color:var(--text-dim); font-size: 14px; margin-bottom: 15px;">Ajoutez une ou plusieurs photos de référence (Max 5) pour chaque scène, puis générez l'image.</p>
+              <div id="ws-scenes-container" class="scenes-list"></div>
+            </div>
 
-async function pollVideoStatus(apiKey, taskId, videoId) {
-  const interval = setInterval(async () => {
-    try {
-      const r = await apiFetch(`${API_BASE}/agnesapi?video_id=${videoId}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${apiKey}` } }, 20000);
-      const data = await r.json();
-      if (data.status === "completed" && (data.url || data.metadata?.url)) {
-        clearInterval(interval); activeTasks.set(taskId, { status: "completed", videoId, url: data.url || data.metadata?.url });
-      } else if (data.status === "failed") {
-        clearInterval(interval); activeTasks.set(taskId, { status: "failed", videoId, url: null });
-      }
-    } catch (e) {}
-  }, 5000);
-}
+            <div id="ws-tab-script" class="ws-tab-content" hidden>
+              <div class="card">
+                <h3>Synopsis complet</h3>
+                <p id="ws-script-synopsis" style="white-space: pre-wrap; line-height: 1.6; font-size: 15px;"></p>
+                <h3 style="margin-top:20px;">Direction Artistique</h3>
+                <div id="ws-script-da" style="font-size: 14px; line-height: 1.6;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
 
-app.get("/api/health", (req, res) => res.json({ status: "awake" }));
-app.post("/api/health", async (req, res) => {
-  try {
-    const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
-    }, 15000);
-    if (r.ok) return res.json({ valid: true });
-    return res.status(401).json({ valid: false, error: "Clé invalide" });
-  } catch (err) { res.status(500).json({ valid: false, error: err.message }); }
-});
+  <template id="slot-template">
+    <div class="slot card">
+      <div class="slot-header">
+        <span class="slot-num">#1</span>
+        <span class="slot-status" data-state="idle"><span class="dot"></span> En attente</span>
+      </div>
+      <textarea class="slot-prompt input-field" rows="3" placeholder="Prompt vidéo…"></textarea>
+      <div class="slot-image-area" style="display: flex; gap: 10px; align-items: center; margin: 10px 0;">
+        <input type="file" class="slot-img-input" accept="image/*" hidden>
+        <button class="slot-img-btn btn-secondary btn-small" type="button">📷 Ajouter une image</button>
+        <div class="slot-img-preview-container" style="display: none; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border);">
+          <img class="slot-img-preview" src="" style="width: 100%; height: 100%; object-fit: cover;">
+        </div>
+      </div>
+      <div class="slot-options">
+        <select class="slot-format input-field"><option value="9:16">9:16</option><option value="16:9" selected>16:9</option><option value="1:1">1:1</option></select>
+        <select class="slot-duration input-field"><option value="4">4s</option><option value="8">8s</option><option value="12" selected>12s</option></select>
+      </div>
+      <div class="slot-actions" style="margin-top: 10px;">
+        <button class="slot-gen-btn btn-primary" type="button">Générer</button>
+        <button class="slot-dl-btn btn-download" type="button" disabled>Télécharger</button>
+      </div>
+      <div class="slot-player" hidden style="margin-top: 10px;"><video controls playsinline style="width: 100%; border-radius: 8px;"></video></div>
+    </div>
+  </template>
 
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { messages, imageBase64 } = req.body;
-    const systemPrompt = { role: "system", content: `Tu es une IA. Réponds en français. Formate en Markdown.` };
-    let finalMessages = messages.map((m) => ({ ...m }));
-    if (imageBase64) {
-      const last = finalMessages[finalMessages.length - 1];
-      last.content = [{ type: "text", text: last.content }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }];
-    }
-    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, ...finalMessages], temperature: 0.6, max_tokens: 4096 }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur API");
-    res.json({ content: data.choices[0].message.content });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post("/api/generate-image", async (req, res) => {
-  try {
-    const { prompt, format, quality, imageBase64, images } = req.body; // AJOUT : quality
-    const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
-    
-    // AJOUT : size prend la valeur de quality (1K, 2K ou 4K), sinon 1K par défaut
-    const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: quality || "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
-    
-    let refs = [];
-    if (images && Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
-    else if (imageBase64) refs = [imageBase64];
-
-    if (refs.length > 0) {
-      const imageUrls = refs.map((b, i) => {
-        const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
-        const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
-        tempImages.set(id, dataUrl);
-        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); 
-        return `${RENDER_URL}/api/temp-image/${id}`;
-      });
-
-      body.extra_body.image = imageUrls;
-      body.extra_body.images = imageUrls;
-      const pictureRefs = imageUrls.map((_, i) => `<Picture ${i + 1}>`).join(", ");
+  <template id="studio-scene-template">
+    <div class="studio-scene-card card" style="margin-bottom: 15px;">
+      <div class="studio-scene-header">
+        <h3 class="studio-scene-title" style="font-size: 16px;">Scène 1</h3>
+        <span class="studio-scene-badge" style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px;">12s</span>
+      </div>
+      <p class="studio-scene-action" style="font-size: 13px; color: var(--text-dim); margin: 10px 0;"></p>
       
-      body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
-      body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
-    }
+      <div class="studio-scene-image-container" style="background: var(--bg); padding: 10px; border-radius: 12px; text-align: center; border: 1px dashed var(--border);">
+        
+        <div style="display:flex; gap:10px; margin-bottom:10px; align-items:center; justify-content:center; flex-direction:column;">
+            <input type="file" class="studio-scene-upload-input" accept="image/*" multiple hidden>
+            <button class="btn-secondary btn-small studio-scene-upload-btn" style="width:100%;">📷 Ajouter des photos (Max 5)</button>
+            <div class="studio-scene-upload-preview-container" style="display: none; gap: 5px; flex-wrap: wrap; justify-content: center;"></div>
+        </div>
+        
+        <div class="studio-scene-img-placeholder" style="color: var(--text-dim); font-size: 13px; padding: 20px 0;">🖼️ Aucune image générée</div>
+        <img class="studio-scene-img" src="" alt="" hidden style="width: 100%; border-radius: 8px; margin-bottom: 10px;">
+        <button class="btn-primary btn-small studio-scene-img-btn" style="width:100%;">✨ Générer l'image</button>
+      </div>
+      
+      <div class="studio-scene-prompt-container" style="margin-top: 15px;">
+        <label style="font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; display: block;">Prompt Image/Vidéo (Modifiable)</label>
+        <textarea class="studio-scene-prompt input-field" rows="4" style="font-size: 13px; background: rgba(0,0,0,0.2);"></textarea>
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+          <button class="btn-secondary btn-small studio-scene-copy-btn" style="flex: 1;">📋 Copier</button>
+          <button class="btn-primary btn-small studio-scene-send-btn" style="flex: 2;">🚀 Envoyer vers Vidéo</button>
+        </div>
+      </div>
+    </div>
+  </template>
 
-    const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
-    let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
-    if (!finalUrl) throw new Error("Aucune image renvoyée.");
-    if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
-    res.json({ id: "img_" + Date.now(), url: finalUrl });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post("/api/generate-video", async (req, res) => {
-  try {
-    const { prompt, format, duration, images, taskId } = req.body;
-    if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
-    let seconds = String(parseInt(duration) || 4);
-    if (parseInt(seconds) < 4) seconds = "4";
-    if (parseInt(seconds) > 12) seconds = "12";
-    const body = {
-      model: "agnes-video-2.5-flash", prompt: `${prompt}, cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail`,
-      seconds, size: "720P", aspect_ratio: format || "16:9", seed: Math.floor(Math.random() * 1000000),
-    };
-    if (images && Array.isArray(images) && images.length > 0) {
-      body.mode = "reference"; body.images = images.slice(0, 5).map(b => `data:image/jpeg;base64,${b}`);
-    } else { body.mode = "text"; }
-    activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
-    enqueueVideoJob(req.apiKey, body, taskId);
-    res.json({ success: true, taskId });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/api/task-status/:taskId", (req, res) => {
-  if (activeTasks.has(req.params.taskId)) res.json(activeTasks.get(req.params.taskId));
-  else res.status(404).json({ error: "Tâche introuvable" });
-});
-
-app.get("/api/download/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { url } = req.query;
-    let fileUrl = url;
-    if (!fileUrl && !id.startsWith("img_")) {
-      const s = await apiFetch(`${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${req.apiKey}` } });
-      const d = await s.json(); fileUrl = d.url || d.metadata?.url;
-    }
-    if (!fileUrl) return res.status(404).send("Fichier introuvable");
-    const ext = id.startsWith("img_") ? "jpg" : "mp4";
-    if (fileUrl.startsWith("data:")) {
-      const buffer = Buffer.from(fileUrl.split(",")[1], "base64");
-      res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
-      return res.send(buffer);
-    }
-    const fileRes = await fetch(fileUrl);
-    const buffer = await fileRes.arrayBuffer();
-    res.setHeader("Content-Disposition", `attachment; filename="videoai-${id}.${ext}"`);
-    res.send(Buffer.from(buffer));
-  } catch (err) { res.status(500).send("Erreur download"); }
-});
-
-app.post("/api/studio/generate-storyboard", async (req, res) => {
-  try {
-    const { projectIdea, sceneCount, format } = req.body;
-    if (!projectIdea) return res.status(400).json({ error: "L'idée est manquante." });
-    const count = parseInt(sceneCount) || 5;
-    
-    const systemPrompt = {
-      role: "system",
-      content: `RÔLE : Tu es un simple exécutant. Ton seul but est de découper le texte de l'utilisateur en exactement ${count} scènes de 12 secondes.
-Tu n'es PAS un scénariste. Tu N'AS PAS le droit d'inventer des actions, des détails ou des personnages.
-
-RÈGLES ABSOLUES :
-1. RESPECT DU TEXTE : Tu dois suivre l'IDÉE DE L'UTILISATEUR à la lettre. S'il donne des dialogues, tu DOIS les copier-coller textuellement dans les scènes. S'il décrit une action précise, tu dois l'inclure. N'invente RIEN.
-2. DÉCOUPAGE : Répartis l'histoire (début, milieu, fin) équitablement sur les ${count} scènes.
-3. PROMPTS VIDÉO : Décris uniquement le plan de caméra (ex: "Gros plan", "Plan large") + l'action exacte dictée par l'utilisateur + les dialogues.
-4. N'inclus AUCUNE description physique (pas d'âge, pas de vêtements, pas de couleur de cheveux). L'apparence est gérée par les images de référence.
-5. FORMAT DE SORTIE : Un JSON parfait, sans texte avant/après.
-{
-  "titre": "Titre de l'histoire",
-  "synopsis": "Synopsis basé UNIQUEMENT sur le texte de l'utilisateur",
-  "direction_artistique": { "palette": "Déduite du texte", "lumiere": "Déduite du texte", "ambiance": "Déduite du texte" },
-  "scenes": [ { "numero": 1, "titre": "Titre scene", "duree": 12, "description_action": "Description narrative", "prompt_video": "Plan + Action + Dialogue (si fourni)" } ]
-}`
-    };
-
-    const userContent = `IDÉE DE L'UTILISATEUR À SUIVRE À LA LETTRE :\n${projectIdea}\n\nNOMBRE DE SCÈNES EXACT : ${count}\nFORMAT : ${format || "16:9"}`;
-
-    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.2, max_tokens: 4096 }),
-    }, 120000);
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Erreur API");
-
-    let rawContent = data.choices[0].message.content.replace(/```json/g, "").replace(/```/g, "").trim();
-    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("L'IA n'a pas renvoyé de format JSON valide.");
-    
-    res.json(JSON.parse(jsonMatch[0]));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "Public", "index.html")));
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Serveur prêt sur ${PORT}`));
+  <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+  
+  <!-- AJOUT : Librairies pour un rendu Markdown parfait -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+  
+  <script src="app.js"></script>
+</body>
+</html>
