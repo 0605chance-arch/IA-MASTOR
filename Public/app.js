@@ -1,7 +1,6 @@
 (function () {
   "use strict";
 
-  // === AJOUT : Masquage automatique des onglets selon l'offre ===
   async function applyTierGating() {
     try {
       const res = await fetch("/api/tier");
@@ -24,7 +23,6 @@
     } catch (e) {}
   }
   applyTierGating();
-  // === FIN AJOUT ===
 
   (function initWakeupBanner() {
     const wakeupBanner = document.getElementById("wakeup-banner");
@@ -235,6 +233,7 @@
   // IMAGE
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
+  const imgQuality = document.getElementById("image-quality"); // AJOUT
   const imgBtn = document.getElementById("image-generate");
   const imgArea = document.getElementById("image-result-area");
   const imgResult = document.getElementById("image-result");
@@ -259,7 +258,15 @@
     if (!imgPrompt.value.trim()) return;
     imgBtn.disabled = true; imgBtn.textContent = "Génération…"; imgArea.hidden = true;
     try {
-      const res = await apiFetch("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: imgPrompt.value, format: imgFormat.value, imageBase64: imgBase64 || undefined }) });
+      const res = await apiFetch("/api/generate-image", { 
+        method: "POST", 
+        body: JSON.stringify({ 
+          prompt: imgPrompt.value, 
+          format: imgFormat.value, 
+          quality: imgQuality.value, // AJOUT
+          imageBase64: imgBase64 || undefined 
+        }) 
+      });
       const data = await res.json();
       if (data.url) {
         imgResult.src = data.url;
