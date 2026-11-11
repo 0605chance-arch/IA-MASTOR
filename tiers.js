@@ -6,10 +6,9 @@ const TIERS = {
 };
 
 function getActiveTier() {
-  // Récupère la variable d'environnement (ex: TIER=BASIC) ou met STUDIO par défaut
   const envTier = (process.env.TIER || "").toUpperCase().trim();
   if (TIERS[envTier]) return envTier;
-  return "STUDIO"; // Par défaut, on affiche tout (pratique pour tes tests locaux)
+  return "STUDIO"; // Par défaut, tout est affiché
 }
 
 function getFeaturesForTier(tier) {
