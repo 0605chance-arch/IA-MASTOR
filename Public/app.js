@@ -40,14 +40,11 @@
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
+  // === MODIFIÉ : Utilisation de Marked et DOMPurify pour un rendu parfait (tableaux, etc.) ===
   function parseMarkdown(text) {
     if (!text) return "";
-    let html = escapeHtml(text);
-    html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>").replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>")
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/^\s*[-*]\s+(.*$)/gim, "<li>$1</li>").replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
-    return html.replace(/\n/g, "<br>");
+    const rawHtml = marked.parse(text);
+    return DOMPurify.sanitize(rawHtml);
   }
 
   async function urlToBase64(url) {
@@ -233,7 +230,7 @@
   // IMAGE
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
-  const imgQuality = document.getElementById("image-quality"); // AJOUT
+  const imgQuality = document.getElementById("image-quality"); 
   const imgBtn = document.getElementById("image-generate");
   const imgArea = document.getElementById("image-result-area");
   const imgResult = document.getElementById("image-result");
@@ -263,7 +260,7 @@
         body: JSON.stringify({ 
           prompt: imgPrompt.value, 
           format: imgFormat.value, 
-          quality: imgQuality.value, // AJOUT
+          quality: imgQuality.value, 
           imageBase64: imgBase64 || undefined 
         }) 
       });
