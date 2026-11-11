@@ -86,7 +86,6 @@
             <option value="1:1">Carré (1:1)</option>
           </select>
           
-          <!-- AJOUT : Sélecteur de qualité -->
           <select id="image-quality" class="input-field">
             <option value="1K">Qualité Standard (1K)</option>
             <option value="2K">Haute Définition (2K)</option>
@@ -272,6 +271,11 @@
   </template>
 
   <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+  
+  <!-- AJOUT : Librairies pour un rendu Markdown parfait -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+  
   <script src="app.js"></script>
 </body>
 </html>
