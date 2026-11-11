@@ -1,7 +1,6 @@
 const express = require("express");
 const path = require("path");
 const app = express();
-// AJOUT 1 : Import de la gestion des offres
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
 const API_BASE = "https://apihub.agnes-ai.com";
@@ -10,19 +9,16 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
-// AJOUT 2 : Route pour dire au frontend quelle offre est active
 app.get("/api/tier", (req, res) => {
   const tier = getActiveTier();
   res.json({ tier: tier, features: getFeaturesForTier(tier) });
 });
 
-// KEEP-ALIVE INTERNE (Ton fameux ping !)
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
 if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// --- STOCKAGE TEMPORAIRE D'IMAGES ---
 const tempImages = new Map();
 app.get("/api/temp-image/:id", (req, res) => {
   const dataUrl = tempImages.get(req.params.id);
@@ -50,7 +46,7 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
-  if (req.path === "/tier" && req.method === "GET") return next(); // AJOUT 3 : On laisse passer la route tier sans clé API
+  if (req.path === "/tier" && req.method === "GET") return next();
   if (req.path.startsWith("/temp-image")) return next();
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
@@ -58,7 +54,6 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// FILE D'ATTENTE VIDÉO
 const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
 const activeTasks = new Map();
@@ -158,10 +153,11 @@ app.post("/api/chat", async (req, res) => {
 
 app.post("/api/generate-image", async (req, res) => {
   try {
-    const { prompt, format, imageBase64, images } = req.body;
+    const { prompt, format, quality, imageBase64, images } = req.body; // AJOUT : quality
     const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
     
-    const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
+    // AJOUT : size prend la valeur de quality (1K, 2K ou 4K), sinon 1K par défaut
+    const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: quality || "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
     
     let refs = [];
     if (images && Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
