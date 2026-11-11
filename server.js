@@ -1,7 +1,6 @@
 const express = require("express");
 const path = require("path");
 const app = express();
-const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
 const API_BASE = "https://apihub.agnes-ai.com";
 const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
@@ -9,17 +8,13 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
-app.get("/api/tier", (req, res) => {
-  const tier = getActiveTier();
-  res.json({ tier: tier, features: getFeaturesForTier(tier) });
-});
-
+// KEEP-ALIVE INTERNE
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
 if (process.env.RENDER_EXTERNAL_URL) {
   setInterval(async () => { try { await fetch(`${RENDER_URL}/api/health`, { method: "GET" }); } catch (e) {} }, 5 * 60 * 1000);
 }
 
-// --- STOCKAGE TEMPORAIRE D'IMAGES (Gardé pour la compatibilité de tes anciens liens) ---
+// --- STOCKAGE TEMPORAIRE D'IMAGES (Pour que l'API Agnes puisse les télécharger) ---
 const tempImages = new Map();
 app.get("/api/temp-image/:id", (req, res) => {
   const dataUrl = tempImages.get(req.params.id);
@@ -30,14 +25,6 @@ app.get("/api/temp-image/:id", (req, res) => {
   res.setHeader("Cache-Control", "public, max-age=86400");
   res.send(buffer);
 });
-
-function getPublicUrl(req) {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
-  if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL.replace(/\/$/, "");
-  const protocol = req.headers['x-forwarded-proto'] || 'https';
-  const host = req.headers['x-forwarded-host'] || req.headers['host'] || 'localhost';
-  return `${protocol}://${host}`;
-}
 
 function getApiKey(req) {
   const h = req.headers["x-api-key"];
@@ -55,22 +42,12 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
-  if (req.path === "/tier" && req.method === "GET") return next();
   if (req.path.startsWith("/temp-image")) return next();
   const key = getApiKey(req);
   if (!key) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKey = key;
   next();
 });
-
-// === NOUVEAU : STOCKAGE POUR LES TÂCHES D'IMAGE (comme pour la vidéo) ===
-const imageTasks = new Map();
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, task] of imageTasks.entries()) {
-    if (now - task.timestamp > 15 * 60 * 1000) imageTasks.delete(id); // Nettoyage auto après 15 min
-  }
-}, 15 * 60 * 1000);
 
 // FILE D'ATTENTE VIDÉO
 const SUBMIT_INTERVAL_MS = 12500;
@@ -170,62 +147,44 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// === MODIFIÉ : Route image en mode "Tâche de fond" comme la vidéo ===
 app.post("/api/generate-image", async (req, res) => {
-  const { prompt, format, imageBase64, images } = req.body;
-  const taskId = "img_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
-  
-  imageTasks.set(taskId, { status: "processing", url: null, error: null, timestamp: Date.now() });
+  try {
+    const { prompt, format, imageBase64, images } = req.body;
+    const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
+    
+    const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
+    
+    let refs = [];
+    if (images && Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
+    else if (imageBase64) refs = [imageBase64];
 
-  // Réponse immédiate au client (évite le timeout de Bonto)
-  res.json({ success: true, taskId });
+    if (refs.length > 0) {
+      const imageUrls = refs.map((b, i) => {
+        const id = `img_${Date.now()}_${i}_${Math.floor(Math.random()*1000)}`;
+        const dataUrl = b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
+        tempImages.set(id, dataUrl);
+        setTimeout(() => tempImages.delete(id), 10 * 60 * 1000); 
+        return `${RENDER_URL}/api/temp-image/${id}`;
+      });
 
-  // Traitement en arrière-plan
-  (async () => {
-    try {
-      const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
-      const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
-
-      let refs = [];
-      if (images && Array.isArray(images) && images.length > 0) refs = images.filter(Boolean).slice(0, 5);
-      else if (imageBase64) refs = [imageBase64];
-
-      if (refs.length > 0) {
-        // On envoie le Base64 direct (comme la vidéo le fait déjà), plus d'URL locale
-        const base64Images = refs.map((b) => {
-          return b.startsWith("data:image") ? b : `data:image/jpeg;base64,${b}`;
-        });
-
-        body.extra_body.image = base64Images;
-        body.extra_body.images = base64Images;
-        const pictureRefs = base64Images.map((_, i) => `<Picture ${i + 1}>`).join(", ");
-        
-        body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
-        body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
-      }
-
-      const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
-        method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
-      }, 300000);
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
-      let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
-      if (!finalUrl) throw new Error("Aucune image renvoyée.");
-      if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
+      body.extra_body.image = imageUrls;
+      body.extra_body.images = imageUrls;
+      const pictureRefs = imageUrls.map((_, i) => `<Picture ${i + 1}>`).join(", ");
       
-      imageTasks.set(taskId, { status: "completed", url: finalUrl, error: null, timestamp: Date.now() });
-    } catch (err) {
-      imageTasks.set(taskId, { status: "failed", url: null, error: err.message || "Erreur inconnue", timestamp: Date.now() });
+      body.prompt = `CRITICAL CHARACTER IDENTITY LOCK: The characters in this scene MUST be exact visual replicas of the provided reference images (${pictureRefs}). Do NOT invent new faces. Match the reference images perfectly. Scene description: ${cinematicPrompt}`;
+      body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
     }
-  })();
-});
 
-// === NOUVEAU : Route de vérification du statut de l'image ===
-app.get("/api/image-status/:taskId", (req, res) => {
-  const task = imageTasks.get(req.params.taskId);
-  if (!task) return res.status(404).json({ error: "Tâche introuvable" });
-  res.json(task);
+    const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
+      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
+    let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
+    if (!finalUrl) throw new Error("Aucune image renvoyée.");
+    if (!finalUrl.startsWith("http") && !finalUrl.startsWith("data:")) finalUrl = "data:image/jpeg;base64," + finalUrl;
+    res.json({ id: "img_" + Date.now(), url: finalUrl });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/generate-video", async (req, res) => {
