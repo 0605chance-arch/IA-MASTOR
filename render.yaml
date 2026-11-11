@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: speed-ia
+    name: speed-ia-basic
     runtime: node
     plan: free
     buildCommand: npm install
@@ -8,3 +8,29 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 18.18.0
+      - key: TIER
+        value: BASIC
+
+  - type: web
+    name: speed-ia-video
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 18.18.0
+      - key: TIER
+        value: VIDEO
+
+  - type: web
+    name: speed-ia-studio
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 18.18.0
+      - key: TIER
+        value: STUDIO
