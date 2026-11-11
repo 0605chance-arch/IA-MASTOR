@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ia-mastor
+    name: speed-ia
     runtime: node
     plan: free
     buildCommand: npm install
