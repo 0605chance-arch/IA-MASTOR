@@ -30,9 +30,6 @@ app.get("/api/temp-image/:id", (req, res) => {
   res.send(buffer);
 });
 
-// === NOUVEAU : GESTIONNAIRE DE CLÉS (Key Manager) ===
-// Récupère les clés depuis le header (ex: X-API-Key: "key1,key2,key3")
-// Ou depuis l'ancien système si une seule clé est envoyée
 function getApiKeys(req) {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) {
@@ -42,8 +39,6 @@ function getApiKeys(req) {
   return [];
 }
 
-// Récupère le type de clé (gratuit ou payant) - on le devine à partir du préfixe ou du header
-// Pour simplifier, on va considérer que les clés gratuites commencent par "free-" et les payantes par "sk-"
 function getKeyType(key) {
   if (key.startsWith("free-")) return "free";
   return "paid";
@@ -66,7 +61,6 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// === NOUVEAU : SKILLS POUR LES IMAGES ===
 const IMAGE_SKILLS = {
   default: "",
   photorealistic: ", shot on 85mm lens, f/1.8, ultra-realistic skin texture, raw photo, cinematic lighting, 8k, highly detailed, photorealistic, award winning photography",
@@ -76,7 +70,6 @@ const IMAGE_SKILLS = {
   "3d": ", 3d render, octane render, unreal engine 5, ray tracing, highly detailed, global illumination, 8k"
 };
 
-// FILE D'ATTENTE VIDÉO (Inchangé)
 const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
 const activeTasks = new Map();
@@ -137,49 +130,37 @@ async function pollVideoStatus(apiKey, taskId, videoId) {
       if (data.status === "completed" && (data.url || data.metadata?.url)) {
         clearInterval(interval); activeTasks.set(taskId, { status: "completed", videoId, url: data.url || data.metadata?.url });
       } else if (data.status === "failed") {
-        clearInterval(interval); activeTasks.set(taskId, { status: "failed", videoId: null, url: null });
+        clearInterval(interval); activeTasks.set(taskId, { status: "failed", videoId, url: null });
       }
     } catch (e) {}
   }, 5000);
 }
 
-// === NOUVEAU : FONCTION POUR APPELER AGNES AVEC ROTATION DE CLÉ ===
 async function fetchWithKeyRotation(req, endpoint, method, body, timeoutMs = 120000) {
   const keys = req.apiKeys;
-  
   for (let i = 0; i < keys.length; i++) {
     const currentKey = keys[i];
     const keyType = getKeyType(currentKey);
-    
-    // Si c'est une clé gratuite, on attend un peu avant de l'utiliser (règle Agnes)
     if (keyType === "free" && i > 0) {
-      await new Promise(r => setTimeout(r, 20000)); // 20 secondes d'attente pour les gratuites
+      await new Promise(r => setTimeout(r, 20000));
     }
-
     try {
       const r = await apiFetch(`${API_BASE}${endpoint}`, {
         method: method,
         headers: { "Authorization": `Bearer ${currentKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body)
       }, timeoutMs);
-
       if (r.status === 429 || r.status === 401 || r.status === 503) {
-        // Clé invalide ou quota atteint, on passe à la suivante
-        console.log(`Clé ${i + 1} bloquée ou invalide, rotation...`);
         continue; 
       }
-
-      return r; // Si ça marche, on renvoie la réponse
+      return r;
     } catch (err) {
-      // Si erreur réseau, on tente la clé suivante
-      console.log(`Erreur réseau avec la clé ${i + 1}, rotation...`);
+      continue;
     }
   }
-  
   throw new Error("Toutes les clés ont échoué ou sont bloquées.");
 }
 
-// HEALTH CHECK
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 app.post("/api/health", async (req, res) => {
   try {
@@ -191,7 +172,6 @@ app.post("/api/health", async (req, res) => {
   } catch (err) { res.status(500).json({ valid: false, error: err.message }); }
 });
 
-// CHAT
 app.post("/api/chat", async (req, res) => {
   try {
     const { messages, imageBase64 } = req.body;
@@ -212,12 +192,10 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// IMAGE (Avec Skill et Rotation)
 app.post("/api/generate-image", async (req, res) => {
   try {
     const { prompt, format, quality, skill, imageBase64, images } = req.body; 
     
-    // Application du Skill
     const skillPrompt = IMAGE_SKILLS[skill] || IMAGE_SKILLS["default"];
     const cinematicPrompt = `${prompt}${skillPrompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
     
@@ -254,7 +232,6 @@ app.post("/api/generate-image", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// VIDÉO
 app.post("/api/generate-video", async (req, res) => {
   try {
     const { prompt, format, duration, images, taskId } = req.body;
@@ -273,8 +250,6 @@ app.post("/api/generate-video", async (req, res) => {
     } else { body.mode = "text"; }
     
     activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
-    
-    // Pour la vidéo, on utilise la première clé de la liste pour la queue
     const primaryKey = req.apiKeys[0];
     enqueueVideoJob(primaryKey, body, taskId);
     
@@ -293,7 +268,6 @@ app.get("/api/download/:id", async (req, res) => {
     const { url } = req.query;
     let fileUrl = url;
     if (!fileUrl && !id.startsWith("img_")) {
-      // Utilise la première clé pour télécharger
       const primaryKey = req.apiKeys[0];
       const s = await apiFetch(`${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${primaryKey}` } });
       const d = await s.json(); fileUrl = d.url || d.metadata?.url;
@@ -312,7 +286,6 @@ app.get("/api/download/:id", async (req, res) => {
   } catch (err) { res.status(500).send("Erreur download"); }
 });
 
-// STUDIO (MÉTA-PROMPT)
 app.post("/api/studio/generate-storyboard", async (req, res) => {
   try {
     const { projectIdea, sceneCount, format } = req.body;
