@@ -8,25 +8,20 @@
 </head>
 <body>
 
-  <!-- AJOUT : MODALE MULTI-CLÉS -->
   <div id="api-modal" class="modal" hidden>
     <div class="modal-card">
       <h2>🔑 Clés API Agnès</h2>
       <p class="modal-desc">Choisissez votre type de clé et ajoutez-en jusqu'à 8 pour éviter les blocages.</p>
       
-      <!-- Onglets Gratuit / Payant -->
       <div class="tabs" style="margin-bottom: 15px;">
         <button id="tab-key-free" class="tab-btn active">🎁 Clé Gratuite</button>
         <button id="tab-key-paid" class="tab-btn">💎 Clé Payante</button>
       </div>
 
-      <!-- Conteneur des clés -->
       <div id="keys-container" style="display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto;">
-        <!-- Les champs de clés seront injectés ici par JS -->
         <input type="password" class="input-field key-input" placeholder="Collez votre clé Agnès…" autocomplete="off">
       </div>
 
-      <!-- Bouton pour ajouter une clé (max 8) -->
       <button id="add-key-btn" class="btn-secondary btn-small" style="margin-top: 10px;">+ Ajouter une autre clé (Max 8)</button>
 
       <p class="modal-wakeup" style="margin-top: 15px;">☕️ <strong>Premier démarrage :</strong> l'app peut mettre jusqu'à <strong>1 minute</strong> à se réveiller (serveur Render).</p>
@@ -100,7 +95,6 @@
             <div id="image-preview" class="preview"></div>
           </div>
 
-          <!-- AJOUT : SKILLS / STYLE D'IMAGE -->
           <label style="font-size: 13px; color: var(--text-dim); font-weight: 600; margin-top: 5px;">Style / Skill de génération</label>
           <select id="image-skill" class="input-field">
             <option value="default">Standard</option>
