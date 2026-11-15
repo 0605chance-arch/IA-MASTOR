@@ -8,14 +8,32 @@
 </head>
 <body>
 
+  <!-- AJOUT : MODALE MULTI-CLÉS -->
   <div id="api-modal" class="modal" hidden>
     <div class="modal-card">
-      <h2>🔑 Clé API Agnès</h2>
-      <p class="modal-desc">Votre token est stocké uniquement en <strong>sessionStorage</strong>.</p>
-      <p class="modal-wakeup">☕️ <strong>Premier démarrage :</strong> l'app peut mettre jusqu'à <strong>1 minute</strong> à se réveiller (serveur Render). Merci de patienter, ne cliquez pas plusieurs fois.</p>
-      <input type="password" id="api-key-input" class="input-field" placeholder="Collez votre token Agnès…" autocomplete="off">
+      <h2>🔑 Clés API Agnès</h2>
+      <p class="modal-desc">Choisissez votre type de clé et ajoutez-en jusqu'à 8 pour éviter les blocages.</p>
+      
+      <!-- Onglets Gratuit / Payant -->
+      <div class="tabs" style="margin-bottom: 15px;">
+        <button id="tab-key-free" class="tab-btn active">🎁 Clé Gratuite</button>
+        <button id="tab-key-paid" class="tab-btn">💎 Clé Payante</button>
+      </div>
+
+      <!-- Conteneur des clés -->
+      <div id="keys-container" style="display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto;">
+        <!-- Les champs de clés seront injectés ici par JS -->
+        <input type="password" class="input-field key-input" placeholder="Collez votre clé Agnès…" autocomplete="off">
+      </div>
+
+      <!-- Bouton pour ajouter une clé (max 8) -->
+      <button id="add-key-btn" class="btn-secondary btn-small" style="margin-top: 10px;">+ Ajouter une autre clé (Max 8)</button>
+
+      <p class="modal-wakeup" style="margin-top: 15px;">☕️ <strong>Premier démarrage :</strong> l'app peut mettre jusqu'à <strong>1 minute</strong> à se réveiller (serveur Render).</p>
+      
       <div id="api-key-status" class="api-status"></div>
-      <div class="modal-actions">
+      
+      <div class="modal-actions" style="margin-top: 10px;">
         <button id="api-key-save" class="btn-primary">Valider &amp; continuer</button>
       </div>
     </div>
@@ -25,7 +43,7 @@
     <header class="header">
       <div class="header-top">
         <div class="logo">🚀 SPEED IA ♾️</div>
-        <button id="api-key-btn" class="api-btn" title="Changer la clé API">
+        <button id="api-key-btn" class="api-btn" title="Gérer les clés API">
           <span class="api-dot" id="api-dot"></span> 🔑
         </button>
       </div>
@@ -75,11 +93,24 @@
         </div>
         <div class="card">
           <textarea id="image-prompt" class="input-field" rows="3" placeholder="Décrivez l'image à générer…"></textarea>
+          
           <div class="upload-area">
             <input type="file" id="image-upload" accept="image/*" hidden>
             <button id="image-upload-btn" class="btn-secondary">📷 Image de référence</button>
             <div id="image-preview" class="preview"></div>
           </div>
+
+          <!-- AJOUT : SKILLS / STYLE D'IMAGE -->
+          <label style="font-size: 13px; color: var(--text-dim); font-weight: 600; margin-top: 5px;">Style / Skill de génération</label>
+          <select id="image-skill" class="input-field">
+            <option value="default">Standard</option>
+            <option value="photorealistic">📸 Photographie Ultra-Réaliste</option>
+            <option value="cinematic">🎬 Cinéma Hollywoodien</option>
+            <option value="portrait">👤 Portrait Studio (Peau réaliste)</option>
+            <option value="anime">🎨 Anime / Manga 3D</option>
+            <option value="3d">🧊 Rendu 3D (Octane Render)</option>
+          </select>
+
           <select id="image-format" class="input-field">
             <option value="9:16">Portrait (9:16)</option>
             <option value="16:9">Large (16:9)</option>
@@ -109,7 +140,7 @@
           <span class="info-icon">💡</span>
           <p>
             <strong>Astuce :</strong> Utilisez les prompts du <strong>Studio</strong> pour créer vos vidéos ici.<br>
-            <strong>Note :</strong> L'API Agnès autorise <strong>5 requêtes par minute</strong> (5 clics). Si vous dépassez, l'app attendra automatiquement la minute suivante.
+            <strong>Note :</strong> L'API Agnès autorise <strong>5 requêtes par minute</strong>. Si vous dépassez, l'app attendra automatiquement.
           </p>
         </div>
         <div class="video-slots" id="video-slots"></div>
@@ -272,7 +303,6 @@
 
   <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
   
-  <!-- AJOUT : Librairies pour un rendu Markdown parfait -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
   
