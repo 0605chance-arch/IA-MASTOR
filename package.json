@@ -1,7 +1,7 @@
 {
-  "name": "videoai-pro",
+  "name": "speed-ia",
   "version": "3.0.0",
-  "description": "VideoAI Pro — Chat, Image, Vidéo & Mode Histoire optimisé pour Agnes AI Starter Plan",
+  "description": "🚀 SPEED IA ♾️ — Chat, Image, Vidéo & Mode Histoire optimisé pour Agnes AI",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,8 +11,15 @@
     "express": "^4.19.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "18.x"
   },
-  "keywords": ["ai", "video", "image", "chat", "agnes", "storyboard", "starter-plan"],
+  "keywords": [
+    "ai",
+    "video",
+    "image",
+    "chat",
+    "agnes",
+    "storyboard"
+  ],
   "license": "MIT"
 }
