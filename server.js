@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
 const app = express();
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
@@ -8,6 +9,19 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
+
+// === SÉCURITÉ : GESTION DES SESSIONS ===
+const validSessions = new Set();
+
+app.get("/api/session", (req, res) => {
+  const token = crypto.randomBytes(32).toString("hex");
+  validSessions.add(token);
+  if (validSessions.size > 1000) {
+    const first = validSessions.values().next().value;
+    validSessions.delete(first);
+  }
+  res.json({ token });
+});
 
 app.get("/api/tier", (req, res) => {
   const tier = getActiveTier();
@@ -30,12 +44,18 @@ app.get("/api/temp-image/:id", (req, res) => {
   res.send(buffer);
 });
 
-function getApiKey(req) {
+function getApiKeys(req) {
   const h = req.headers["x-api-key"];
-  if (typeof h === "string" && h.trim()) return h.trim();
-  const auth = req.headers["authorization"];
-  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
-  return DEFAULT_KEY;
+  if (typeof h === "string" && h.trim()) {
+    return h.split(",").map(k => k.trim()).filter(Boolean);
+  }
+  if (DEFAULT_KEY) return [DEFAULT_KEY];
+  return [];
+}
+
+function getKeyType(key) {
+  if (key.startsWith("free-")) return "free";
+  return "paid";
 }
 
 async function apiFetch(url, options = {}, timeoutMs = 120000) {
@@ -44,15 +64,52 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
   try { return await fetch(url, { ...options, signal: controller.signal, keepalive: true }); } finally { clearTimeout(timer); }
 }
 
+// === SÉCURITÉ : MIDDLEWARE ===
 app.use("/api", (req, res, next) => {
   if (req.path === "/health" && req.method === "GET") return next();
   if (req.path === "/tier" && req.method === "GET") return next();
+  if (req.path === "/session" && req.method === "GET") return next();
   if (req.path.startsWith("/temp-image")) return next();
-  const key = getApiKey(req);
-  if (!key) return res.status(401).json({ error: "Clé API manquante." });
-  req.apiKey = key;
+
+  const sessionToken = req.headers["x-session-token"];
+  if (!sessionToken || !validSessions.has(sessionToken)) {
+    return res.status(403).json({ error: "Session invalide ou expirée. Veuillez recharger la page." });
+  }
+
+  const keys = getApiKeys(req);
+  if (keys.length === 0) return res.status(401).json({ error: "Clé API manquante." });
+  req.apiKeys = keys;
+
+  const tier = getActiveTier();
+  if (req.path.startsWith("/generate-video") && tier === "BASIC") {
+    return res.status(403).json({ error: "Votre offre actuelle ne permet pas la génération de vidéos." });
+  }
+  if (req.path.startsWith("/studio") && (tier === "BASIC" || tier === "VIDEO")) {
+    return res.status(403).json({ error: "Votre offre actuelle ne permet pas l'accès au Studio." });
+  }
+
   next();
 });
+
+// === SKILLS IMAGE ===
+const IMAGE_SKILLS = {
+  default: "",
+  photorealistic: ", shot on 85mm lens, f/1.8, ultra-realistic skin texture, raw photo, cinematic lighting, 8k, highly detailed, photorealistic, award winning photography",
+  cinematic: ", cinematic composition, dramatic lighting, shot on ARRI Alexa 35, film grain, movie still, color graded, anamorphic lens",
+  portrait: ", studio lighting, perfect skin, portrait photography, softbox, sharp focus, extreme detail, 8k, masterpiece",
+  anime: ", anime style, studio ghibli, vibrant colors, 2d illustration, detailed background, high quality",
+  "3d": ", 3d render, octane render, unreal engine 5, ray tracing, highly detailed, global illumination, 8k"
+};
+
+// === NOUVEAU : SKILLS VIDÉO ===
+const VIDEO_SKILLS = {
+  default: "cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail",
+  cinematic: "epic cinematic shot, shot on 35mm film, anamorphic lens flare, dramatic lighting, movie still, highly detailed, 8k resolution",
+  action: "fast-paced action sequence, dynamic camera angles, motion blur, high shutter speed, intense atmosphere, 4k resolution",
+  drone: "aerial drone shot, sweeping landscape view, bird's eye perspective, smooth soaring motion, 8k resolution, highly detailed",
+  documentary: "handheld camera, realistic documentary style, natural lighting, authentic feel, 4k resolution",
+  anime: "anime style animation, studio ghibli, vibrant colors, 2d illustration, detailed background, smooth motion"
+};
 
 const SUBMIT_INTERVAL_MS = 12500;
 const queues = new Map();
@@ -120,12 +177,36 @@ async function pollVideoStatus(apiKey, taskId, videoId) {
   }, 5000);
 }
 
+async function fetchWithKeyRotation(req, endpoint, method, body, timeoutMs = 120000) {
+  const keys = req.apiKeys;
+  for (let i = 0; i < keys.length; i++) {
+    const currentKey = keys[i];
+    const keyType = getKeyType(currentKey);
+    if (keyType === "free" && i > 0) {
+      await new Promise(r => setTimeout(r, 20000));
+    }
+    try {
+      const r = await apiFetch(`${API_BASE}${endpoint}`, {
+        method: method,
+        headers: { "Authorization": `Bearer ${currentKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      }, timeoutMs);
+      if (r.status === 429 || r.status === 401 || r.status === 503) {
+        continue; 
+      }
+      return r;
+    } catch (err) {
+      continue;
+    }
+  }
+  throw new Error("Toutes les clés ont échoué ou sont bloquées.");
+}
+
 app.get("/api/health", (req, res) => res.json({ status: "awake" }));
 app.post("/api/health", async (req, res) => {
   try {
-    const r = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+    const r = await fetchWithKeyRotation(req, "/v1/chat/completions", "POST", { 
+      model: "agnes-3.0-flash", messages: [{ role: "user", content: "ping" }], max_tokens: 1 
     }, 15000);
     if (r.ok) return res.json({ valid: true });
     return res.status(401).json({ valid: false, error: "Clé invalide" });
@@ -141,10 +222,11 @@ app.post("/api/chat", async (req, res) => {
       const last = finalMessages[finalMessages.length - 1];
       last.content = [{ type: "text", text: last.content }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }];
     }
-    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, ...finalMessages], temperature: 0.6, max_tokens: 4096 }),
+    
+    const response = await fetchWithKeyRotation(req, "/v1/chat/completions", "POST", {
+      model: "agnes-3.0-flash", messages: [systemPrompt, ...finalMessages], temperature: 0.6, max_tokens: 4096
     });
+    
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur API");
     res.json({ content: data.choices[0].message.content });
@@ -153,10 +235,11 @@ app.post("/api/chat", async (req, res) => {
 
 app.post("/api/generate-image", async (req, res) => {
   try {
-    const { prompt, format, quality, imageBase64, images } = req.body; // AJOUT : quality
-    const cinematicPrompt = `${prompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
+    const { prompt, format, quality, skill, imageBase64, images } = req.body; 
     
-    // AJOUT : size prend la valeur de quality (1K, 2K ou 4K), sinon 1K par défaut
+    const skillPrompt = IMAGE_SKILLS[skill] || IMAGE_SKILLS["default"];
+    const cinematicPrompt = `${prompt}${skillPrompt}, cinematic photography, shot on ARRI Alexa, 35mm lens, dramatic volumetric lighting, shallow depth of field, film grain, hyper-realistic, 8k resolution, color graded like a movie scene`;
+    
     const body = { model: "agnes-image-2.5-flash", prompt: cinematicPrompt, size: quality || "1K", ratio: format || "1:1", extra_body: { response_format: "url" } };
     
     let refs = [];
@@ -180,9 +263,7 @@ app.post("/api/generate-image", async (req, res) => {
       body.negative_prompt = "different face, new character design, inconsistent appearance, different hair, different eyes, different age, mismatched identity, morphing, changing character shape, different clothes";
     }
 
-    const response = await apiFetch(`${API_BASE}/v1/images/generations`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
-    });
+    const response = await fetchWithKeyRotation(req, "/v1/images/generations", "POST", body);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || "Erreur Image");
     let finalUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json || data.url;
@@ -194,20 +275,28 @@ app.post("/api/generate-image", async (req, res) => {
 
 app.post("/api/generate-video", async (req, res) => {
   try {
-    const { prompt, format, duration, images, taskId } = req.body;
+    const { prompt, format, duration, skill, images, taskId } = req.body; // Ajout de skill
     if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
     let seconds = String(parseInt(duration) || 4);
     if (parseInt(seconds) < 4) seconds = "4";
     if (parseInt(seconds) > 12) seconds = "12";
+    
+    // Application du skill vidéo
+    const skillPrompt = VIDEO_SKILLS[skill] || VIDEO_SKILLS["default"];
+    
     const body = {
-      model: "agnes-video-2.5-flash", prompt: `${prompt}, cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail`,
+      model: "agnes-video-2.5-flash", prompt: `${prompt}, ${skillPrompt}`,
       seconds, size: "720P", aspect_ratio: format || "16:9", seed: Math.floor(Math.random() * 1000000),
     };
+    
     if (images && Array.isArray(images) && images.length > 0) {
       body.mode = "reference"; body.images = images.slice(0, 5).map(b => `data:image/jpeg;base64,${b}`);
     } else { body.mode = "text"; }
+    
     activeTasks.set(taskId, { status: "queued", videoId: null, url: null });
-    enqueueVideoJob(req.apiKey, body, taskId);
+    const primaryKey = req.apiKeys[0];
+    enqueueVideoJob(primaryKey, body, taskId);
+    
     res.json({ success: true, taskId });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -223,7 +312,8 @@ app.get("/api/download/:id", async (req, res) => {
     const { url } = req.query;
     let fileUrl = url;
     if (!fileUrl && !id.startsWith("img_")) {
-      const s = await apiFetch(`${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${req.apiKey}` } });
+      const primaryKey = req.apiKeys[0];
+      const s = await apiFetch(`${API_BASE}/agnesapi?video_id=${encodeURIComponent(id)}&model_name=agnes-video-2.5-flash`, { headers: { "Authorization": `Bearer ${primaryKey}` } });
       const d = await s.json(); fileUrl = d.url || d.metadata?.url;
     }
     if (!fileUrl) return res.status(404).send("Fichier introuvable");
@@ -267,9 +357,8 @@ RÈGLES ABSOLUES :
 
     const userContent = `IDÉE DE L'UTILISATEUR À SUIVRE À LA LETTRE :\n${projectIdea}\n\nNOMBRE DE SCÈNES EXACT : ${count}\nFORMAT : ${format || "16:9"}`;
 
-    const response = await apiFetch(`${API_BASE}/v1/chat/completions`, {
-      method: "POST", headers: { "Authorization": `Bearer ${req.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.2, max_tokens: 4096 }),
+    const response = await fetchWithKeyRotation(req, "/v1/chat/completions", "POST", {
+      model: "agnes-3.0-flash", messages: [systemPrompt, { role: "user", content: userContent }], temperature: 0.2, max_tokens: 4096
     }, 120000);
 
     const data = await response.json();
