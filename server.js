@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const crypto = require("crypto"); // AJOUT : Pour générer des tokens uniques
+const crypto = require("crypto");
 const app = express();
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
@@ -11,23 +11,17 @@ app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
 
 // === SÉCURITÉ : GESTION DES SESSIONS ===
-// On stocke les tokens valides en mémoire (ils se vident au redémarrage du serveur, c'est voulu)
 const validSessions = new Set();
 
 app.get("/api/session", (req, res) => {
-  // Génère un token unique pour cette session client
   const token = crypto.randomBytes(32).toString("hex");
   validSessions.add(token);
-  
-  // Nettoyage des vieux tokens (garde max 1000 en mémoire pour éviter la surcharge)
   if (validSessions.size > 1000) {
     const first = validSessions.values().next().value;
     validSessions.delete(first);
   }
-  
   res.json({ token });
 });
-// =========================================
 
 app.get("/api/tier", (req, res) => {
   const tier = getActiveTier();
@@ -70,26 +64,22 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
   try { return await fetch(url, { ...options, signal: controller.signal, keepalive: true }); } finally { clearTimeout(timer); }
 }
 
-// === SÉCURITÉ : MIDDLEWARE DE VÉRIFICATION ===
+// === SÉCURITÉ : MIDDLEWARE ===
 app.use("/api", (req, res, next) => {
-  // 1. Routes publiques (accessibles sans token)
   if (req.path === "/health" && req.method === "GET") return next();
   if (req.path === "/tier" && req.method === "GET") return next();
   if (req.path === "/session" && req.method === "GET") return next();
   if (req.path.startsWith("/temp-image")) return next();
 
-  // 2. Vérification du Token de Session (Anti-Spam / Anti-Postman)
   const sessionToken = req.headers["x-session-token"];
   if (!sessionToken || !validSessions.has(sessionToken)) {
     return res.status(403).json({ error: "Session invalide ou expirée. Veuillez recharger la page." });
   }
 
-  // 3. Vérification de la Clé API
   const keys = getApiKeys(req);
   if (keys.length === 0) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKeys = keys;
 
-  // 4. Niveau 3 : Vérification de l'offre (Feature Gating côté serveur)
   const tier = getActiveTier();
   if (req.path.startsWith("/generate-video") && tier === "BASIC") {
     return res.status(403).json({ error: "Votre offre actuelle ne permet pas la génération de vidéos." });
@@ -100,8 +90,8 @@ app.use("/api", (req, res, next) => {
 
   next();
 });
-// =========================================
 
+// === SKILLS IMAGE ===
 const IMAGE_SKILLS = {
   default: "",
   photorealistic: ", shot on 85mm lens, f/1.8, ultra-realistic skin texture, raw photo, cinematic lighting, 8k, highly detailed, photorealistic, award winning photography",
@@ -109,6 +99,16 @@ const IMAGE_SKILLS = {
   portrait: ", studio lighting, perfect skin, portrait photography, softbox, sharp focus, extreme detail, 8k, masterpiece",
   anime: ", anime style, studio ghibli, vibrant colors, 2d illustration, detailed background, high quality",
   "3d": ", 3d render, octane render, unreal engine 5, ray tracing, highly detailed, global illumination, 8k"
+};
+
+// === NOUVEAU : SKILLS VIDÉO ===
+const VIDEO_SKILLS = {
+  default: "cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail",
+  cinematic: "epic cinematic shot, shot on 35mm film, anamorphic lens flare, dramatic lighting, movie still, highly detailed, 8k resolution",
+  action: "fast-paced action sequence, dynamic camera angles, motion blur, high shutter speed, intense atmosphere, 4k resolution",
+  drone: "aerial drone shot, sweeping landscape view, bird's eye perspective, smooth soaring motion, 8k resolution, highly detailed",
+  documentary: "handheld camera, realistic documentary style, natural lighting, authentic feel, 4k resolution",
+  anime: "anime style animation, studio ghibli, vibrant colors, 2d illustration, detailed background, smooth motion"
 };
 
 const SUBMIT_INTERVAL_MS = 12500;
@@ -275,14 +275,17 @@ app.post("/api/generate-image", async (req, res) => {
 
 app.post("/api/generate-video", async (req, res) => {
   try {
-    const { prompt, format, duration, images, taskId } = req.body;
+    const { prompt, format, duration, skill, images, taskId } = req.body; // Ajout de skill
     if (!prompt) return res.status(400).json({ error: "Prompt manquant" });
     let seconds = String(parseInt(duration) || 4);
     if (parseInt(seconds) < 4) seconds = "4";
     if (parseInt(seconds) > 12) seconds = "12";
     
+    // Application du skill vidéo
+    const skillPrompt = VIDEO_SKILLS[skill] || VIDEO_SKILLS["default"];
+    
     const body = {
-      model: "agnes-video-2.5-flash", prompt: `${prompt}, cinematic camera movement, smooth tracking shot, filmic color grading, atmospheric lighting, high detail`,
+      model: "agnes-video-2.5-flash", prompt: `${prompt}, ${skillPrompt}`,
       seconds, size: "720P", aspect_ratio: format || "16:9", seed: Math.floor(Math.random() * 1000000),
     };
     
