@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto"); // AJOUT : Pour générer des tokens uniques
 const app = express();
 const { getActiveTier, getFeaturesForTier } = require("./tiers");
 
@@ -8,6 +9,25 @@ const DEFAULT_KEY = process.env.AGNES_API_KEY || null;
 
 app.use(express.json({ limit: "80mb" }));
 app.use(express.static(path.join(__dirname, "Public")));
+
+// === SÉCURITÉ : GESTION DES SESSIONS ===
+// On stocke les tokens valides en mémoire (ils se vident au redémarrage du serveur, c'est voulu)
+const validSessions = new Set();
+
+app.get("/api/session", (req, res) => {
+  // Génère un token unique pour cette session client
+  const token = crypto.randomBytes(32).toString("hex");
+  validSessions.add(token);
+  
+  // Nettoyage des vieux tokens (garde max 1000 en mémoire pour éviter la surcharge)
+  if (validSessions.size > 1000) {
+    const first = validSessions.values().next().value;
+    validSessions.delete(first);
+  }
+  
+  res.json({ token });
+});
+// =========================================
 
 app.get("/api/tier", (req, res) => {
   const tier = getActiveTier();
@@ -50,16 +70,37 @@ async function apiFetch(url, options = {}, timeoutMs = 120000) {
   try { return await fetch(url, { ...options, signal: controller.signal, keepalive: true }); } finally { clearTimeout(timer); }
 }
 
+// === SÉCURITÉ : MIDDLEWARE DE VÉRIFICATION ===
 app.use("/api", (req, res, next) => {
+  // 1. Routes publiques (accessibles sans token)
   if (req.path === "/health" && req.method === "GET") return next();
   if (req.path === "/tier" && req.method === "GET") return next();
+  if (req.path === "/session" && req.method === "GET") return next();
   if (req.path.startsWith("/temp-image")) return next();
-  
+
+  // 2. Vérification du Token de Session (Anti-Spam / Anti-Postman)
+  const sessionToken = req.headers["x-session-token"];
+  if (!sessionToken || !validSessions.has(sessionToken)) {
+    return res.status(403).json({ error: "Session invalide ou expirée. Veuillez recharger la page." });
+  }
+
+  // 3. Vérification de la Clé API
   const keys = getApiKeys(req);
   if (keys.length === 0) return res.status(401).json({ error: "Clé API manquante." });
   req.apiKeys = keys;
+
+  // 4. Niveau 3 : Vérification de l'offre (Feature Gating côté serveur)
+  const tier = getActiveTier();
+  if (req.path.startsWith("/generate-video") && tier === "BASIC") {
+    return res.status(403).json({ error: "Votre offre actuelle ne permet pas la génération de vidéos." });
+  }
+  if (req.path.startsWith("/studio") && (tier === "BASIC" || tier === "VIDEO")) {
+    return res.status(403).json({ error: "Votre offre actuelle ne permet pas l'accès au Studio." });
+  }
+
   next();
 });
+// =========================================
 
 const IMAGE_SKILLS = {
   default: "",
