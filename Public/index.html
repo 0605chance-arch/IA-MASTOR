@@ -251,10 +251,22 @@
           <img class="slot-img-preview" src="" style="width: 100%; height: 100%; object-fit: cover;">
         </div>
       </div>
-      <div class="slot-options">
+      
+      <div class="slot-options" style="display: flex; gap: 8px; margin-bottom: 8px;">
         <select class="slot-format input-field"><option value="9:16">9:16</option><option value="16:9" selected>16:9</option><option value="1:1">1:1</option></select>
         <select class="slot-duration input-field"><option value="4">4s</option><option value="8">8s</option><option value="12" selected>12s</option></select>
       </div>
+      
+      <!-- NOUVEAU : SKILL VIDEO -->
+      <select class="slot-skill input-field" style="margin-bottom: 10px; font-size: 13px;">
+        <option value="default">Style Standard</option>
+        <option value="cinematic">🎬 Cinéma Hollywoodien</option>
+        <option value="action">💥 Action Rapide</option>
+        <option value="drone">🚁 Vue Drone / Aérienne</option>
+        <option value="documentary">📹 Documentaire</option>
+        <option value="anime">🎨 Anime / Manga</option>
+      </select>
+      
       <div class="slot-actions" style="margin-top: 10px;">
         <button class="slot-gen-btn btn-primary" type="button">Générer</button>
         <button class="slot-dl-btn btn-download" type="button" disabled>Télécharger</button>
