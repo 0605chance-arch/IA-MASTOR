@@ -1,6 +1,24 @@
 (function () {
   "use strict";
 
+  // === SÉCURITÉ : Initialisation de la session ===
+  let sessionToken = null;
+
+  async function initSession() {
+    try {
+      const res = await fetch("/api/session");
+      if (res.ok) {
+        const data = await res.json();
+        sessionToken = data.token;
+        sessionStorage.setItem("agnes_session_token", sessionToken);
+      }
+    } catch (e) {
+      console.error("Impossible d'initialiser la session sécurisée.", e);
+    }
+  }
+  initSession();
+  // ===============================================
+
   async function applyTierGating() {
     try {
       const res = await fetch("/api/tier");
@@ -49,7 +67,7 @@
   async function urlToBase64(url) {
     if (url.startsWith("data:image")) return url.split(",")[1];
     const proxyUrl = `/api/download/${Date.now()}?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey() } });
+    const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey(), "X-Session-Token": sessionToken } });
     const blob = await res.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -65,7 +83,7 @@
       if (url.startsWith("data:")) { blob = await (await fetch(url)).blob(); } 
       else {
         const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
-        const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey() } });
+        const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey(), "X-Session-Token": sessionToken } });
         if (!res.ok) throw new Error("Erreur serveur");
         blob = await res.blob();
       }
@@ -153,8 +171,16 @@
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
+      // === SÉCURITÉ : Ajout du Token ici aussi ===
       const r = await fetch("/api/health", { 
-        method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": keyString }, body: JSON.stringify({}), signal: controller.signal
+        method: "POST", 
+        headers: { 
+          "Content-Type": "application/json", 
+          "X-API-Key": keyString,
+          "X-Session-Token": sessionToken
+        }, 
+        body: JSON.stringify({}), 
+        signal: controller.signal
       });
       clearTimeout(timer);
       return (await r.json()).valid === true;
@@ -200,8 +226,13 @@
   renderKeyInputs();
   bootApi();
 
+  // === SÉCURITÉ : apiFetch envoie le token à chaque requête ===
   async function apiFetch(url, options = {}) {
-    const headers = { ...(options.headers || {}), "X-API-Key": getKey() };
+    const headers = { 
+      ...(options.headers || {}), 
+      "X-API-Key": getKey(),
+      "X-Session-Token": sessionToken 
+    };
     if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
     return fetch(url, { ...options, headers });
   }
