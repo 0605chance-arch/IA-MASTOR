@@ -1,7 +1,6 @@
 (function () {
   "use strict";
 
-  // === SÉCURITÉ : Initialisation de la session ===
   let sessionToken = null;
 
   async function initSession() {
@@ -17,7 +16,6 @@
     }
   }
   initSession();
-  // ===============================================
 
   async function applyTierGating() {
     try {
@@ -94,7 +92,6 @@
     } catch (e) { alert("Téléchargement échoué. Ouvrez via 'Voir' pour enregistrer."); }
   }
 
-  // === GESTION DES CLÉS API ===
   const apiModal = document.getElementById("api-modal");
   const apiKeySave = document.getElementById("api-key-save");
   const apiKeyStatus = document.getElementById("api-key-status");
@@ -171,7 +168,6 @@
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
-      // === SÉCURITÉ : Ajout du Token ici aussi ===
       const r = await fetch("/api/health", { 
         method: "POST", 
         headers: { 
@@ -226,7 +222,6 @@
   renderKeyInputs();
   bootApi();
 
-  // === SÉCURITÉ : apiFetch envoie le token à chaque requête ===
   async function apiFetch(url, options = {}) {
     const headers = { 
       ...(options.headers || {}), 
@@ -413,6 +408,7 @@
     const promptEl = node.querySelector(".slot-prompt");
     const formatEl = node.querySelector(".slot-format");
     const durationEl = node.querySelector(".slot-duration");
+    const skillEl = node.querySelector(".slot-skill"); // NOUVEAU : Récupération du skill vidéo
     const genBtn = node.querySelector(".slot-gen-btn");
     const dlBtn = node.querySelector(".slot-dl-btn");
     const statusEl = node.querySelector(".slot-status");
@@ -494,7 +490,16 @@
       if (!state.taskId) state.taskId = "task_" + Date.now() + "_" + Math.floor(Math.random()*1000);
       genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true;
       setStatus("queued", "Envoi...");
-      const body = { prompt: promptEl.value.trim(), format: formatEl.value, duration: parseInt(durationEl.value, 10), taskId: state.taskId };
+      
+      // NOUVEAU : On ajoute skill au body
+      const body = { 
+        prompt: promptEl.value.trim(), 
+        format: formatEl.value, 
+        duration: parseInt(durationEl.value, 10), 
+        skill: skillEl.value, 
+        taskId: state.taskId 
+      };
+      
       if (state.base64) body.images = [state.base64];
       try {
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(body) });
