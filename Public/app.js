@@ -1,6 +1,22 @@
 (function () {
   "use strict";
 
+  let sessionToken = null;
+
+  async function initSession() {
+    try {
+      const res = await fetch("/api/session");
+      if (res.ok) {
+        const data = await res.json();
+        sessionToken = data.token;
+        sessionStorage.setItem("agnes_session_token", sessionToken);
+      }
+    } catch (e) {
+      console.error("Impossible d'initialiser la session sécurisée.", e);
+    }
+  }
+  initSession();
+
   async function applyTierGating() {
     try {
       const res = await fetch("/api/tier");
@@ -40,7 +56,6 @@
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  // === MODIFIÉ : Utilisation de Marked et DOMPurify pour un rendu parfait (tableaux, etc.) ===
   function parseMarkdown(text) {
     if (!text) return "";
     const rawHtml = marked.parse(text);
@@ -50,7 +65,7 @@
   async function urlToBase64(url) {
     if (url.startsWith("data:image")) return url.split(",")[1];
     const proxyUrl = `/api/download/${Date.now()}?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey() } });
+    const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey(), "X-Session-Token": sessionToken } });
     const blob = await res.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -66,7 +81,7 @@
       if (url.startsWith("data:")) { blob = await (await fetch(url)).blob(); } 
       else {
         const proxyUrl = `/api/download/${id}?url=${encodeURIComponent(url)}`;
-        const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey() } });
+        const res = await fetch(proxyUrl, { headers: { "X-API-Key": getKey(), "X-Session-Token": sessionToken } });
         if (!res.ok) throw new Error("Erreur serveur");
         blob = await res.blob();
       }
@@ -78,21 +93,90 @@
   }
 
   const apiModal = document.getElementById("api-modal");
-  const apiKeyInput = document.getElementById("api-key-input");
   const apiKeySave = document.getElementById("api-key-save");
   const apiKeyStatus = document.getElementById("api-key-status");
   const apiKeyBtn = document.getElementById("api-key-btn");
   const apiDot = document.getElementById("api-dot");
+  const keysContainer = document.getElementById("keys-container");
+  const addKeyBtn = document.getElementById("add-key-btn");
+  const tabKeyFree = document.getElementById("tab-key-free");
+  const tabKeyPaid = document.getElementById("tab-key-paid");
 
-  function getKey() { return sessionStorage.getItem("agnes_api_key") || ""; }
-  function setKey(k) { sessionStorage.setItem("agnes_api_key", k); }
+  let currentKeyType = "free";
+  
+  function getKeysArray(type) {
+    return JSON.parse(localStorage.getItem(`agnes_keys_${type}`) || "[]");
+  }
 
-  async function validateKey(key) {
+  function saveKeysArray(type, keys) {
+    localStorage.setItem(`agnes_keys_${type}`, JSON.stringify(keys));
+  }
+
+  function getKey() {
+    const keys = getKeysArray(currentKeyType);
+    return keys.join(",");
+  }
+
+  function renderKeyInputs() {
+    keysContainer.innerHTML = "";
+    const keys = getKeysArray(currentKeyType);
+    if (keys.length === 0) keys.push("");
+
+    keys.forEach((key, index) => {
+      const input = document.createElement("input");
+      input.type = "password";
+      input.className = "input-field key-input";
+      input.placeholder = `Clé ${index + 1}…`;
+      input.value = key;
+      input.autocomplete = "off";
+      input.addEventListener("input", (e) => {
+        const currentKeys = getKeysArray(currentKeyType);
+        currentKeys[index] = e.target.value.trim();
+        saveKeysArray(currentKeyType, currentKeys);
+      });
+      keysContainer.appendChild(input);
+    });
+
+    addKeyBtn.disabled = keys.length >= 8;
+    addKeyBtn.textContent = keys.length >= 8 ? "Maximum 8 clés atteint" : "+ Ajouter une autre clé (Max 8)";
+  }
+
+  tabKeyFree.addEventListener("click", () => {
+    tabKeyFree.classList.add("active");
+    tabKeyPaid.classList.remove("active");
+    currentKeyType = "free";
+    renderKeyInputs();
+  });
+
+  tabKeyPaid.addEventListener("click", () => {
+    tabKeyPaid.classList.add("active");
+    tabKeyFree.classList.remove("active");
+    currentKeyType = "paid";
+    renderKeyInputs();
+  });
+
+  addKeyBtn.addEventListener("click", () => {
+    const keys = getKeysArray(currentKeyType);
+    if (keys.length < 8) {
+      keys.push("");
+      saveKeysArray(currentKeyType, keys);
+      renderKeyInputs();
+    }
+  });
+
+  async function validateKey(keyString) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
       const r = await fetch("/api/health", { 
-        method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": key }, body: JSON.stringify({}), signal: controller.signal
+        method: "POST", 
+        headers: { 
+          "Content-Type": "application/json", 
+          "X-API-Key": keyString,
+          "X-Session-Token": sessionToken
+        }, 
+        body: JSON.stringify({}), 
+        signal: controller.signal
       });
       clearTimeout(timer);
       return (await r.json()).valid === true;
@@ -100,30 +184,50 @@
   }
 
   async function bootApi() {
-    const key = getKey();
-    if (!key) { apiDot.classList.remove("ok"); apiModal.hidden = false; return; }
-    const ok = await validateKey(key);
+    const keys = getKeysArray(currentKeyType);
+    const firstKey = keys.find(k => k.trim() !== "");
+    
+    if (!firstKey) { apiDot.classList.remove("ok"); apiModal.hidden = false; return; }
+    
+    const ok = await validateKey(firstKey);
     if (ok) apiDot.classList.add("ok");
     else { apiDot.classList.remove("ok"); apiModal.hidden = false; }
   }
 
   apiKeySave.addEventListener("click", async () => {
-    const key = apiKeyInput.value.trim();
-    if (!key) return;
+    const keys = getKeysArray(currentKeyType).filter(k => k.trim() !== "");
+    if (keys.length === 0) return;
+    
     apiKeySave.disabled = true;
-    apiKeyStatus.textContent = "Validation...";
+    apiKeyStatus.textContent = "Validation de la première clé...";
     apiKeyStatus.className = "api-status";
-    const ok = await validateKey(key);
+    
+    const ok = await validateKey(keys[0]);
     apiKeySave.disabled = false;
-    if (ok) { setKey(key); apiDot.classList.add("ok"); apiModal.hidden = true; }
-    else { apiKeyStatus.textContent = "Clé invalide ou serveur endormi."; apiKeyStatus.className = "api-status err"; }
+    
+    if (ok) { 
+      apiDot.classList.add("ok"); 
+      apiModal.hidden = true; 
+    } else { 
+      apiKeyStatus.textContent = "La première clé est invalide ou le serveur est endormi."; 
+      apiKeyStatus.className = "api-status err"; 
+    }
   });
 
-  apiKeyBtn.addEventListener("click", () => { apiKeyInput.value = getKey(); apiModal.hidden = false; });
+  apiKeyBtn.addEventListener("click", () => { 
+    renderKeyInputs();
+    apiModal.hidden = false; 
+  });
+
+  renderKeyInputs();
   bootApi();
 
   async function apiFetch(url, options = {}) {
-    const headers = { ...(options.headers || {}), "X-API-Key": getKey() };
+    const headers = { 
+      ...(options.headers || {}), 
+      "X-API-Key": getKey(),
+      "X-Session-Token": sessionToken 
+    };
     if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
     return fetch(url, { ...options, headers });
   }
@@ -231,6 +335,7 @@
   const imgPrompt = document.getElementById("image-prompt");
   const imgFormat = document.getElementById("image-format");
   const imgQuality = document.getElementById("image-quality"); 
+  const imgSkill = document.getElementById("image-skill");
   const imgBtn = document.getElementById("image-generate");
   const imgArea = document.getElementById("image-result-area");
   const imgResult = document.getElementById("image-result");
@@ -261,6 +366,7 @@
           prompt: imgPrompt.value, 
           format: imgFormat.value, 
           quality: imgQuality.value, 
+          skill: imgSkill.value,
           imageBase64: imgBase64 || undefined 
         }) 
       });
@@ -302,6 +408,7 @@
     const promptEl = node.querySelector(".slot-prompt");
     const formatEl = node.querySelector(".slot-format");
     const durationEl = node.querySelector(".slot-duration");
+    const skillEl = node.querySelector(".slot-skill"); // NOUVEAU : Récupération du skill vidéo
     const genBtn = node.querySelector(".slot-gen-btn");
     const dlBtn = node.querySelector(".slot-dl-btn");
     const statusEl = node.querySelector(".slot-status");
@@ -383,7 +490,16 @@
       if (!state.taskId) state.taskId = "task_" + Date.now() + "_" + Math.floor(Math.random()*1000);
       genBtn.disabled = true; dlBtn.disabled = true; player.hidden = true;
       setStatus("queued", "Envoi...");
-      const body = { prompt: promptEl.value.trim(), format: formatEl.value, duration: parseInt(durationEl.value, 10), taskId: state.taskId };
+      
+      // NOUVEAU : On ajoute skill au body
+      const body = { 
+        prompt: promptEl.value.trim(), 
+        format: formatEl.value, 
+        duration: parseInt(durationEl.value, 10), 
+        skill: skillEl.value, 
+        taskId: state.taskId 
+      };
+      
       if (state.base64) body.images = [state.base64];
       try {
         const res = await apiFetch("/api/generate-video", { method: "POST", body: JSON.stringify(body) });
